@@ -124,6 +124,14 @@ npm run dist:win        # Windows NSIS
 npm run dist:linux      # Linux AppImage / DEB
 ```
 
+macOS 本地构建并安装到「应用程序」文件夹：
+
+```bash
+./build.sh
+```
+
+脚本先停止正在运行的 Fever，构建当前 Node.js 架构对应的 `Fever.app`，覆盖安装到 `/Applications/Fever.app`，然后自动启动。缺少构建依赖时会执行 `npm ci`；应用程序目录需要管理员权限时会提示输入密码。构建失败时保留原应用，临时构建目录会自动清理。
+
 已安装 Chrome 时，也可以通过 `PLAYWRIGHT_CHANNEL=chrome npm run test:ui` 运行界面测试。产物位于 `release/`。建议分别在各自的操作系统构建；`.github/workflows/build.yml` 提供三平台构建任务，可手动运行或通过 `v*` 标签触发，默认仅上传构建产物，不发布 Release。
 
 内存压测默认生成 2,000 篇约 64 KiB 的笔记，测试全文搜索、取消查询、编辑器反复挂载、8 MiB 图片导入和绘图切换。记录各进程 RSS、渲染器 JS 堆和 DOM 节点，并检查回归上限；结果保存到 `test-results/memory.json`。可通过 `FEVER_STRESS_NOTES`、`FEVER_STRESS_NOTE_KIB`、`FEVER_STRESS_CYCLES`、`FEVER_STRESS_DRAWING_CYCLES` 和 `FEVER_MEMORY_REPORT` 调整规模和输出路径。优化前后的记录见 [内存压测报告](docs/performance/README.md)。
