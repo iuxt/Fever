@@ -1,0 +1,34 @@
+export type Note = { id: string; title: string; category: string; filename: string; createdAt: string; updatedAt: string; sourcePath?: string };
+export type Manifest = { version: 1; categories: string[]; notes: Note[]; assets?: Record<string, string> };
+export type Vault = { path: string; name: string; manifest: Manifest; lfs: boolean };
+export type Change = { status: string; path: string };
+export type GitStatus = { branch: string; changes: Change[]; ahead: number; behind: number; remote: string; lfs: boolean };
+export type Commit = { hash: string; author: string; date: string; message: string };
+export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string };
+export type Api = {
+  desktop: boolean;
+  current(): Promise<Vault | null>;
+  open(): Promise<Vault | null>;
+  read(id: string): Promise<string>;
+  search(query: string): Promise<string[]>;
+  cancelSearch(): Promise<void>;
+  save(id: string, content: string): Promise<void>;
+  create(title: string, category: string, format?: 'markdown' | 'excalidraw'): Promise<Note>;
+  update(id: string, title: string, category: string): Promise<Note>;
+  remove(id: string): Promise<void>;
+  category(path: string): Promise<void>;
+  importNotes(): Promise<Note[]>;
+  image(bytes: Uint8Array | number[], name: string): Promise<string>;
+  asset(src: string): string;
+  status(): Promise<GitStatus>;
+  commit(message: string): Promise<void>;
+  pull(): Promise<void>;
+  push(): Promise<void>;
+  history(id?: string): Promise<Commit[]>;
+  revision(id: string, hash: string): Promise<string>;
+  restore(id: string, hash: string): Promise<string>;
+  settings(): Promise<Settings>;
+  configure(settings: Settings): Promise<void>;
+  onBackupError?: (callback: (message: string) => void) => () => void;
+};
+declare global { interface Window { fever?: Api; EXCALIDRAW_ASSET_PATH?: string } }

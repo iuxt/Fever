@@ -1,0 +1,526 @@
+{
+  "timestamp": "2026-10-07T01:43:18.100Z",
+  "platform": "darwin",
+  "workload": {
+    "count": 2000,
+    "bytes": 65536,
+    "cycles": 100,
+    "drawingCycles": 40,
+    "imageBytes": 8388608
+  },
+  "stages": [
+    {
+      "name": "full-text-search",
+      "durationMs": 3036,
+      "before": {
+        "rendererHeapMiB": 4.361808776855469,
+        "mainHeapMiB": 5.771068572998047,
+        "totalRssMiB": 470.921875,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 180.609375
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 89.546875
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 46.953125
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 153.8125
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 209,
+          "nodes": 537
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 5.793239593505859,
+        "mainHeapMiB": 30.14370346069336,
+        "totalRssMiB": 537.546875
+      },
+      "after": {
+        "rendererHeapMiB": 4.915557861328125,
+        "mainHeapMiB": 25.323421478271484,
+        "totalRssMiB": 533.453125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 233.953125
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 91.09375
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.21875
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 161.1875
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 209,
+          "nodes": 540
+        }
+      }
+    },
+    {
+      "name": "cancelled-searches",
+      "durationMs": 2936,
+      "before": {
+        "rendererHeapMiB": 4.915557861328125,
+        "mainHeapMiB": 25.347370147705078,
+        "totalRssMiB": 533.453125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 233.953125
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 91.09375
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.21875
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 161.1875
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 209,
+          "nodes": 540
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 7.045745849609375,
+        "mainHeapMiB": 37.43132781982422,
+        "totalRssMiB": 545.546875
+      },
+      "after": {
+        "rendererHeapMiB": 4.998760223388672,
+        "mainHeapMiB": 27.531932830810547,
+        "totalRssMiB": 540.90625,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 240.140625
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 91.546875
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.21875
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 162
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 209,
+          "nodes": 541
+        }
+      }
+    },
+    {
+      "name": "editor-mount-cycles",
+      "durationMs": 13089,
+      "before": {
+        "rendererHeapMiB": 4.998760223388672,
+        "mainHeapMiB": 27.555870056152344,
+        "totalRssMiB": 540.90625,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 240.140625
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 91.546875
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.21875
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 162
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 209,
+          "nodes": 541
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 175.4114532470703,
+        "mainHeapMiB": 40.67776107788086,
+        "totalRssMiB": 955.140625
+      },
+      "after": {
+        "rendererHeapMiB": 9.250686645507812,
+        "mainHeapMiB": 40.735992431640625,
+        "totalRssMiB": 649.03125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 244.6875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 96.390625
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.265625
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 260.6875
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 213,
+          "nodes": 589
+        }
+      }
+    },
+    {
+      "name": "image-import-8MiB",
+      "durationMs": 125,
+      "before": {
+        "rendererHeapMiB": 9.250686645507812,
+        "mainHeapMiB": 40.75981903076172,
+        "totalRssMiB": 648.96875,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 244.71875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 96.390625
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.265625
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 260.59375
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 213,
+          "nodes": 589
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 9.250686645507812,
+        "mainHeapMiB": 40.783531188964844,
+        "totalRssMiB": 648.984375
+      },
+      "after": {
+        "rendererHeapMiB": 9.753849029541016,
+        "mainHeapMiB": 7.224300384521484,
+        "totalRssMiB": 668.515625,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 246.75
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 97.75
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.265625
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 276.75
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 216,
+          "nodes": 601
+        }
+      }
+    },
+    {
+      "name": "drawing-mount-cycles",
+      "durationMs": 5757,
+      "before": {
+        "rendererHeapMiB": 9.753849029541016,
+        "mainHeapMiB": 7.249092102050781,
+        "totalRssMiB": 668.515625,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 246.75
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 97.75
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.265625
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 276.75
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 216,
+          "nodes": 601
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 42.82015609741211,
+        "mainHeapMiB": 7.6725006103515625,
+        "totalRssMiB": 977.84375
+      },
+      "after": {
+        "rendererHeapMiB": 15.055065155029297,
+        "mainHeapMiB": 7.6429595947265625,
+        "totalRssMiB": 885.15625,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 250.484375
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 175.859375
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.359375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 411.453125
+          }
+        ],
+        "dom": {
+          "documents": 5,
+          "jsEventListeners": 344,
+          "nodes": 3148
+        }
+      }
+    },
+    {
+      "name": "warm-editor-mount-cycles",
+      "durationMs": 12661,
+      "before": {
+        "rendererHeapMiB": 14.583580017089844,
+        "mainHeapMiB": 7.666786193847656,
+        "totalRssMiB": 881.203125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 250.484375
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 175.859375
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.359375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 407.5
+          }
+        ],
+        "dom": {
+          "documents": 5,
+          "jsEventListeners": 286,
+          "nodes": 2520
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 173.04315567016602,
+        "mainHeapMiB": 8.544471740722656,
+        "totalRssMiB": 1211.84375
+      },
+      "after": {
+        "rendererHeapMiB": 13.634033203125,
+        "mainHeapMiB": 6.751434326171875,
+        "totalRssMiB": 908.21875,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 212.546875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 176.234375
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.34375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 472.09375
+          }
+        ],
+        "dom": {
+          "documents": 5,
+          "jsEventListeners": 219,
+          "nodes": 1030
+        }
+      }
+    },
+    {
+      "name": "warm-drawing-mount-cycles",
+      "durationMs": 4072,
+      "before": {
+        "rendererHeapMiB": 13.634033203125,
+        "mainHeapMiB": 6.775260925292969,
+        "totalRssMiB": 908.140625,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 212.546875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 176.234375
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.34375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 472.015625
+          }
+        ],
+        "dom": {
+          "documents": 5,
+          "jsEventListeners": 219,
+          "nodes": 1030
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 44.66154479980469,
+        "mainHeapMiB": 7.3394317626953125,
+        "totalRssMiB": 1011.28125
+      },
+      "after": {
+        "rendererHeapMiB": 16.10840606689453,
+        "mainHeapMiB": 6.508129119873047,
+        "totalRssMiB": 944.203125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 214.625
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 179.9375
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.34375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 502.296875
+          }
+        ],
+        "dom": {
+          "documents": 5,
+          "jsEventListeners": 329,
+          "nodes": 3768
+        }
+      }
+    }
+  ],
+  "initial": {
+    "rendererHeapMiB": 4.347476959228516,
+    "mainHeapMiB": 5.720188140869141,
+    "totalRssMiB": 470.84375,
+    "processes": [
+      {
+        "type": "Browser",
+        "rssMiB": 180.546875
+      },
+      {
+        "type": "GPU",
+        "rssMiB": 89.546875
+      },
+      {
+        "type": "Utility",
+        "rssMiB": 46.953125
+      },
+      {
+        "type": "Tab",
+        "rssMiB": 153.796875
+      }
+    ],
+    "dom": {
+      "documents": 1,
+      "jsEventListeners": 209,
+      "nodes": 537
+    },
+    "noteRows": 15
+  },
+  "final": {
+    "rendererHeapMiB": 13.831974029541016,
+    "mainHeapMiB": 6.532009124755859,
+    "totalRssMiB": 934.5625,
+    "processes": [
+      {
+        "type": "Browser",
+        "rssMiB": 214.625
+      },
+      {
+        "type": "GPU",
+        "rssMiB": 179.953125
+      },
+      {
+        "type": "Utility",
+        "rssMiB": 47.34375
+      },
+      {
+        "type": "Tab",
+        "rssMiB": 492.640625
+      }
+    ],
+    "dom": {
+      "documents": 5,
+      "jsEventListeners": 219,
+      "nodes": 1028
+    }
+  },
+  "passed": true
+}

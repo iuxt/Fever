@@ -1,0 +1,526 @@
+{
+  "timestamp": "2026-10-07T01:40:52.997Z",
+  "platform": "darwin",
+  "workload": {
+    "count": 2000,
+    "bytes": 65536,
+    "cycles": 20,
+    "drawingCycles": 8,
+    "imageBytes": 8388608
+  },
+  "stages": [
+    {
+      "name": "full-text-search",
+      "durationMs": 3266,
+      "before": {
+        "rendererHeapMiB": 10.052959442138672,
+        "mainHeapMiB": 5.740322113037109,
+        "totalRssMiB": 521.078125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 181.28125
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 91.90625
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 46.9375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 200.953125
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 2214,
+          "nodes": 18617
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 764.4249496459961,
+        "mainHeapMiB": 507.18981170654297,
+        "totalRssMiB": 2333.546875
+      },
+      "after": {
+        "rendererHeapMiB": 14.5128173828125,
+        "mainHeapMiB": 507.2139892578125,
+        "totalRssMiB": 1479.40625,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 1063.234375
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 93.6875
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.21875
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 275.265625
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 2214,
+          "nodes": 18619
+        }
+      }
+    },
+    {
+      "name": "cancelled-searches",
+      "durationMs": 4251,
+      "before": {
+        "rendererHeapMiB": 14.5128173828125,
+        "mainHeapMiB": 507.265323638916,
+        "totalRssMiB": 1479.453125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 1063.28125
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 93.6875
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.21875
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 275.265625
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 2214,
+          "nodes": 18619
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 1201.0460815429688,
+        "mainHeapMiB": 775.1155586242676,
+        "totalRssMiB": 2701.421875
+      },
+      "after": {
+        "rendererHeapMiB": 14.62017822265625,
+        "mainHeapMiB": 236.26205444335938,
+        "totalRssMiB": 1327.546875,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 871.171875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 93.890625
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.21875
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 315.265625
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 2214,
+          "nodes": 18620
+        }
+      }
+    },
+    {
+      "name": "editor-mount-cycles",
+      "durationMs": 4120,
+      "before": {
+        "rendererHeapMiB": 14.62017822265625,
+        "mainHeapMiB": 236.28603744506836,
+        "totalRssMiB": 1327.546875,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 871.171875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 93.890625
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.21875
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 315.265625
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 2214,
+          "nodes": 18620
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 173.61361694335938,
+        "mainHeapMiB": 239.25815200805664,
+        "totalRssMiB": 1651.96875
+      },
+      "after": {
+        "rendererHeapMiB": 17.301013946533203,
+        "mainHeapMiB": 239.29601669311523,
+        "totalRssMiB": 1385.078125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 873.046875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 99.6875
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.28125
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 365.0625
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 2218,
+          "nodes": 18658
+        }
+      }
+    },
+    {
+      "name": "image-import-8MiB",
+      "durationMs": 1180,
+      "before": {
+        "rendererHeapMiB": 17.301013946533203,
+        "mainHeapMiB": 239.31999969482422,
+        "totalRssMiB": 1385.046875,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 873.046875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 99.6875
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.28125
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 365.03125
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 2218,
+          "nodes": 18658
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 110.26613998413086,
+        "mainHeapMiB": 307.57018280029297,
+        "totalRssMiB": 1854.578125
+      },
+      "after": {
+        "rendererHeapMiB": 17.457294464111328,
+        "mainHeapMiB": 307.60883712768555,
+        "totalRssMiB": 1681.328125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 1017.53125
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 101.390625
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.3125
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 515.09375
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 2221,
+          "nodes": 18671
+        }
+      }
+    },
+    {
+      "name": "drawing-mount-cycles",
+      "durationMs": 5688,
+      "before": {
+        "rendererHeapMiB": 17.457294464111328,
+        "mainHeapMiB": 307.63282012939453,
+        "totalRssMiB": 1681.265625,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 1017.53125
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 101.390625
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.3125
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 515.03125
+          }
+        ],
+        "dom": {
+          "documents": 1,
+          "jsEventListeners": 2221,
+          "nodes": 18671
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 63.0048828125,
+        "mainHeapMiB": 308.5079154968262,
+        "totalRssMiB": 1893.765625
+      },
+      "after": {
+        "rendererHeapMiB": 20.274444580078125,
+        "mainHeapMiB": 308.53279876708984,
+        "totalRssMiB": 1794.703125,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 1020.390625
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 136.421875
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.34375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 590.546875
+          }
+        ],
+        "dom": {
+          "documents": 6,
+          "jsEventListeners": 2225,
+          "nodes": 19515
+        }
+      }
+    },
+    {
+      "name": "warm-editor-mount-cycles",
+      "durationMs": 4262,
+      "before": {
+        "rendererHeapMiB": 20.274444580078125,
+        "mainHeapMiB": 308.5567817687988,
+        "totalRssMiB": 1794.59375,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 1020.390625
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 136.421875
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.34375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 590.4375
+          }
+        ],
+        "dom": {
+          "documents": 6,
+          "jsEventListeners": 2225,
+          "nodes": 19515
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 211.19971466064453,
+        "mainHeapMiB": 311.56115341186523,
+        "totalRssMiB": 2127.65625
+      },
+      "after": {
+        "rendererHeapMiB": 21.273563385009766,
+        "mainHeapMiB": 311.59901428222656,
+        "totalRssMiB": 1822.875,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 1024.296875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 136.859375
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.34375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 614.375
+          }
+        ],
+        "dom": {
+          "documents": 6,
+          "jsEventListeners": 2224,
+          "nodes": 19507
+        }
+      }
+    },
+    {
+      "name": "warm-drawing-mount-cycles",
+      "durationMs": 4830,
+      "before": {
+        "rendererHeapMiB": 21.274738311767578,
+        "mainHeapMiB": 311.62299728393555,
+        "totalRssMiB": 1822.859375,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 1024.296875
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 136.859375
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.34375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 614.359375
+          }
+        ],
+        "dom": {
+          "documents": 6,
+          "jsEventListeners": 2224,
+          "nodes": 19507
+        }
+      },
+      "peak": {
+        "rendererHeapMiB": 70.2230453491211,
+        "mainHeapMiB": 312.3877944946289,
+        "totalRssMiB": 1959.90625
+      },
+      "after": {
+        "rendererHeapMiB": 20.84280014038086,
+        "mainHeapMiB": 312.4132537841797,
+        "totalRssMiB": 1851.796875,
+        "processes": [
+          {
+            "type": "Browser",
+            "rssMiB": 1026.484375
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 140.640625
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.34375
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 637.328125
+          }
+        ],
+        "dom": {
+          "documents": 6,
+          "jsEventListeners": 2224,
+          "nodes": 19507
+        }
+      }
+    }
+  ],
+  "initial": {
+    "rendererHeapMiB": 10.03341293334961,
+    "mainHeapMiB": 5.689441680908203,
+    "totalRssMiB": 520.890625,
+    "processes": [
+      {
+        "type": "Browser",
+        "rssMiB": 181.171875
+      },
+      {
+        "type": "GPU",
+        "rssMiB": 91.90625
+      },
+      {
+        "type": "Utility",
+        "rssMiB": 46.9375
+      },
+      {
+        "type": "Tab",
+        "rssMiB": 200.875
+      }
+    ],
+    "dom": {
+      "documents": 1,
+      "jsEventListeners": 2214,
+      "nodes": 18617
+    },
+    "noteRows": 2001
+  },
+  "final": {
+    "rendererHeapMiB": 20.841625213623047,
+    "mainHeapMiB": 312.43712615966797,
+    "totalRssMiB": 1844.109375,
+    "processes": [
+      {
+        "type": "Browser",
+        "rssMiB": 1026.484375
+      },
+      {
+        "type": "GPU",
+        "rssMiB": 140.609375
+      },
+      {
+        "type": "Utility",
+        "rssMiB": 47.34375
+      },
+      {
+        "type": "Tab",
+        "rssMiB": 629.671875
+      }
+    ],
+    "dom": {
+      "documents": 6,
+      "jsEventListeners": 2224,
+      "nodes": 19507
+    }
+  },
+  "passed": true
+}

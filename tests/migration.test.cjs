@@ -1,0 +1,70 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const os = require('node:os');
+const { promisify } = require('node:util');
+const exec = promisify(require('node:child_process').execFile);
+const { VaultStore } = require('../electron/vault.cjs');
+
+test('migration preserves Markdown formatting, converts attachments and leaves fenced code untouched', async () => {
+ const { rewriteMarkdown } = await import('../scripts/notebook-migration.mjs');
+ const input = '# Title\r\n\r\n![[photo.png|图]]\r\n\r\n![Original](../images/photo.png "title")\r\n\r\n[[B|另一个笔记]]\r\n\r\n```toml\r\n[[runners]]\r\n![[photo.png]]\r\n```\r\n\r\n`![[photo.png]]`\r\n';
+ const map = { paths: new Map([['images/photo.png', '../images/uuid.png'], ['分类/B.md', 'uuid.md']]), external: new Map() };
+ const output = rewriteMarkdown(input, '分类/A.md', map);
+ assert.equal(output.replaced, 3); assert.equal(output.unresolved.length, 0);
+ assert.ok(output.content.includes('![图](../images/uuid.png)'));
+ assert.ok(output.content.includes('![Original](../images/uuid.png "title")'));
+ assert.ok(output.content.includes('[另一个笔记](uuid.md)'));
+ assert.ok(output.content.includes('```toml\r\n[[runners]]\r\n![[photo.png]]\r\n```'));
+ assert.ok(output.content.includes('`![[photo.png]]`'));
+});
+
+test('legacy Git images render through aliases without changing inline or fenced code', async () => {
+ const { unified } = await import('unified');
+ const { default: remarkParse } = await import('remark-parse');
+ const { visit } = await import('unist-util-visit');
+ const { default: remarkLegacyImages, resolveAsset } = await import('../src/legacyImages.ts');
+ const assets = { 'images/photo.png': '../images/uuid.png', 'https://example.com/photo.jpeg': '../images/remote.jpeg' };
+ const tree = unified().use(remarkParse).parse('![[photo.png|旧图]]\n\n`![[photo.png]]`\n\n```text\n![[photo.png]]\n```\n');
+ remarkLegacyImages(assets)(tree);
+ const images = [], code = [];
+ visit(tree, node => { if (node.type === 'image') images.push(node); if (node.type === 'code' || node.type === 'inlineCode') code.push(node.value); });
+ assert.equal(images.length, 1); assert.equal(images[0].url, '../images/uuid.png'); assert.equal(images[0].alt, '旧图');
+ assert.deepEqual(code, ['![[photo.png]]', '![[photo.png]]']);
+ assert.equal(resolveAsset('../images/photo.png', assets), '../images/uuid.png');
+ assert.equal(resolveAsset('https://example.com/photo.jpeg', assets), '../images/remote.jpeg');
+});
+
+test('migrated vault retains Git lineage, resolves old revisions, and commits images through LFS', async t => {
+ const root = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-migration-test-'));
+ t.after(() => fs.rm(root, { recursive: true, force: true }));
+ const source = path.join(root, 'old'), destination = path.join(root, 'new');
+ await fs.mkdir(path.join(source, '分类'), { recursive: true }); await fs.mkdir(path.join(source, 'images'));
+ const git = async args => (await exec('git', args, { cwd: source })).stdout;
+ await git(['init', '-b', 'main']); await git(['config', 'user.name', 'Test']); await git(['config', 'user.email', 'test@example.com']);
+ const first = '# Article\n\n![[photo.png]]\n';
+ await fs.writeFile(path.join(source, '分类', 'A.md'), first);
+ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64');
+ await fs.writeFile(path.join(source, 'images', 'photo.png'), png);
+ await git(['add', '.']); await git(['commit', '-m', 'original note']);
+ const original = (await git(['rev-parse', 'HEAD'])).trim();
+ await git(['mv', '分类/A.md', '分类/B.md']); await git(['commit', '-m', 'old rename']);
+ const head = (await git(['rev-parse', 'HEAD'])).trim();
+ const { migrateNotebook } = await import('../scripts/notebook-migration.mjs');
+ const result = await migrateNotebook(source, destination);
+ assert.equal(result.notes, 1); assert.equal(result.localImages, 1); assert.equal(result.preservedCommits, 2);
+ const store = new VaultStore(); const vault = await store.open(destination), note = vault.manifest.notes[0];
+ assert.equal(note.title, 'B'); assert.equal(note.category, '分类');
+ const history = await store.history(note.id);
+ assert.ok(history.some(h => h.hash === original));
+ assert.equal(await store.revision(note.id, original), first);
+ assert.equal((await git(['rev-parse', 'HEAD'])).trim(), head);
+ assert.equal(await git(['status', '--porcelain']), '');
+ assert.deepEqual(await fs.readFile(path.join(source, '分类', 'B.md')), Buffer.from(first));
+ const image = (await fs.readdir(path.join(destination, 'images')))[0];
+ assert.deepEqual(await fs.readFile(path.join(destination, 'images', image)), png);
+ assert.match(await store.git(['show', `HEAD:images/${image}`]), /git-lfs.github.com\/spec\/v1/);
+ assert.equal((await store.git(['remote'])).trim(), '');
+ await assert.rejects(migrateNotebook(source, destination), /already exists/);
+});

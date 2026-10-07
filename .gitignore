@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build and packaging output
+/dist/
+/release/
+*.tsbuildinfo
+
+# Test reports and coverage
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/coverage/
+/.nyc_output/
+
+# Tool caches and logs
+.cache/
+.vite/
+*.log
+
+# Local environment configuration (keep shareable examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.sample
+!.env.template
+
+# Personal notes: managed as a separate Git repository
+/vault/
+
+# Operating system metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
