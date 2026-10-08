@@ -7,6 +7,7 @@ test('note lifecycle, editing, Git commit, history restore and metadata', async 
  await page.getByLabel('笔记标题').fill('集成测试笔记');
  await page.getByLabel('所属分类').fill('测试/自动化');
  await page.getByRole('button', { name: '创建笔记', exact: true }).click();
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  await expect(page.locator('.cm-content')).toBeVisible();
  await page.locator('.cm-content').fill('# 集成测试笔记\n\n这是第一版的正文。');
  await expect(page.getByText('所有更改已保存')).toBeVisible();
@@ -16,7 +17,7 @@ test('note lifecycle, editing, Git commit, history restore and metadata', async 
  await page.getByPlaceholder('这次记录了什么？').fill('测试首次提交');
  await page.getByRole('button', { name: '提交所有笔记变更' }).click();
  await expect(page.getByText('已创建 Git 提交')).toBeVisible();
- await page.getByTitle('编辑模式 · ⌘ E').click();
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  await page.locator('.cm-content').fill('# 集成测试笔记\n\n这是第二版的正文。');
  await expect(page.getByText('所有更改已保存')).toBeVisible();
  await page.getByPlaceholder('这次记录了什么？').fill('测试第二次提交');
@@ -91,7 +92,7 @@ test('Excalidraw canvas saves, embeds in Markdown, reloads and exports', async (
  await page.getByRole('button', { name: '创建笔记', exact: true }).click();
  await page.getByRole('button', { name: '插入 Excalidraw', exact: true }).click();
  await page.getByRole('button', { name: '插入绘图', exact: true }).click();
- await expect(page.locator('.cm-content')).toContainText('.excalidraw)');
+ await expect(page.locator('.wysiwyg-content .drawing-preview')).toBeVisible();
  await page.getByTitle('阅读模式', { exact: true }).click();
  await expect(page.locator('.prose .drawing-preview img')).toBeVisible();
  await page.getByRole('button', { name: '编辑绘图', exact: true }).click();
@@ -131,6 +132,18 @@ test('Obsidian compressed drawings, wiki embeds, code blocks and history preview
  await page.locator('.note-row').filter({ hasText: '引用兼容' }).click();
  await expect(page.locator('.prose .drawing-preview img')).toHaveCount(3);
  await expect(page.locator('.prose code').filter({ hasText: '![[旧图.excalidraw]]' })).toHaveCount(2);
+ await page.getByTitle('编辑模式 · ⌘ E').click();
+ await expect(page.locator('.wysiwyg-content .drawing-preview img')).toHaveCount(3);
+ await page.getByRole('button', { name: '编辑数据', exact: true }).click();
+ await expect(page.locator('.editor-code-block pre code').first()).toContainText(scene);
+ await page.getByRole('button', { name: '查看绘图', exact: true }).click();
+ await page.locator('.wysiwyg-content h1').click(); await page.keyboard.press('End'); await page.keyboard.insertText('更新');
+ await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).contents.embeds)).toContain('引用兼容更新');
+ const edited = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).contents.embeds);
+ expect(edited).toContain('![[旧图.excalidraw|旧图]]');
+ expect(edited).toContain('```excalidraw\n' + scene + '\n```');
+ await page.getByTitle('阅读模式', { exact: true }).click();
+ await expect(page.locator('.prose .drawing-preview img')).toHaveCount(3);
  await page.locator('.note-row').filter({ hasText: '旧图.excalidraw' }).click();
  await expect(page.locator('.drawing-preview img')).toBeVisible();
  await page.getByRole('button', { name: 'Git', exact: true }).click();

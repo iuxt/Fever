@@ -1,15 +1,19 @@
-import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Shapes } from 'lucide-react';
 import { isDrawingNote } from './drawings';
 import type { Note } from './types';
+import { keyboardContextMenu } from './ContextMenu';
 
 type FolderNode = { path: string; name: string; children: Map<string, FolderNode>; notes: Note[]; total: number };
 type Row = { depth: number } & ({ kind: 'note'; note: Note } | { kind: 'folder'; folder: FolderNode });
 const ROW_HEIGHT = 36, OVERSCAN = 6;
 
-export default memo(function NoteTree({ notes, categories, results, activeId, collapsed, onToggle, onSelect }: {
+export type NoteTreeTarget = { kind: 'note'; note: Note } | { kind: 'folder'; path: string } | { kind: 'blank' };
+
+export default memo(function NoteTree({ notes, categories, results, activeId, collapsed, onToggle, onSelect, onContextMenu }: {
  notes: Note[]; categories: string[]; results: Note[] | null; activeId: string; collapsed: Set<string>;
  onToggle: (path: string) => void; onSelect: (id: string) => void;
+ onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
 }) {
  const container = useRef<HTMLDivElement>(null);
  const previous = useRef({ activeId: '', searching: false });
@@ -64,12 +68,12 @@ export default memo(function NoteTree({ notes, categories, results, activeId, co
  }, [activeId, rows]);
  const start = Math.max(0, Math.floor(viewport.top / ROW_HEIGHT) - OVERSCAN);
  const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / ROW_HEIGHT) + OVERSCAN);
- return <div ref={container} className="note-tree virtual-note-tree" onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
+ return <div ref={container} className="note-tree virtual-note-tree" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
   <div className="note-tree-rows" style={{ height: rows.length * ROW_HEIGHT }}>
    {rows.slice(start, end).map((row, offset) => <div className="note-tree-row" key={row.kind === 'note' ? `note:${row.note.id}` : `folder:${row.folder.path}`} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }}>
-    {row.kind === 'note' ? <button className={`note-row ${row.note.id === activeId ? 'selected' : ''}`} onClick={() => onSelect(row.note.id)} title={row.note.title}>
+    {row.kind === 'note' ? <button className={`note-row ${row.note.id === activeId ? 'selected' : ''}`} onContextMenu={event => onContextMenu(event, { kind: 'note', note: row.note })} onClick={() => onSelect(row.note.id)} title={row.note.title}>
      {isDrawingNote(row.note) ? <Shapes size={15} /> : <FileText size={15} />}<span>{row.note.title}</span>{row.note.id === activeId && <span className="selected-dot" />}
-    </button> : <button className="folder-row" onClick={() => onToggle(row.folder.path)} aria-expanded={!collapsed.has(row.folder.path)}>
+    </button> : <button className="folder-row" onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })} onClick={() => onToggle(row.folder.path)} aria-expanded={!collapsed.has(row.folder.path)}>
      {collapsed.has(row.folder.path) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}{collapsed.has(row.folder.path) ? <Folder size={15} /> : <FolderOpen size={15} />}<span>{row.folder.name}</span><small>{row.folder.total}</small>
     </button>}
    </div>)}

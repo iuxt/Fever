@@ -1,12 +1,14 @@
 export type Note = { id: string; title: string; category: string; filename: string; createdAt: string; updatedAt: string; sourcePath?: string };
 export type Manifest = { version: 1; categories: string[]; notes: Note[]; assets?: Record<string, string> };
-export type Vault = { path: string; name: string; manifest: Manifest; lfs: boolean };
+export type Vault = { path: string; name: string; manifest: Manifest; lfs: boolean; format?: 'fever' | 'fsnotes' };
 export type Change = { status: string; path: string };
 export type GitStatus = { branch: string; changes: Change[]; ahead: number; behind: number; remote: string; lfs: boolean };
 export type Commit = { hash: string; author: string; date: string; message: string };
 export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string };
 export type Api = {
   desktop: boolean;
+  readClipboard?: () => Promise<{ text: string; html?: string }>;
+  writeClipboard?: (content: { text: string; html?: string }) => Promise<void>;
   current(): Promise<Vault | null>;
   open(): Promise<Vault | null>;
   read(id: string): Promise<string>;

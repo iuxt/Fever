@@ -11,9 +11,15 @@ npm install
 npm run dev
 ```
 
-首次启动会显示笔记库选择页。选择一个空文件夹，或带有 `fever.json` 的现有 Fever 笔记库。应用会初始化独立 Git 仓库，并在安装了 Git LFS 时执行 `git lfs install --local`。不允许选择其他 Git 仓库内部的子文件夹，避免混入项目文件。
+首次启动会显示笔记库选择页。选择一个空文件夹、带有 `fever.json` 的 Fever 笔记库，或带有 `metadata.json` 的 FSNotes 笔记库根目录。应用会初始化独立 Git 仓库，并在安装了 Git LFS 时执行 `git lfs install --local`。不允许选择其他 Git 仓库内部的子文件夹，避免混入项目文件。
 
 打开设置，配置 Git 用户名和邮箱；如需远程同步，填写 origin 的 HTTPS / SSH 地址。远程仓库应为空或已经保存这个笔记库。认证使用系统 Git 的 SSH 密钥、凭据管理器；应用不存储访问令牌。
+
+## 编辑体验
+
+编辑模式采用类似 Typora 的所见即所得体验：直接在排版后的正文中修改标题、列表、任务、表格和代码，图片与 Excalidraw 引用在正文中显示。输入 `# `、`- `、`> ` 等 Markdown 标记会自动转换格式；支持加粗、斜体、撤销 / 重做和 Markdown 粘贴。选中表格单元格后，可在格式栏添加或删除行列。图片可以通过按钮、拖放或粘贴插入。
+
+右上角的代码按钮打开 Markdown 源码与预览，阅读按钮进入只读阅读。编辑结果仍自动保存为 `.md` 文件，沿用 Git 历史；仅进入编辑模式不会改写原文件，YAML 文档属性和 Obsidian 图片引用会保留。
 
 ## 存储约定
 
@@ -49,6 +55,14 @@ npm run dev
 标题和分类由清单管理。重命名、移动笔记不会改变 UUID 文件名。分类使用 `/` 表示层级，界面递归生成文件夹树。清单和笔记通过临时文件写入后替换；写操作排队，避免快速输入导致保存顺序错乱。
 
 图片可通过拖放或「更多 → 插入图片」导入，保存为 `images/<UUID>.<扩展名>`，Markdown 引用 `../images/<UUID>.<扩展名>`。`.gitattributes` 的 `images/**` 使用 LFS。Git LFS 未安装时禁止导入图片，防止图片作为普通 Git blob 提交。支持 PNG、JPEG、GIF、WebP、AVIF，单张最多 20 MB。
+
+## 直接打开 FSNotes 笔记库
+
+支持 `metadata.json` version 1 的 `folders` / `notes` 格式。选择仓库根目录即可打开；沿用原清单、UUID 文件名、图片路径和 Git 仓库，不生成另一份 `fever.json`。`folders.parentID` 转为界面的嵌套分类，`notes.name` 显示为标题，`folderID` 管理归属；根目录笔记显示在「未分类」。支持 `.md`、`.markdown`、`.txt`、`.fountain` 正文，时间从文件属性读取。
+
+新建分类和笔记、重命名、移动都会写回 `metadata.json`，保留原记录的别名、迁移来源和额外字段。重命名将旧标题加入 `aliases`。删除沿用 FSNotes 的 `trashed` 标记，正文和附件保留，可在 FSNotes 废纸篓中恢复。已有 `images/<笔记ID>/<图片ID>.png` 和平铺图片都能预览，桌面端的 HTTP / HTTPS 外链图片按原 URL 显示。Git 提交、拉取和定时备份使用原清单，历史继续跟随原笔记文件。
+
+FSNotes 库中新建或导入的 Excalidraw 绘图保存为带绘图数据块的 `.md` 文件，Fever 可预览和编辑，保持 FSNotes 的正文扩展名约定。其他程序修改清单后，重新选择此笔记库即可刷新；每次写入前也会重新读取外部变更，保留最新清单中的其他记录。已在外部删除的笔记会阻止保存。
 
 ## Excalidraw 绘图
 
@@ -130,7 +144,7 @@ macOS 本地构建并安装到「应用程序」文件夹：
 ./build.sh
 ```
 
-脚本先停止正在运行的 Fever，构建当前 Node.js 架构对应的 `Fever.app`，覆盖安装到 `/Applications/Fever.app`，然后自动启动。缺少构建依赖时会执行 `npm ci`；应用程序目录需要管理员权限时会提示输入密码。构建失败时保留原应用，临时构建目录会自动清理。
+脚本先停止正在运行的 Fever，构建当前 Node.js 架构对应的 `Fever.app`，覆盖安装到 `/Applications/Fever.app`，然后自动启动。缺少构建依赖时会执行 `npm ci`，打包前会显式准备 Electron 运行时（Electron 44 起，`npm ci` 不会自动下载二进制）；首次下载需要联网，之后复用本地运行时。应用程序目录需要管理员权限时会提示输入密码。构建失败时保留原应用，临时构建目录会自动清理。
 
 已安装 Chrome 时，也可以通过 `PLAYWRIGHT_CHANNEL=chrome npm run test:ui` 运行界面测试。产物位于 `release/`。建议分别在各自的操作系统构建；`.github/workflows/build.yml` 提供三平台构建任务，可手动运行或通过 `v*` 标签触发，默认仅上传构建产物，不发布 Release。
 

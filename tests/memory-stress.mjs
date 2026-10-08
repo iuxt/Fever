@@ -90,7 +90,7 @@ try {
   for (let i = 0; i < cycles; i++) {
    await page.locator('.note-row').filter({ hasText: title(i % 3) }).click();
    await expect(page.locator('.breadcrumb-title')).toHaveText(title(i % 3));
-   await page.getByTitle('编辑模式 · ⌘ E').click(); await expect(page.locator('.cm-content')).toBeVisible();
+   await page.getByTitle('编辑模式 · ⌘ E').click(); await expect(page.locator('.wysiwyg-content')).toBeVisible();
    await page.getByTitle('阅读模式', { exact: true }).click(); await expect(page.locator('.prose h1')).toBeVisible();
   }
   await page.locator('.note-row').filter({ hasText: title(0) }).click();
@@ -126,7 +126,7 @@ try {
   for (let i = 0; i < cycles; i++) {
    await page.locator('.note-row').filter({ hasText: title(i % 3) }).click();
    await expect(page.locator('.breadcrumb-title')).toHaveText(title(i % 3));
-   await page.getByTitle('编辑模式 · ⌘ E').click(); await expect(page.locator('.cm-content')).toBeVisible();
+   await page.getByTitle('编辑模式 · ⌘ E').click(); await expect(page.locator('.wysiwyg-content')).toBeVisible();
    await page.getByTitle('阅读模式', { exact: true }).click(); await expect(page.locator('.prose h1')).toBeVisible();
   }
   await page.locator('.note-row').filter({ hasText: title(0) }).click();

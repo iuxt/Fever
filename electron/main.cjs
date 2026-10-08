@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, protocol, net, shell } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -15,16 +15,29 @@ function scheduleBackup() {
   const s = preferences.settings;
   if (s?.autoCommit) timer = setInterval(async () => {
     if (!store.root) return;
-    try { const status = await store.status(); if (status.changes.some(c => c.path === 'fever.json' || c.path === '.gitattributes' || c.path.startsWith('notes/') || c.path.startsWith('images/'))) await store.commit(`backup: ${new Date().toISOString()}`); }
+    try { const status = await store.status(); if (status.changes.some(c => c.path === store.manifestFile || c.path === '.gitattributes' || c.path.startsWith('notes/') || c.path.startsWith('images/'))) await store.commit(`backup: ${new Date().toISOString()}`); }
     catch (e) { window?.webContents.send('fever:backup-error', e.message); }
   }, Math.max(1, Number(s.interval) || 10) * 60000);
 }
 async function boot() {
   preferences = await fs.readFile(prefsFile(), 'utf8').then(JSON.parse).catch(() => ({}));
+  ipcMain.handle('fever:readClipboard', async () => {
+    const items = await clipboard.read();
+    let text = '', html = '';
+    for (const item of items) {
+      if (item.types.includes('text/plain')) text += await (await item.getType('text/plain')).text();
+      if (item.types.includes('text/html')) html += await (await item.getType('text/html')).text();
+    }
+    return { text, html };
+  });
+  ipcMain.handle('fever:writeClipboard', (_event, content) => {
+    if (!content || typeof content.text !== 'string' || (content.html !== undefined && typeof content.html !== 'string')) throw new Error('无效的剪贴板内容');
+    return clipboard.write([new ClipboardItem({ 'text/plain': content.text, ...(content.html ? { 'text/html': content.html } : {}) })]);
+  });
   protocol.handle('fever-asset', async request => {
     try {
       const url = new URL(request.url);
-      if (url.hostname !== 'vault' || !/^\/images\/[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif)$/i.test(url.pathname) || !store.root) return new Response('Not found', { status: 404 });
+      if (url.hostname !== 'vault' || !/^\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif)$/i.test(url.pathname) || !store.root) return new Response('Not found', { status: 404 });
       return net.fetch(pathToFileURL(await store.safe(url.pathname.slice(1))).toString());
     } catch { return new Response('Not found', { status: 404 }); }
   });

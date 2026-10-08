@@ -35,12 +35,37 @@ try {
  await page.getByLabel('笔记标题').fill('桌面集成测试');
  await page.getByLabel('所属分类').fill('项目/测试');
  await page.getByRole('button', { name: '创建笔记' }).click();
- await page.locator('.cm-content').fill('# 桌面集成测试\n\n真实文件保存成功。');
+ await page.locator('.wysiwyg-content h1').click();
+ await page.keyboard.press('End'); await page.keyboard.press('Enter');
+ await page.keyboard.insertText('真实文件保存成功。');
  await expect(page.getByText('所有更改已保存')).toBeVisible();
  const manifest = JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8'));
  const note = manifest.notes.find(n => n.title === '桌面集成测试');
  if (!note) throw new Error('Note was not added to the real manifest');
  if (!(await readFile(path.join(folder, 'notes', note.filename), 'utf8')).includes('真实文件保存成功')) throw new Error('Real Markdown content was not saved');
+ // Custom editor menus use the system clipboard through the sandboxed preload.
+ await page.locator('.wysiwyg-content > p').first().evaluate(p => {
+  const range = document.createRange(); range.selectNodeContents(p);
+  const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+ });
+ await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+ await page.locator('.wysiwyg-content > p').first().click({ button: 'right' });
+ await page.getByRole('menuitem', { name: '复制', exact: true }).click();
+ await expect.poll(async () => {
+  if (await page.locator('.toast.error').count()) throw new Error(await page.locator('.toast.error').textContent());
+  return app.evaluate(async ({ clipboard }) => await clipboard.readText() === '真实文件保存成功。');
+ }).toBe(true);
+ await expect.poll(() => app.evaluate(async ({ clipboard }) => {
+  for (const item of await clipboard.read()) if (item.types.includes('text/html') && (await (await item.getType('text/html')).text()).includes('真实文件保存成功。')) return true;
+  return false;
+ })).toBe(true);
+ await app.evaluate(({ clipboard }) => clipboard.writeText('## 右键粘贴测试'));
+ await page.keyboard.press('Shift+F10');
+ await page.getByRole('menuitem', { name: '粘贴', exact: true }).click();
+ await expect(page.locator('.wysiwyg-content h2')).toHaveText('右键粘贴测试');
+ await page.keyboard.press('Shift+F10');
+ await page.getByRole('menuitem', { name: '撤销', exact: true }).click();
+ await expect(page.locator('.wysiwyg-content > p').first()).toHaveText('真实文件保存成功。');
  await page.getByRole('button', { name: 'Git', exact: true }).click();
  await page.getByPlaceholder('这次记录了什么？').fill('desktop integration commit');
  await page.getByRole('button', { name: '提交所有笔记变更' }).click();
@@ -81,6 +106,9 @@ try {
  await expect(page.locator('.drawing-preview img')).toBeVisible();
  // Exercise the production file:// build with its local fonts and existing IPC vault.
  await app.evaluate(async ({ BrowserWindow }, file) => { await BrowserWindow.getAllWindows()[0].loadFile(file); }, path.resolve('dist/index.html'));
+ await page.locator('.note-row').filter({ hasText: '桌面集成测试' }).click({ button: 'right' });
+ await page.getByRole('menuitem', { name: '复制 Markdown', exact: true }).click();
+ await expect.poll(() => app.evaluate(async ({ clipboard }) => (await clipboard.readText()).includes('真实文件保存成功。'))).toBe(true);
  await page.locator('.note-row').filter({ hasText: '导入架构图' }).click();
  await expect(page.locator('.drawing-preview img')).toBeVisible();
  const drawingLoaded = await page.locator('.drawing-preview img').evaluate(img => img.complete && img.naturalWidth > 0);
@@ -91,6 +119,41 @@ try {
  await expect(page.locator('.drawing-canvas')).toBeVisible();
  await page.screenshot({ path: 'test-results/desktop-drawing.png' });
  await page.screenshot({ path: 'test-results/desktop-editor.png' });
+
+ // Open FSNotes' native metadata format and exercise the production asset protocol.
+ const fsnotes = path.join(scratch, 'fsnotes');
+ const fsnoteID = '11111111-1111-4111-8111-111111111111', trashID = '22222222-2222-4222-8222-222222222222';
+ const parentID = '33333333-3333-4333-8333-333333333333', childID = '44444444-4444-4444-8444-444444444444';
+ await mkdir(path.join(fsnotes, 'notes'), { recursive: true }); await mkdir(path.join(fsnotes, 'images', fsnoteID), { recursive: true });
+ const snapshot = { version: 1, folders: [{ id: parentID, name: 'FSNotes' }, { id: childID, name: '嵌套分类', parentID }], notes: [
+  { id: fsnoteID, name: 'FSNotes 清单标题', folderID: childID, fileExtension: 'md', trashed: false, aliases: ['旧标题'] },
+  { id: trashID, name: '废纸篓笔记', fileExtension: 'md', trashed: true },
+ ] };
+ const snapshotText = JSON.stringify(snapshot, null, 2) + '\n';
+ await writeFile(path.join(fsnotes, 'metadata.json'), snapshotText);
+ await writeFile(path.join(fsnotes, 'notes', `${fsnoteID}.md`), `# FSNotes 正文\n\n![嵌套截图](../images/${fsnoteID}/pixel.png)\n`);
+ await writeFile(path.join(fsnotes, 'notes', `${trashID}.md`), 'trashed');
+ await writeFile(path.join(fsnotes, 'images', fsnoteID, 'pixel.png'), Buffer.from(png));
+ await app.evaluate(({ dialog }, vaultPath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [vaultPath] }); }, fsnotes);
+ await page.locator('.vault-select').click(); await page.getByTitle('阅读模式', { exact: true }).click();
+ await expect(page.locator('.sidebar-foot')).toContainText('1 篇笔记');
+ await expect(page.locator('.note-row.selected')).toContainText('FSNotes 清单标题');
+ await expect(page.locator('.breadcrumbs')).toContainText('嵌套分类');
+ await expect(page.locator('.prose h1')).toHaveText('FSNotes 正文');
+ await expect.poll(() => page.locator('.prose img').evaluate(img => img.complete && img.naturalWidth === 1)).toBe(true);
+ if (await readFile(path.join(fsnotes, 'metadata.json'), 'utf8') !== snapshotText) throw new Error('Opening FSNotes rewrote its metadata');
+ await page.getByTitle('更多笔记操作').click(); await page.getByRole('button', { name: '重命名 / 移动笔记' }).click();
+ await page.getByLabel('笔记标题').fill('FSNotes 新标题'); await page.getByLabel('所属分类').fill('新分类/子分类');
+ await page.getByRole('button', { name: '保存更改' }).click();
+ await expect(page.locator('.note-row.selected')).toContainText('FSNotes 新标题');
+ await page.getByTitle('编辑模式 · ⌘ E', { exact: true }).click();
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await page.locator('.cm-content').fill('# FSNotes 编辑后\n\n已保存');
+ await expect(page.getByText('所有更改已保存')).toBeVisible();
+ const updatedSnapshot = JSON.parse(await readFile(path.join(fsnotes, 'metadata.json'), 'utf8'));
+ if (!updatedSnapshot.notes[0].aliases.includes('FSNotes 清单标题')) throw new Error('FSNotes rename lost its alias');
+ if (!(await readFile(path.join(fsnotes, 'notes', `${fsnoteID}.md`), 'utf8')).includes('已保存')) throw new Error('FSNotes autosave failed');
+ await page.screenshot({ path: 'test-results/desktop-fsnotes.png' });
  if (errors.length) throw new Error(errors.join('\n'));
- console.log('PASS: native onboarding, IPC, metadata, autosave, Git commit, history, LFS images, Excalidraw import/edit/save and production drawing fonts');
+ console.log('PASS: native onboarding, IPC, metadata, autosave, Git commit, history, LFS images, Excalidraw import/edit/save, production fonts and FSNotes metadata/nested images/rename/autosave');
 } finally { await app?.close(); await rm(scratch, { recursive: true, force: true }); }

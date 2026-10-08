@@ -91,14 +91,23 @@ stop_app() {
 
 stop_app
 
-if [[ ! -x node_modules/.bin/electron-builder || ! -x node_modules/.bin/vite || ! -x node_modules/.bin/tsc || ! -x node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ]]; then
+if [[ ! -x node_modules/.bin/electron-builder || ! -x node_modules/.bin/vite || ! -x node_modules/.bin/tsc || ! -f node_modules/electron/install.js ]]; then
   echo "正在安装项目依赖…"
   npm ci
 fi
 
+# Electron 44 起按需下载二进制，npm ci 不会生成 electronDist。
+# 安装器会复用已安装且版本匹配的运行时，缺失时才下载。
+echo "正在准备 Electron 运行时…"
+ELECTRON_INSTALL_PLATFORM=darwin ELECTRON_INSTALL_ARCH="$arch" node node_modules/electron/install.js
+if [[ ! -x node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ]]; then
+  echo "Electron 运行时未正确安装，已取消构建。" >&2
+  exit 1
+fi
+
 mkdir -p release
 build_dir="$(mktemp -d "$PWD/release/.build.XXXXXX")"
-echo "正在构建 Fever（$arch）…"
+echo "正在构建 Fever   $arch   …"
 npm run build
 node_modules/.bin/electron-builder --mac --dir "--$arch" --publish never \
   --config.directories.output="$build_dir" \
@@ -110,7 +119,7 @@ if [[ ! -x "$built_app/Contents/MacOS/Fever" ]]; then
   exit 1
 fi
 
-echo "正在安装到 $app_path…"
+echo "正在安装到 $app_path  …"
 install_dir="$(install_command mktemp -d /Applications/.Fever-install.XXXXXX)"
 install_command chmod 755 "$install_dir"
 install_command ditto "$built_app" "$install_dir/Fever.app"
