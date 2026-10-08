@@ -131,6 +131,7 @@ test('source editor cuts and pastes literal text, supports history and select al
 });
 
 test('menus fit the viewport, support keyboard navigation, dismiss and replace each other', async ({ page }) => {
+ await page.addInitScript(() => localStorage.setItem('fever-theme', 'dark'));
  const body = await editor(page);
  await body.evaluate(element => element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 1438, clientY: 998 })));
  const bounds = await menu(page).boundingBox();
@@ -143,7 +144,7 @@ test('menus fit the viewport, support keyboard navigation, dismiss and replace e
  await page.locator('.note-row').first().click({ button: 'right' });
  await expect(menu(page)).toHaveCount(1);
  await expect(menu(page)).toHaveAttribute('aria-label', '笔记列表菜单');
- await page.getByTitle('切换主题').click(); await expect(menu(page)).toHaveCount(0);
+ await page.locator('.sidebar-brand').click(); await expect(menu(page)).toHaveCount(0);
  await page.locator('.note-row').first().click({ button: 'right' });
  await page.screenshot({ path: 'test-results/context-menu-dark.png' });
  await page.keyboard.press('Home'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');

@@ -105,6 +105,7 @@ test('inserts local images at the cursor and can undo the insertion', async ({ p
 });
 
 test('preserves YAML and wiki embeds while treating code contents literally', async ({ page }) => {
+ await page.addInitScript(() => localStorage.setItem('fever-theme', 'dark'));
  const original = '---\ntags: [想法]\naliases: [测试]\n---\n\n# 兼容笔记\n\n正文\n\n![[missing.png|图片]]\n\n`![[literal.png]]`\n\n```text\n![[literal.png]]\n```\n';
  await seed(page, original);
  await expect(page.locator('.editor-frontmatter')).toContainText('文档属性');
@@ -121,7 +122,6 @@ test('preserves YAML and wiki embeds while treating code contents literally', as
  expect(value).toContain('![[missing.png|图片]]');
  expect(value).toContain('`![[literal.png]]`');
  expect(value).toContain('```text\n![[literal.png]]\n```');
- await page.getByTitle('切换主题').click();
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
  await page.setViewportSize({ width: 780, height: 800 });
  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

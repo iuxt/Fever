@@ -39,10 +39,9 @@ test('note lifecycle, editing, Git commit, history restore and metadata', async 
  await page.screenshot({ path: 'test-results/app.png', fullPage: true });
 });
 test('outline, themes, settings and responsive layout', async ({ page }) => {
+ await page.addInitScript(() => localStorage.setItem('fever-theme', 'dark'));
  await page.goto('/');
- await page.getByTitle('切换主题').click();
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
- await page.getByTitle('切换主题').click();
  await page.getByTitle('设置', { exact: true }).click();
  await expect(page.getByRole('dialog')).toBeVisible();
  await expect(page.getByLabel('远程仓库（origin）')).toBeVisible();
