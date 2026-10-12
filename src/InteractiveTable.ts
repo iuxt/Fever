@@ -32,6 +32,12 @@ class InteractiveTableView extends TableView {
   this.insert.hidden = true;
   this.marker.className = 'table-drop-marker';
   this.marker.hidden = true;
+  // The outside bands keep hover tracking continuous on the table's perimeter.
+  for (const side of ['top', 'right', 'bottom', 'left']) {
+   const edge = document.createElement('span');
+   edge.className = `table-hover-edge ${side}`;
+   this.controls.append(edge);
+  }
   this.controls.append(this.insert, this.marker);
   this.dom.append(this.controls);
   this.insert.addEventListener('pointerdown', event => event.preventDefault());
@@ -196,25 +202,41 @@ class InteractiveTableView extends TableView {
  };
 
  private hover = (event: PointerEvent) => {
-  if (this.drag || !this.editor.isEditable || this.controls.contains(event.target as Node)) return;
+  if (this.drag || !this.editor.isEditable || this.insert.contains(event.target as Node)) return;
   const origin = this.dom.getBoundingClientRect();
   const x = event.clientX - origin.left, y = event.clientY - origin.top;
-  const nearest = (values: number[], coordinate: number) => values.findIndex(value => Math.abs(value - coordinate) <= 5);
+  const left = this.columns[0], right = this.columns.at(-1)!;
+  const top = this.rows[0], bottom = this.rows.at(-1)!;
+  const interval = (values: number[], coordinate: number) => values.findIndex((value, index) => index < values.length - 1 && coordinate >= value && coordinate < values[index + 1]);
+  const hoveredColumn = interval(this.columns, x), hoveredRow = interval(this.rows, y);
+  const width = TableMap.get(this.node).width;
+  this.handles.forEach((handle, index) => {
+   const hovered = index < width ? index === hoveredColumn : index - width === hoveredRow;
+   handle.classList.toggle('table-handle-hovered', hovered);
+  });
+  const nearest = (values: number[], coordinate: number) => values.findIndex(value => Math.abs(value - coordinate) <= 10);
   const column = nearest(this.columns, x), row = nearest(this.rows, y);
+  const edgeY = Math.abs(y - top) <= 12 ? top : Math.abs(y - bottom) <= 12 ? bottom : null;
+  const edgeX = Math.abs(x - left) <= 12 ? left : Math.abs(x - right) <= 12 ? right : null;
   let line: Line | null = null;
-  if (column >= 0 && y >= this.rows[0] && y <= this.rows.at(-1)!) line = { axis: 'column', index: column };
-  else if (row >= 0 && x >= this.columns[0] && x <= this.columns.at(-1)!) line = { axis: 'row', index: row };
+  if (row >= 0 && edgeX !== null && (x < left || x > right)) line = { axis: 'row', index: row };
+  else if (column >= 0 && edgeY !== null) line = { axis: 'column', index: column };
+  else if (row >= 0 && edgeX !== null) line = { axis: 'row', index: row };
   if (!line) { this.hideInsert(); return; }
   this.insertion = line;
   this.insert.hidden = false;
-  this.insert.style.left = `${line.axis === 'column' ? this.columns[column] : x}px`;
-  this.insert.style.top = `${line.axis === 'row' ? this.rows[row] : y}px`;
+  this.insert.style.left = `${line.axis === 'column' ? this.columns[column] : edgeX}px`;
+  this.insert.style.top = `${line.axis === 'row' ? this.rows[row] : edgeY}px`;
   const name = line.axis === 'column' ? '列' : '行';
   const label = `在第 ${line.index + 1} ${name}前插入${name}`;
   this.insert.setAttribute('aria-label', label);
   this.insert.title = `插入${name}`;
  };
- private leave = () => { if (!this.drag) this.hideInsert(); };
+ private leave = () => {
+  if (this.drag) return;
+  this.hideInsert();
+  this.handles.forEach(handle => handle.classList.remove('table-handle-hovered'));
+ };
  private hideInsert() { this.insert.hidden = true; this.insertion = null; }
 
  private insertAtBoundary = () => {

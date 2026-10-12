@@ -13,7 +13,8 @@ import type { Editor } from '@tiptap/core';
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
 import { readClipboard, writeClipboard } from './clipboard';
 import { InteractiveTable } from './InteractiveTable';
-import { codeLanguages, lowlight } from './codeHighlight';
+import { lowlight } from './codeHighlight';
+import CodeLanguageSelect from './CodeLanguageSelect';
 
 export type MarkdownEditorHandle = { insertMarkdown: (markdown: string) => boolean };
 type Media = { image: (src: string, alt: string) => ReactNode; drawing: (content: string) => ReactNode };
@@ -60,11 +61,7 @@ function CodeView({ node, editor, getPos, updateAttributes }: NodeViewProps) {
  }
  return <NodeViewWrapper className="editor-code-block">
   <div className="editor-code-label" contentEditable={false}>
-   <select aria-label="代码块语言" title="代码块语言" value={language} onChange={event => setLanguage(event.target.value)}>
-    <option value="">自动识别</option>
-    {language && !codeLanguages.includes(language) && <option value={language}>{language}</option>}
-    {codeLanguages.map(value => <option key={value} value={value}>{value === 'plaintext' ? '纯文本' : value}</option>)}
-   </select>
+   <CodeLanguageSelect value={language} onChange={setLanguage} />
    {drawing && <button type="button" onClick={() => setSource(!source)}>{source ? '查看绘图' : '编辑数据'}</button>}
   </div>
   {drawing && !source ? <div contentEditable={false}>{media.drawing(node.textContent)}</div> : <pre><NodeViewContent<'code'> as="code" className={language ? `language-${language}` : undefined} /></pre>}

@@ -80,10 +80,15 @@
 .table-controls { position: absolute; inset: 0; pointer-events: none; user-select: none; white-space: normal; }
 .table-controls button { position: absolute; display: grid; place-items: center; padding: 0; transform: translate(-50%, -50%); pointer-events: auto; line-height: 1; }
 .table-controls button[hidden], .table-drop-marker[hidden] { display: none; }
+.table-hover-edge { position: absolute; pointer-events: auto; }
+.table-hover-edge.top { left: 0; right: 0; top: -24px; height: 24px; }
+.table-hover-edge.bottom { left: 0; right: 0; bottom: -24px; height: 24px; }
+.table-hover-edge.left { top: 0; bottom: 0; left: -24px; width: 24px; }
+.table-hover-edge.right { top: 0; bottom: 0; right: -24px; width: 24px; }
 .table-handle { border-radius: 4px; background: var(--sidebar); color: var(--muted); font-size: 16px; opacity: 0; cursor: grab; touch-action: none; }
 .table-column-handle { width: 30px; height: 16px; }
 .table-row-handle { width: 16px; height: 28px; }
-.interactive-table:hover .table-handle, .interactive-table:focus-within .table-handle, .table-handle[aria-pressed='true'] { opacity: 1; }
+.table-handle.table-handle-hovered, .table-handle:hover, .table-dragging .table-handle[aria-pressed='true'] { opacity: 1; }
 .table-handle:hover, .table-handle[aria-pressed='true'] { background: var(--selected); color: var(--green); }
 .table-controls button:focus-visible { opacity: 1; outline: 2px solid var(--green); outline-offset: 2px; }
 .table-axis-selected .selectedCell { cursor: grab; }
@@ -104,8 +109,15 @@ body.table-drag-active, body.table-drag-active * { cursor: grabbing !important; 
 .editor-code-block { margin: 18px 0; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--panel); }
 .editor-code-label { display: flex; justify-content: space-between; padding: 7px 14px; font-size: 10px; color: var(--muted); border-bottom: 1px solid var(--border); }
 .editor-code-label button { padding: 0; color: var(--green); }
-.editor-code-label select { max-width: 100%; min-width: 100px; padding: 2px 20px 2px 4px; border: 1px solid transparent; border-radius: 4px; background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
-.editor-code-label select:hover, .editor-code-label select:focus-visible { border-color: var(--border); }
+.code-language-select { position: relative; width: 160px; max-width: 100%; }
+.code-language-select input { width: 100%; padding: 2px 22px 2px 4px; border: 1px solid transparent; border-radius: 4px; background: var(--panel); color: var(--text); font: inherit; }
+.code-language-select input:hover, .code-language-select input:focus-visible { border-color: var(--border); }
+.code-language-select input::placeholder { color: var(--muted); }
+.code-language-select > svg { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.code-language-options { position: fixed; z-index: 25; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--paper); color: var(--text); box-shadow: var(--shadow); font-size: 11px; }
+.code-language-options button { display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 6px 9px; border-radius: 4px; text-align: left; font: inherit; }
+.code-language-options button.active { background: var(--selected); color: var(--green); }
+.code-language-empty { padding: 8px 9px; color: var(--muted); }
 .editor-code-block pre { margin: 0; border: 0; border-radius: 0; white-space: pre-wrap; }
 .prose pre code { color: var(--text); }
 :root { --syntax-comment: #65725c; --syntax-keyword: #7952a3; --syntax-string: #386741; --syntax-number: #9a5225; --syntax-title: #2b6893; --syntax-attr: #8f6334; }

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 
 const errors = new WeakMap<Page, string[]>();
 test.beforeEach(({ page }) => { const list: string[] = []; errors.set(page, list); page.on('pageerror', error => list.push(error.message)); });
@@ -17,8 +17,85 @@ async function seed(page: Page, markdown: string) {
 async function saved(page: Page) {
  return page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).contents['editor-test'] as string);
 }
+async function chooseLanguage(input: Locator, language: string) {
+ await input.fill(language);
+ await input.press('Enter');
+}
 
 for (const theme of ['light', 'dark']) {
+ test(`searches code languages with keyboard and mouse without saving search text (${theme})`, async ({ page }) => {
+  await page.addInitScript(theme => localStorage.setItem('fever-theme', theme), theme);
+  const original = '# 搜索语言\n\n```js\nconst value = 42;\n```\n\n```python\nprint("second")\n```\n';
+  await seed(page, original);
+  const input = page.getByRole('combobox', { name: '代码块语言' }).first();
+  const list = page.getByRole('listbox', { name: '代码块语言选项' });
+  await input.fill('TyPe');
+  await expect(list.getByRole('option')).toHaveText(['typescript']);
+  expect(await saved(page)).toBe(original);
+  await input.press('Enter');
+  await expect(input).toHaveValue('typescript');
+  await expect(list).toHaveCount(0);
+  await expect.poll(() => saved(page)).toContain('```typescript\nconst value = 42;');
+
+  await input.fill('ja');
+  await expect(list.getByRole('option')).toHaveText(['java', 'javascript']);
+  await input.press('ArrowDown');
+  await expect(list.getByRole('option', { name: 'javascript', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await input.press('ArrowUp');
+  await expect(list.getByRole('option', { name: 'java', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await input.press('ArrowDown'); await input.press('Enter');
+  await expect(input).toHaveValue('javascript');
+  await expect(page.locator('.editor-code-block').first().locator('.hljs-keyword')).toHaveText('const');
+
+  await input.fill('py');
+  await list.getByRole('option', { name: 'python', exact: true }).click();
+  await expect(input).toHaveValue('python');
+  await expect.poll(() => saved(page)).toContain('```python\nconst value = 42;');
+  await expect(page.getByRole('combobox', { name: '代码块语言' }).last()).toHaveValue('python');
+  await expect(page.locator('.editor-code-block').last().locator('pre code')).toHaveText('print("second")');
+
+  await input.fill('纯文本');
+  await expect(list.getByRole('option')).toHaveText(['纯文本 · plaintext']);
+  await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+  await expect(list).toBeVisible();
+  await input.press('Enter');
+  await expect(input).toHaveValue('plaintext');
+  await expect(page.locator('.editor-code-block').first().locator('[class*="hljs-"]')).toHaveCount(0);
+  await expect(page.getByText('所有更改已保存')).toBeVisible();
+  const committed = await saved(page);
+
+  await input.fill('no-such-language');
+  await expect(list.getByRole('option')).toHaveCount(0);
+  await expect(list.getByRole('status')).toHaveText('没有匹配的语言');
+  await input.press('Enter');
+  expect(await saved(page)).toBe(committed);
+  await input.press('Escape');
+  await expect(input).toHaveValue('plaintext');
+  await expect(list).toHaveCount(0);
+  await input.fill('rust'); await input.press('Tab');
+  await expect(input).toHaveValue('plaintext');
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('combobox', { name: '代码块语言' }).last()).toBeFocused();
+  expect(await saved(page)).toBe(committed);
+  await page.locator('.wysiwyg-content h1').click();
+  await expect(list).toHaveCount(0);
+
+  await chooseLanguage(input, '');
+  await expect(input).toHaveValue('');
+  await expect.poll(() => saved(page)).toContain('```\nconst value = 42;');
+  await page.setViewportSize({ width: 780, height: 800 });
+  await input.fill('script');
+  await expect(list.getByRole('option')).toHaveText(['javascript', 'typescript']);
+  const bounds = (await list.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(780);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(800);
+  await page.screenshot({ path: `test-results/code-language-search-${theme}.png`, fullPage: true });
+  await page.locator('.wysiwyg-content h1').click();
+  await expect(list).toHaveCount(0);
+  await expect(input).toHaveValue('');
+ });
+
  test(`code languages persist and highlighting updates in rich editing and previews (${theme})`, async ({ page }) => {
   await page.addInitScript(theme => localStorage.setItem('fever-theme', theme), theme);
   const code = 'const message = "hello <world>";\n// comment\nconsole.log(message, 42);';
@@ -39,7 +116,7 @@ for (const theme of ['light', 'dark']) {
 
   // Changing a block's language must refresh it even if the cursor is in prose.
   await page.locator('.wysiwyg-content > p').click();
-  await language.selectOption('plaintext');
+  await chooseLanguage(language, 'plaintext');
   await expect(richCode.locator('[class*="hljs-"]')).toHaveCount(0);
   await expect(richCode).toHaveText(code);
   await expect.poll(() => saved(page)).toContain(`\`\`\`plaintext\n${code}\n\`\`\``);
@@ -47,7 +124,7 @@ for (const theme of ['light', 'dark']) {
   await expect(language).toHaveValue('js');
   await expect(richCode.locator('.hljs-keyword')).toHaveText('const');
 
-  await language.selectOption('typescript');
+  await chooseLanguage(language, 'typescript');
   await richCode.locator('.hljs-number').click(); await page.keyboard.press('End'); await page.keyboard.insertText(' // edited');
   await expect(richCode.locator('.hljs-comment')).toContainText(['// comment', '// edited']);
   await expect.poll(() => saved(page)).toContain('```typescript\n');
@@ -82,7 +159,7 @@ test('configures each code block independently and preserves aliases and unknown
  await expect(languages.nth(1)).toHaveValue('text');
  await expect(languages.nth(2)).toHaveValue('');
  await expect(page.locator('.editor-code-block').nth(1).locator('[class*="hljs-"]')).toHaveCount(0);
- await languages.nth(1).selectOption('js');
+ await chooseLanguage(languages.nth(1), 'js');
  await expect(page.locator('.editor-code-block').nth(1).locator('.hljs-keyword')).toHaveText('const');
  await expect(languages.nth(0)).toHaveValue('custom-language');
  await expect.poll(() => saved(page)).toContain('```custom-language\n<literal>& **text**\n```');
@@ -92,7 +169,7 @@ test('configures each code block independently and preserves aliases and unknown
  await page.keyboard.press('End'); await page.keyboard.press('Enter');
  await page.getByRole('button', { name: '代码块', exact: true }).click();
  await expect(languages).toHaveCount(4);
- await languages.last().selectOption('json');
+ await chooseLanguage(languages.last(), 'json');
  await page.locator('.editor-code-block').last().locator('pre code').click();
  await page.keyboard.insertText('{"created": true}');
  await expect.poll(() => saved(page)).toContain('```json\n{"created": true}\n```');
@@ -227,12 +304,14 @@ test('inserts a row or column at hovered boundaries without changing neighboring
  const table = page.locator('.interactive-table');
  const rows = table.locator('tr');
  let cell = await rows.nth(1).locator('td').first().boundingBox();
- await page.mouse.move(cell!.x + cell!.width, cell!.y + 12);
+ const header = await rows.first().boundingBox();
+ await page.mouse.move(cell!.x + cell!.width, header!.y - 4);
  await table.getByRole('button', { name: '在第 2 列前插入列' }).click();
  await expect(rows.first().locator('th')).toHaveText(['A', '', 'B']);
  await expect(rows.nth(1).locator('td')).toHaveText(['a1', '', 'b1']);
  cell = await rows.nth(1).locator('td').first().boundingBox();
- await page.mouse.move(cell!.x + 35, cell!.y + cell!.height);
+ const bounds = await table.locator('table').boundingBox();
+ await page.mouse.move(bounds!.x + bounds!.width + 4, cell!.y + cell!.height);
  await table.getByRole('button', { name: '在第 3 行前插入行' }).click();
  await expect(rows).toHaveCount(4);
  await expect(rows.nth(2).locator('td')).toHaveText(['', '', '']);
@@ -243,7 +322,7 @@ test('inserts a row or column at hovered boundaries without changing neighboring
  await expect(rows.first().locator('th')).toHaveText(['A', 'B']);
 
  const last = await rows.last().locator('td').last().boundingBox();
- await page.mouse.move(last!.x + 30, last!.y + last!.height);
+ await page.mouse.move(last!.x + last!.width + 4, last!.y + last!.height);
  await table.getByRole('button', { name: '在第 4 行前插入行' }).click();
  await expect(rows).toHaveCount(4);
  await expect(rows.last().locator('td')).toHaveText(['', '']);
@@ -269,6 +348,38 @@ test('cancels a table drag with Escape and does not move content on selection al
  await expect(table.locator('.table-drop-marker')).toBeHidden();
  expect(await saved(page)).toBe(original);
  await expect(table.locator('tr').nth(1)).toContainText('a1');
+});
+
+test('shows only hovered row and column handles and keeps insertion buttons on the perimeter', async ({ page }) => {
+ await seed(page, '# 悬停表格\n\n| A | B | C |\n| --- | --- | --- |\n| a1 | b1 | c1 |\n| a2 | b2 | c2 |\n');
+ const table = page.locator('.interactive-table');
+ const handles = table.locator('.table-handle');
+ const visibleHandles = () => handles.evaluateAll(elements => elements.filter(element => getComputedStyle(element).opacity === '1').map(element => element.getAttribute('aria-label')));
+ const body = await table.locator('tr').nth(1).locator('td').nth(1).boundingBox();
+ await page.mouse.move(body!.x + body!.width / 2, body!.y + body!.height / 2);
+ await expect.poll(visibleHandles).toEqual(['选中第 2 列', '选中第 2 行']);
+ await expect(table.locator('.table-insert')).toBeHidden();
+ // Interior dividers no longer show a plus.
+ await page.mouse.move(body!.x + body!.width, body!.y + body!.height / 2);
+ await expect(table.locator('.table-insert')).toBeHidden();
+ await page.mouse.move(body!.x + body!.width / 2, body!.y + body!.height);
+ await expect(table.locator('.table-insert')).toBeHidden();
+ const bounds = await table.locator('table').boundingBox();
+ await page.mouse.move(body!.x, bounds!.y - 5);
+ const plus = table.getByRole('button', { name: '在第 2 列前插入列' });
+ await expect(plus).toBeVisible();
+ let position = await plus.boundingBox();
+ expect(Math.abs(position!.y + position!.height / 2 - bounds!.y)).toBeLessThan(1);
+ await page.screenshot({ path: 'test-results/table-perimeter-hover.png', fullPage: true });
+ await page.mouse.move(bounds!.x + bounds!.width + 5, body!.y + body!.height);
+ const rowPlus = table.getByRole('button', { name: '在第 3 行前插入行' });
+ await expect(rowPlus).toBeVisible();
+ position = await rowPlus.boundingBox();
+ expect(Math.abs(position!.x + position!.width / 2 - bounds!.x - bounds!.width)).toBeLessThan(1);
+ await table.getByRole('button', { name: '选中第 2 行', exact: true }).click();
+ await page.mouse.move(300, 600);
+ await expect.poll(visibleHandles).toEqual([]);
+ await expect(table.locator('.table-insert')).toBeHidden();
 });
 
 test('inserts local images at the cursor and can undo the insertion', async ({ page }) => {
