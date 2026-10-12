@@ -1,4 +1,5 @@
-import { memo, useRef, type MouseEvent } from 'react';
+import { memo, useEffect, useRef, useState, type MouseEvent } from 'react';
+import type { Extension } from '@codemirror/state';
 import CodeMirror, { EditorView, Transaction, type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
@@ -9,8 +10,17 @@ import { readClipboard, writeClipboard } from './clipboard';
 // Reuse the language extension across edits and background status refreshes.
 const extensions = [markdown({ codeLanguages: languages })];
 const basicSetup = { lineNumbers: true, foldGutter: false, highlightActiveLine: true };
-export default memo(function SourceEditor({ content, dark, onChange, onError }: { content: string; dark: boolean; onChange: (value: string) => void; onError: (message: string) => void }) {
+export default memo(function SourceEditor({ content, dark, onChange, onError, filename }: { content: string; dark: boolean; onChange: (value: string) => void; onError: (message: string) => void; filename?: string }) {
  const ref = useRef<ReactCodeMirrorRef>(null), contextMenu = useContextMenu();
+ const [fileExtensions, setFileExtensions] = useState<Extension[]>(filename ? [] : extensions);
+ useEffect(() => {
+  if (!filename) { setFileExtensions(extensions); return; }
+  let cancelled = false;
+  setFileExtensions([]);
+  const language = languages.find(language => language.extensions.includes(filename.split('.').pop()?.toLowerCase() || ''));
+  language?.load().then(extension => { if (!cancelled) setFileExtensions([extension]); }).catch(() => {});
+  return () => { cancelled = true; };
+ }, [filename]);
  function showContextMenu(event: MouseEvent<HTMLElement>) {
   const view = ref.current?.view;
   if (!view) return;
@@ -50,7 +60,7 @@ export default memo(function SourceEditor({ content, dark, onChange, onError }: 
   contextMenu.open({ x: keyboard ? coords.left : event.clientX, y: keyboard ? coords.bottom : event.clientY, label: '源码编辑器菜单', items, returnFocus: view.contentDOM });
  }
  return <>
-  <CodeMirror ref={ref} value={content} extensions={extensions} theme={dark ? 'dark' : 'light'} basicSetup={basicSetup} onChange={onChange} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} height="100%" placeholder="让一个想法，从这里开始…" />
+  <CodeMirror ref={ref} value={content} extensions={fileExtensions} theme={dark ? 'dark' : 'light'} basicSetup={basicSetup} onChange={onChange} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} height="100%" placeholder="让一个想法，从这里开始…" />
   <ContextMenu menu={contextMenu.menu} onClose={contextMenu.close} onError={onError} />
  </>;
 });

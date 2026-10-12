@@ -1,0 +1,71 @@
+import { _electron as electron, expect } from '@playwright/test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const { VaultStore } = createRequire(import.meta.url)('../electron/vault.cjs');
+
+const scratch = await mkdtemp(path.join(tmpdir(), 'fever-desktop-git-'));
+const folder = path.join(scratch, 'vault'), data = path.join(scratch, 'data');
+await mkdir(folder); await mkdir(data);
+const store = new VaultStore(); await store.open(folder);
+await store.configure({ author: 'Desktop Git Test', email: 'git@example.com', remote: '' });
+await store.commit('initial');
+const note = store.manifest.notes[0], file = `notes/${note.filename}`;
+await writeFile(path.join(data, 'preferences.json'), JSON.stringify({ vault: folder }));
+const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+let app;
+try {
+ app = await electron.launch({ args: ['.', `--fever-data=${data}`], env });
+ const page = await app.firstWindow();
+ const errors = []; page.on('pageerror', error => errors.push(error.message));
+ await expect(page.getByRole('heading', { name: '欢迎使用 Fever' })).toBeVisible();
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await page.locator('.cm-content').fill('# desktop staged\n\nselected content\n');
+ await expect(page.getByText('所有更改已保存')).toBeVisible();
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever' }).click();
+ await expect(page.locator('.diff-editor')).toContainText('+selected content');
+ await page.getByTitle(`关闭对比：${file}`, { exact: true }).click();
+ await page.getByTitle(`暂存变更：${file}`, { exact: true }).click();
+ await page.locator('.cm-content').fill('# desktop working\n\nlater edit\n');
+ await expect(page.getByText('所有更改已保存')).toBeVisible();
+ await page.getByRole('button', { name: '查看已暂存差异：欢迎使用 Fever' }).click();
+ await expect(page.locator('.diff-editor')).toContainText('+selected content');
+ await expect(page.locator('.diff-editor')).not.toContainText('later edit');
+ await page.getByTitle(`关闭对比：${file}`, { exact: true }).click();
+ await page.getByPlaceholder('这次记录了什么？').fill('selected desktop commit');
+ await page.getByRole('button', { name: '提交已暂存变更 (1)', exact: true }).click();
+ await expect(page.getByText('已创建 Git 提交')).toBeVisible();
+ assert.equal(await store.git(['show', `HEAD:${file}`]), '# desktop staged\n\nselected content\n');
+ assert.match(await readFile(path.join(folder, file), 'utf8'), /later edit/);
+ await page.getByTitle(`撤销变更：${file}`, { exact: true }).click();
+ await page.getByRole('dialog').getByRole('button', { name: '撤销变更', exact: true }).click();
+ await expect(page.locator('.cm-content')).toContainText('selected content');
+ await expect(page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever' })).toHaveCount(0);
+ await page.getByTitle('暂存变更：fever.json', { exact: true }).click();
+ await page.getByTitle('取消暂存：fever.json', { exact: true }).click();
+ await expect(page.getByTitle('暂存变更：fever.json', { exact: true })).toBeVisible();
+ // Fail the test if opening a repository file invokes the system file opener.
+ await app.evaluate(({ shell }) => {
+  globalThis.feverGitOpenedFiles = [];
+  shell.openPath = async file => { globalThis.feverGitOpenedFiles.push(file); return ''; };
+ });
+ await page.getByTitle('打开文件：fever.json', { exact: true }).click();
+ await expect(page.locator('.file-editor .cm-content')).toContainText(note.filename);
+ await expect(page.locator('.tab.current')).toContainText('fever.json');
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ assert.deepEqual(await app.evaluate(() => globalThis.feverGitOpenedFiles), []);
+ const manifest = JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8'));
+ manifest.categories.push('raw editor category');
+ await page.locator('.file-editor .cm-content').fill(JSON.stringify(manifest, null, 2));
+ await expect(page.getByText('所有更改已保存')).toBeVisible();
+ await expect.poll(async () => JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8')).categories).toContain('raw editor category');
+ await page.getByTitle('关闭文件：fever.json', { exact: true }).click();
+ assert.deepEqual(errors, []);
+ console.log('Desktop Git diff, staging, selected commit and discard passed.');
+} finally {
+ if (app) await app.close();
+ await rm(scratch, { recursive: true, force: true });
+}

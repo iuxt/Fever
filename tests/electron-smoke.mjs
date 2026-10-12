@@ -22,7 +22,7 @@ try {
  await page.addInitScript(recordSvg); await page.evaluate(recordSvg);
  const errors = []; page.on('pageerror', error => errors.push(error.message));
  await page.route('https://**', route => route.abort());
- await expect(page.getByRole('heading', { name: '让想法，有一个家。' })).toBeVisible();
+ await expect(page.getByRole('heading', { name: 'Fever', exact: true })).toBeVisible();
  await page.screenshot({ path: 'test-results/desktop-welcome.png' });
  await app.evaluate(({ dialog }, vaultPath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [vaultPath] }); }, folder);
  await page.getByRole('button', { name: '选择笔记库文件夹' }).click();
@@ -44,12 +44,13 @@ try {
  if (!note) throw new Error('Note was not added to the real manifest');
  if (!(await readFile(path.join(folder, 'notes', note.filename), 'utf8')).includes('真实文件保存成功')) throw new Error('Real Markdown content was not saved');
  // Custom editor menus use the system clipboard through the sandboxed preload.
+ await page.getByRole('textbox', { name: '笔记正文' }).focus();
  await page.locator('.wysiwyg-content > p').first().evaluate(p => {
   const range = document.createRange(); range.selectNodeContents(p);
   const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
  });
  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
- await page.locator('.wysiwyg-content > p').first().click({ button: 'right' });
+ await page.locator('.wysiwyg-content > p').first().evaluate(element => element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 500, clientY: 300 })));
  await page.getByRole('menuitem', { name: '复制', exact: true }).click();
  await expect.poll(async () => {
   if (await page.locator('.toast.error').count()) throw new Error(await page.locator('.toast.error').textContent());
@@ -77,9 +78,8 @@ try {
  const png = [...Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64')];
  const image = await page.evaluate(async ({ png, id }) => { const src = await window.fever.image(png, 'pixel.png'); const content = await window.fever.read(id); await window.fever.save(id, content + `\n\n![pixel](${src})\n`); return src; }, { png, id: note.id });
  await page.locator('.note-row.selected').click();
- await page.getByTitle('阅读模式', { exact: true }).click();
- await expect(page.locator('.prose img')).toBeVisible();
- const loaded = await page.locator('.prose img').evaluate(img => img.complete && img.naturalWidth === 1);
+ await expect(page.locator('.wysiwyg-content .editor-image img')).toBeVisible();
+ const loaded = await page.locator('.wysiwyg-content .editor-image img').evaluate(img => img.complete && img.naturalWidth === 1);
  if (!loaded) throw new Error('Restricted image protocol failed to render the real attachment');
  await page.evaluate(() => window.fever.commit('desktop image'));
  const pointer = (await exec('git', ['show', `HEAD:${image.slice(3)}`], { cwd: folder })).stdout;
@@ -89,8 +89,6 @@ try {
  await writeFile(drawingImport, drawingContent);
  await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, drawingImport);
  await page.getByTitle('导入 Markdown / Excalidraw').click();
- await expect(page.locator('.drawing-preview img')).toBeVisible();
- await page.getByRole('button', { name: '编辑绘图', exact: true }).click();
  const canvas = page.locator('.drawing-canvas canvas.interactive');
  await expect(canvas).toBeVisible(); await canvas.click(); await page.keyboard.press('t');
  const canvasBox = await canvas.boundingBox();
@@ -102,14 +100,18 @@ try {
   const scene = JSON.parse(await readFile(path.join(folder, 'notes', drawing.filename), 'utf8'));
   return scene.elements.some(element => element.text === '桌面中文绘图');
  }).toBe(true);
- await page.getByTitle('阅读模式', { exact: true }).click();
- await expect(page.locator('.drawing-preview img')).toBeVisible();
+ await page.evaluate(async id => {
+  const vault = await window.fever.current();
+  const drawing = vault.manifest.notes.find(note => note.title === '导入架构图');
+  const content = await window.fever.read(id);
+  await window.fever.save(id, content + `\n\n![架构图](notes/${drawing.filename})\n`);
+ }, note.id);
  // Exercise the production file:// build with its local fonts and existing IPC vault.
  await app.evaluate(async ({ BrowserWindow }, file) => { await BrowserWindow.getAllWindows()[0].loadFile(file); }, path.resolve('dist/index.html'));
  await page.locator('.note-row').filter({ hasText: '桌面集成测试' }).click({ button: 'right' });
  await page.getByRole('menuitem', { name: '复制 Markdown', exact: true }).click();
  await expect.poll(() => app.evaluate(async ({ clipboard }) => (await clipboard.readText()).includes('真实文件保存成功。'))).toBe(true);
- await page.locator('.note-row').filter({ hasText: '导入架构图' }).click();
+ await page.locator('.note-row').filter({ hasText: '桌面集成测试' }).click();
  await expect(page.locator('.drawing-preview img')).toBeVisible();
  const drawingLoaded = await page.locator('.drawing-preview img').evaluate(img => img.complete && img.naturalWidth > 0);
  const productionSvg = await page.locator('.drawing-preview img').evaluate(img => window.previewSVGs.get(img.src).text());
@@ -135,12 +137,13 @@ try {
  await writeFile(path.join(fsnotes, 'notes', `${trashID}.md`), 'trashed');
  await writeFile(path.join(fsnotes, 'images', fsnoteID, 'pixel.png'), Buffer.from(png));
  await app.evaluate(({ dialog }, vaultPath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [vaultPath] }); }, fsnotes);
- await page.locator('.vault-select').click(); await page.getByTitle('阅读模式', { exact: true }).click();
+ await page.getByTitle('设置', { exact: true }).click();
+ await page.getByRole('dialog').getByRole('button', { name: '切换', exact: true }).click();
  await expect(page.locator('.sidebar-foot')).toContainText('1 篇笔记');
  await expect(page.locator('.note-row.selected')).toContainText('FSNotes 清单标题');
  await expect(page.locator('.breadcrumbs')).toContainText('嵌套分类');
- await expect(page.locator('.prose h1')).toHaveText('FSNotes 正文');
- await expect.poll(() => page.locator('.prose img').evaluate(img => img.complete && img.naturalWidth === 1)).toBe(true);
+ await expect(page.locator('.wysiwyg-content h1')).toHaveText('FSNotes 正文');
+ await expect.poll(() => page.locator('.wysiwyg-content .editor-image img').evaluate(img => img.complete && img.naturalWidth === 1)).toBe(true);
  if (await readFile(path.join(fsnotes, 'metadata.json'), 'utf8') !== snapshotText) throw new Error('Opening FSNotes rewrote its metadata');
  await page.getByTitle('更多笔记操作').click(); await page.getByRole('button', { name: '重命名 / 移动笔记' }).click();
  await page.getByLabel('笔记标题').fill('FSNotes 新标题'); await page.getByLabel('所属分类').fill('新分类/子分类');

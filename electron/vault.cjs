@@ -1,12 +1,22 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { isUtf8 } = require('node:buffer');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const exec = promisify(execFile);
 const { metadataView, updateMetadata } = require('./metadata.cjs');
 const MANIFEST = 'fever.json';
 const UUID_FILE = /^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/;
+function validateManifest(manifest) {
+  if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.notes) || !Array.isArray(manifest.categories)) throw new Error('不支持的笔记清单格式');
+  const ids = new Set(), files = new Set();
+  for (const n of manifest.notes) {
+    if (!n || typeof n.id !== 'string' || !UUID_FILE.test(n.filename) || typeof n.title !== 'string' || typeof n.category !== 'string' || ids.has(n.id) || files.has(n.filename)) throw new Error('笔记清单含有无效或重复的文件记录');
+    ids.add(n.id); files.add(n.filename);
+  }
+  if (!manifest.categories.every(c => typeof c === 'string')) throw new Error('分类格式无效');
+}
 function validateDrawing(content) {
   let scene;
   try { scene = JSON.parse(content); } catch { throw new Error('Excalidraw 文件不是有效的 JSON'); }
@@ -127,13 +137,7 @@ class VaultStore {
         let manifest, isNew = false;
         try {
           manifest = JSON.parse(await fs.readFile(await this.safe(MANIFEST), 'utf8'));
-          if (manifest.version !== 1 || !Array.isArray(manifest.notes) || !Array.isArray(manifest.categories)) throw new Error('不支持的笔记清单格式');
-          const ids = new Set(), files = new Set();
-          for (const n of manifest.notes) {
-            if (!n || typeof n.id !== 'string' || !UUID_FILE.test(n.filename) || typeof n.title !== 'string' || typeof n.category !== 'string' || ids.has(n.id) || files.has(n.filename)) throw new Error('笔记清单含有无效或重复的文件记录');
-            ids.add(n.id); files.add(n.filename);
-          }
-          if (!manifest.categories.every(c => typeof c === 'string')) throw new Error('分类格式无效');
+          validateManifest(manifest);
         } catch (e) {
           if (e.code !== 'ENOENT') throw e;
           let text;
@@ -221,20 +225,122 @@ class VaultStore {
     await fs.writeFile(await this.safe(`images/${filename}`), buffer, { flag: 'wx' }); return `../images/${filename}`;
   }); }
   async status() {
-    const raw = await this.git(['status', '--porcelain=v1', '-z']);
+    const raw = await this.git(['status', '--porcelain=v1', '-z', '--untracked-files=all']);
     const fields = raw.split('\0').filter(Boolean), changes = [];
-    for (let i = 0; i < fields.length; i++) { const code = fields[i].slice(0, 2); changes.push({ status: code.trim(), path: fields[i].slice(3) }); if (/[RC]/.test(code)) i++; }
+    for (let i = 0; i < fields.length; i++) {
+      const code = fields[i].slice(0, 2), file = fields[i].slice(3);
+      const originalPath = /[RC]/.test(code) ? fields[++i] : undefined;
+      changes.push({ status: code.trim(), path: file, staged: code !== '??' && code[0] !== ' ', unstaged: code === '??' || code[1] !== ' ', ...(originalPath ? { originalPath } : {}) });
+    }
     const counts = (await this.git(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], true)).trim().split(/\s+/);
     return { branch: (await this.git(['branch', '--show-current'])).trim() || 'HEAD', changes, ahead: Number(counts[0]) || 0, behind: Number(counts[1]) || 0, remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim(), lfs: this.lfs };
   }
-  commit(message) { return this.queued(async () => {
+  async changeFile(relative) {
+    if (typeof relative !== 'string' || !relative || relative.includes('\0') || relative.split(/[\\/]/).some(part => /^\.git$/i.test(part) || part === '..') || path.isAbsolute(relative)) throw new Error('文件路径无效');
+    return this.safe(relative);
+  }
+  openFile(relative) { return this.queued(async () => {
+    const file = await this.changeFile(relative), stat = await fs.stat(file);
+    if (!stat.isFile()) throw new Error('请选择文件');
+    if (stat.size > 20 * 1024 * 1024) throw new Error('文件最大为 20 MB');
+    const bytes = await fs.readFile(file), ext = path.extname(relative).toLowerCase();
+    const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif' }[ext];
+    const binary = Boolean(mime) || bytes.includes(0) || !isUtf8(bytes);
+    if (!binary && bytes.length > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');
+    return { path: relative, content: binary ? '' : bytes.toString('utf8'), binary, ...(mime ? { image: `data:${mime};base64,${bytes.toString('base64')}` } : {}) };
+  }); }
+  saveFile(relative, content) {
+    const note = this.manifest?.notes.find(n => `notes/${n.filename}` === relative);
+    if (note) return this.save(note.id, content);
+    return this.mutate(async () => {
+      const file = await this.changeFile(relative);
+      if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');
+      const bytes = await fs.readFile(file);
+      if (bytes.includes(0) || !isUtf8(bytes) || /\.(png|jpe?g|gif|webp|avif)$/i.test(relative)) throw new Error('二进制文件不能作为文本保存');
+      let manifest;
+      if (relative === this.manifestFile) {
+        const parsed = JSON.parse(content);
+        if (this.metadata) metadataView(parsed); else { validateManifest(parsed); manifest = parsed; }
+      }
+      if (relative.endsWith('.excalidraw')) validateDrawing(content);
+      await this.assertMetadataUnchanged();
+      const temp = await this.safe(`${path.dirname(relative)}/.fever-${randomUUID()}.tmp`);
+      try { await fs.writeFile(temp, content); await fs.rename(temp, file); }
+      finally { await fs.rm(temp, { force: true }); }
+      if (relative === this.manifestFile) this.manifest = this.metadata ? await this.loadMetadata(content) : manifest;
+    });
+  }
+  async change(relative) {
+    await this.changeFile(relative);
+    const change = (await this.status()).changes.find(c => c.path === relative);
+    if (!change) throw new Error('文件已没有变更，请刷新 Git 状态');
+    if (change.originalPath) await this.changeFile(change.originalPath);
+    if (/^(DD|AU|UD|UA|DU|AA|UU)$/.test(change.status)) throw new Error('请先解决文件的合并冲突');
+    return change;
+  }
+  diff(relative, staged = false) { return this.queued(async () => {
+    const change = await this.change(relative);
+    if (change.status === '??') {
+      const file = await this.changeFile(relative), stat = await fs.stat(file);
+      if (stat.size > 10 * 1024 * 1024) return { path: relative, patch: '文件过大，请打开文件查看内容。' };
+      const bytes = await fs.readFile(file);
+      if (bytes.includes(0) || relative.startsWith('images/')) return { path: relative, patch: '二进制文件已新增，无法显示文本差异。' };
+      const text = bytes.toString('utf8'), lines = text ? text.replace(/\n$/, '').split('\n') : [];
+      return { path: relative, patch: `--- /dev/null\n+++ b/${relative}\n@@ -0,0 +1,${lines.length} @@\n${lines.map(line => '+' + line).join('\n')}${text && !text.endsWith('\n') ? '\n\\ No newline at end of file' : ''}\n` };
+    }
+    const paths = [relative, ...(change.originalPath ? [change.originalPath] : [])].map(p => `:(literal)${p}`);
+    const patch = await this.git(['diff', '--no-ext-diff', '--no-textconv', '--no-color', ...(staged ? ['--cached'] : []), '--', ...paths]);
+    return { path: relative, patch: patch || '没有文本差异（文件权限或属性发生变化）。' };
+  }); }
+  stage(relative) { return this.queued(async () => {
+    await this.change(relative);
+    await this.git(['add', '-A', '--', `:(literal)${relative}`]);
+  }); }
+  unstage(relative) { return this.queued(async () => {
+    const change = await this.change(relative);
+    const paths = [relative, ...(change.originalPath ? [change.originalPath] : [])].map(p => `:(literal)${p}`);
+    if ((await this.git(['rev-parse', '--verify', 'HEAD'], true)).trim()) await this.git(['reset', 'HEAD', '--', ...paths]);
+    else await this.git(['rm', '--cached', '-f', '--', ...paths]);
+  }); }
+  discard(relative) { return this.mutate(async () => {
+    const change = await this.change(relative), hasHead = Boolean((await this.git(['rev-parse', '--verify', 'HEAD'], true)).trim());
+    const paths = [relative, ...(change.originalPath ? [change.originalPath] : [])];
+    const tracked = [], added = [];
+    for (const file of paths) {
+      if (hasHead && (await this.git(['ls-tree', '--name-only', 'HEAD', '--', `:(literal)${file}`])).trim()) tracked.push(file);
+      else added.push(file);
+    }
+    if (added.includes(this.manifestFile)) throw new Error('请先提交初始笔记库，不能撤销未提交的笔记清单');
+    await this.assertMetadataUnchanged();
+    if (relative === this.manifestFile) {
+      // Validate the restored snapshot before changing either the index or the file.
+      const restored = JSON.parse(await this.git(['show', `HEAD:${relative}`]));
+      if (this.metadata) metadataView(restored);
+      else if (restored.version !== 1 || !Array.isArray(restored.notes) || !Array.isArray(restored.categories) || restored.notes.some(n => !UUID_FILE.test(n.filename))) throw new Error('历史笔记清单无效');
+    }
+    if (tracked.length) await this.git(['restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked.map(p => `:(literal)${p}`)]);
+    for (const file of added) {
+      if ((await this.git(['ls-files', '--', `:(literal)${file}`])).trim()) await this.git(['rm', '--cached', '-f', '--', `:(literal)${file}`]);
+      await fs.rm(await this.changeFile(file), { force: true });
+    }
+    this.cancelSearch();
+    if (relative === this.manifestFile) {
+      const text = await fs.readFile(await this.safe(this.manifestFile), 'utf8');
+      this.manifest = this.metadata ? await this.loadMetadata(text) : JSON.parse(text);
+    } else if (added.some(file => this.manifest.notes.some(n => `notes/${n.filename}` === file))) {
+      // Discarding a new note must not leave a dangling entry in the library.
+      this.manifest.notes = this.manifest.notes.filter(n => !added.includes(`notes/${n.filename}`));
+      await this.persist();
+    }
+  }); }
+  commit(message, stagedOnly = false) { return this.queued(async () => {
     if (typeof message !== 'string' || !message.trim()) throw new Error('请填写提交说明');
     if (!(await this.git(['config', 'user.name'], true)).trim() || !(await this.git(['config', 'user.email'], true)).trim()) throw new Error('请先在设置中配置 Git 用户名和邮箱');
     if (!this.lfs && (await fs.readdir(await this.safe('images'))).length) throw new Error('图片提交需要安装 Git LFS');
-    await this.git(['add', '--', this.manifestFile, 'notes', 'images', '.gitattributes']);
-    const staged = await this.git(['diff', '--cached', '--name-only']);
+    if (!stagedOnly) await this.git(['add', '--', this.manifestFile, 'notes', 'images', '.gitattributes']);
+    const staged = await this.git(['diff', '--cached', '--name-only', '-z']);
     if (!staged.trim()) throw new Error('没有需要提交的变更');
-    if (staged.trim().split('\n').some(p => ![this.manifestFile, '.gitattributes'].includes(p) && !p.startsWith('notes/') && !p.startsWith('images/'))) throw new Error('仓库中有其他已暂存文件，请先处理它们再提交笔记');
+    if (!stagedOnly && staged.split('\0').filter(Boolean).some(p => ![this.manifestFile, '.gitattributes'].includes(p) && !p.startsWith('notes/') && !p.startsWith('images/'))) throw new Error('仓库中有其他已暂存文件，请先处理它们再提交笔记');
     await this.git(['commit', '-m', message.trim()]);
   }); }
   pull() { return this.queued(async () => {

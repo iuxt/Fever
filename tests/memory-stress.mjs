@@ -65,7 +65,7 @@ try {
  app = await electron.launch({ args: [bootstrap, `--fever-data=${data}`], env });
  page = await app.firstWindow(); page.setDefaultTimeout(60000);
  page.on('pageerror', error => errors.push(error.message));
- await expect(page.locator('.prose h1')).toHaveText('压测首页');
+ await expect(page.locator('.wysiwyg-content h1')).toHaveText('压测首页');
  await expect(page.locator('.sidebar-foot')).toContainText(`${count + 1} 篇笔记`);
  report.initial = await memory(true);
  report.initial.noteRows = await page.locator('.note-tree .note-row').count();
@@ -91,8 +91,9 @@ try {
    await page.locator('.note-row').filter({ hasText: title(i % 3) }).click();
    await expect(page.locator('.breadcrumb-title')).toHaveText(title(i % 3));
    await page.getByTitle('编辑模式 · ⌘ E').click(); await expect(page.locator('.wysiwyg-content')).toBeVisible();
-   await page.getByTitle('阅读模式', { exact: true }).click(); await expect(page.locator('.prose h1')).toBeVisible();
+   await page.getByTitle('Markdown 源码与预览', { exact: true }).click(); await expect(page.locator('.prose h1')).toBeVisible();
   }
+  await page.getByTitle('编辑模式 · ⌘ E').click();
   await page.locator('.note-row').filter({ hasText: title(0) }).click();
   await expect(page.locator('.breadcrumb-title')).toHaveText(title(0));
  });
@@ -115,32 +116,35 @@ try {
   // Metadata search brings the drawing into view even with a virtualized sidebar.
   await search.fill('压测绘图'); await page.locator('.note-row').filter({ hasText: '压测绘图' }).click(); await search.fill('');
   for (let i = 0; i < drawingCycles; i++) {
-   await expect(page.locator('.drawing-preview img')).toBeVisible();
-   await page.getByRole('button', { name: '编辑绘图', exact: true }).click(); await expect(page.locator('.drawing-canvas canvas.interactive')).toBeVisible();
-   await page.getByTitle('阅读模式', { exact: true }).click();
+   await expect(page.locator('.drawing-canvas canvas.interactive')).toBeVisible();
+   await search.fill(title(0)); await page.locator('.note-row').filter({ hasText: title(0) }).click();
+   await expect(page.locator('.wysiwyg-content')).toBeVisible();
+   await search.fill('压测绘图'); await page.locator('.note-row').filter({ hasText: '压测绘图' }).click(); await search.fill('');
   }
   await search.fill(title(0)); await page.locator('.note-row').filter({ hasText: title(0) }).click(); await search.fill('');
-  await expect(page.locator('.prose h1')).toHaveText('压测首页');
+  await expect(page.locator('.wysiwyg-content h1')).toHaveText('压测首页');
  });
  await stage('warm-editor-mount-cycles', async () => {
   for (let i = 0; i < cycles; i++) {
    await page.locator('.note-row').filter({ hasText: title(i % 3) }).click();
    await expect(page.locator('.breadcrumb-title')).toHaveText(title(i % 3));
    await page.getByTitle('编辑模式 · ⌘ E').click(); await expect(page.locator('.wysiwyg-content')).toBeVisible();
-   await page.getByTitle('阅读模式', { exact: true }).click(); await expect(page.locator('.prose h1')).toBeVisible();
+   await page.getByTitle('Markdown 源码与预览', { exact: true }).click(); await expect(page.locator('.prose h1')).toBeVisible();
   }
+  await page.getByTitle('编辑模式 · ⌘ E').click();
   await page.locator('.note-row').filter({ hasText: title(0) }).click();
   await expect(page.locator('.breadcrumb-title')).toHaveText(title(0));
  });
  await stage('warm-drawing-mount-cycles', async () => {
   await search.fill('压测绘图'); await page.locator('.note-row').filter({ hasText: '压测绘图' }).click(); await search.fill('');
   for (let i = 0; i < drawingCycles; i++) {
-   await expect(page.locator('.drawing-preview img')).toBeVisible();
-   await page.getByRole('button', { name: '编辑绘图', exact: true }).click(); await expect(page.locator('.drawing-canvas canvas.interactive')).toBeVisible();
-   await page.getByTitle('阅读模式', { exact: true }).click();
+   await expect(page.locator('.drawing-canvas canvas.interactive')).toBeVisible();
+   await search.fill(title(0)); await page.locator('.note-row').filter({ hasText: title(0) }).click();
+   await expect(page.locator('.wysiwyg-content')).toBeVisible();
+   await search.fill('压测绘图'); await page.locator('.note-row').filter({ hasText: '压测绘图' }).click(); await search.fill('');
   }
   await search.fill(title(0)); await page.locator('.note-row').filter({ hasText: title(0) }).click(); await search.fill('');
-  await expect(page.locator('.prose h1')).toHaveText('压测首页');
+  await expect(page.locator('.wysiwyg-content h1')).toHaveText('压测首页');
  });
  await page.waitForTimeout(500);
  report.final = await memory(true);

@@ -52,6 +52,21 @@ test('FSNotes opens without rewriting its snapshot or creating Fever files', asy
   await assert.rejects(store.read(trashID), /不存在/);
 });
 
+test('the repository file editor validates and reloads FSNotes metadata before subsequent note saves', async t => {
+ const { store, load, body } = await fixture(t);
+ const file = await store.openFile('metadata.json'), metadata = JSON.parse(file.content);
+ metadata.notes[0].name = '源码编辑后的标题'; metadata.extra.editor = true;
+ await store.saveFile('metadata.json', JSON.stringify(metadata, null, 2));
+ assert.equal(store.note(noteID).title, '源码编辑后的标题');
+ await store.save(noteID, body + 'more content');
+ assert.equal((await load()).notes[0].name, '源码编辑后的标题');
+ assert.equal((await load()).extra.editor, true);
+ const saved = (await store.openFile('metadata.json')).content;
+ metadata.notes[0].fileExtension = '../../outside';
+ await assert.rejects(store.saveFile('metadata.json', JSON.stringify(metadata)), /无效/);
+ assert.equal((await store.openFile('metadata.json')).content, saved);
+});
+
 test('FSNotes edits preserve IDs, aliases, unknown fields, folder ancestry and trash files', async t => {
   const { dir, store, metadata, body, load } = await fixture(t);
   await store.update(noteID, '新标题', '新项目/子分类');

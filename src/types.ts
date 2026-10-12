@@ -1,7 +1,9 @@
 export type Note = { id: string; title: string; category: string; filename: string; createdAt: string; updatedAt: string; sourcePath?: string };
 export type Manifest = { version: 1; categories: string[]; notes: Note[]; assets?: Record<string, string> };
 export type Vault = { path: string; name: string; manifest: Manifest; lfs: boolean; format?: 'fever' | 'fsnotes' };
-export type Change = { status: string; path: string };
+export type Change = { status: string; path: string; staged: boolean; unstaged: boolean; originalPath?: string };
+export type FileDiff = { path: string; patch: string };
+export type VaultFile = { path: string; content: string; binary: boolean; image?: string };
 export type GitStatus = { branch: string; changes: Change[]; ahead: number; behind: number; remote: string; lfs: boolean };
 export type Commit = { hash: string; author: string; date: string; message: string };
 export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string };
@@ -23,7 +25,13 @@ export type Api = {
   image(bytes: Uint8Array | number[], name: string): Promise<string>;
   asset(src: string): string;
   status(): Promise<GitStatus>;
-  commit(message: string): Promise<void>;
+  diff(path: string, staged?: boolean): Promise<FileDiff>;
+  stage(path: string): Promise<void>;
+  unstage(path: string): Promise<void>;
+  discard(path: string): Promise<void>;
+  openFile(path: string): Promise<VaultFile>;
+  saveFile(path: string, content: string): Promise<void>;
+  commit(message: string, stagedOnly?: boolean): Promise<void>;
   pull(): Promise<void>;
   push(): Promise<void>;
   history(id?: string): Promise<Commit[]>;

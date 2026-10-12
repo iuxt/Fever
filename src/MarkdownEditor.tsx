@@ -3,7 +3,7 @@ import { EditorContent, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer,
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import Image from '@tiptap/extension-image';
-import CodeBlock from '@tiptap/extension-code-block';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import Paragraph from '@tiptap/extension-paragraph';
 import { TableKit } from '@tiptap/extension-table';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
@@ -12,6 +12,8 @@ import { Bold, Code2, Heading2, Italic, List, ListChecks, ListOrdered, Quote, Re
 import type { Editor } from '@tiptap/core';
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
 import { readClipboard, writeClipboard } from './clipboard';
+import { InteractiveTable } from './InteractiveTable';
+import { codeLanguages, lowlight } from './codeHighlight';
 
 export type MarkdownEditorHandle = { insertMarkdown: (markdown: string) => boolean };
 type Media = { image: (src: string, alt: string) => ReactNode; drawing: (content: string) => ReactNode };
@@ -43,16 +45,32 @@ const WikiImage = EditorImage.extend({
  renderMarkdown: node => node.attrs?.source || `![[${node.attrs?.src}]]`,
 });
 
-function CodeView({ node }: NodeViewProps) {
+function CodeView({ node, editor, getPos, updateAttributes }: NodeViewProps) {
  const media = useContext(MediaContext)!;
  const [source, setSource] = useState(false);
  const drawing = node.attrs.language === 'excalidraw';
+ const language = node.attrs.language || '';
+ function setLanguage(value: string) {
+  const position = getPos();
+  if (typeof position !== 'number') return;
+  // Select this block so language changes also refresh its highlight decorations.
+  const { from, to } = editor.state.selection;
+  if (from < position + 1 || to > position + node.nodeSize - 1) editor.commands.setTextSelection(position + 1);
+  updateAttributes({ language: value || null });
+ }
  return <NodeViewWrapper className="editor-code-block">
-  <div className="editor-code-label" contentEditable={false}><span>{node.attrs.language || '代码'}</span>{drawing && <button onClick={() => setSource(!source)}>{source ? '查看绘图' : '编辑数据'}</button>}</div>
-  {drawing && !source ? <div contentEditable={false}>{media.drawing(node.textContent)}</div> : <pre><NodeViewContent<'code'> as="code" /></pre>}
+  <div className="editor-code-label" contentEditable={false}>
+   <select aria-label="代码块语言" title="代码块语言" value={language} onChange={event => setLanguage(event.target.value)}>
+    <option value="">自动识别</option>
+    {language && !codeLanguages.includes(language) && <option value={language}>{language}</option>}
+    {codeLanguages.map(value => <option key={value} value={value}>{value === 'plaintext' ? '纯文本' : value}</option>)}
+   </select>
+   {drawing && <button type="button" onClick={() => setSource(!source)}>{source ? '查看绘图' : '编辑数据'}</button>}
+  </div>
+  {drawing && !source ? <div contentEditable={false}>{media.drawing(node.textContent)}</div> : <pre><NodeViewContent<'code'> as="code" className={language ? `language-${language}` : undefined} /></pre>}
  </NodeViewWrapper>;
 }
-const EditorCodeBlock = CodeBlock.extend({
+const EditorCodeBlock = CodeBlockLowlight.extend({
  addNodeView() { return ReactNodeViewRenderer(CodeView); },
  renderMarkdown(node) {
   const text = (node.content || []).map(child => child.text || '').join('');
@@ -60,7 +78,7 @@ const EditorCodeBlock = CodeBlock.extend({
   const fence = '`'.repeat(Math.max(3, longest + 1));
   return `${fence}${node.attrs?.language || ''}\n${text}\n${fence}`;
  },
-});
+}).configure({ lowlight });
 const EditorParagraph = Paragraph.extend({
  parseMarkdown(token, helpers) {
   // Tiptap's default parser unwraps lone images as blocks; ours stay inline.
@@ -73,7 +91,7 @@ const EditorParagraph = Paragraph.extend({
 const extensions = [
  StarterKit.configure({ paragraph: false, codeBlock: false, underline: false, trailingNode: false, link: { openOnClick: false } }),
  EditorParagraph, EditorCodeBlock, EditorImage, WikiImage,
- TableKit.configure({ table: { resizable: false } }),
+ TableKit.configure({ table: false }), InteractiveTable,
  TaskList, TaskItem.configure({ nested: true }),
  Markdown.configure({ markedOptions: { gfm: true } }),
  Placeholder.configure({ placeholder: '让一个想法，从这里开始…' }),
@@ -212,7 +230,6 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   <article className="document wysiwyg-document">
    {prefix.current && <details className="editor-frontmatter"><summary>文档属性 · 在源码中编辑</summary><pre>{prefix.current}</pre></details>}
    <EditorContent editor={editor} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} />
-   <div className="document-end"><span />✧<span /></div>
   </article>
   <ContextMenu menu={contextMenu.menu} onClose={contextMenu.close} onError={onError} />
  </MediaContext.Provider>;

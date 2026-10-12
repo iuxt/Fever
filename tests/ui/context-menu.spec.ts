@@ -50,7 +50,7 @@ test('list actions target the clicked note while keeping the current document op
  await expect(page.getByRole('dialog')).toContainText('「改名的笔记」');
  await page.getByRole('button', { name: '删除笔记', exact: true }).click();
  await expect(renamed).toHaveCount(0);
- await expect(page.locator('.prose h1')).toHaveText('标题');
+ await expect(page.locator('.wysiwyg-content h1')).toHaveText('标题');
  await page.reload();
  await expect(page.locator('.note-row')).toHaveCount(1);
 });
@@ -72,7 +72,7 @@ test('folder and blank menus create in the correct category and search rows open
  await page.locator('.note-row').click({ button: 'right' });
  await menu(page).getByRole('menuitem', { name: '打开笔记' }).click();
  await expect(page.locator('.note-row.selected')).toHaveText('另一篇笔记');
- await expect(page.locator('.prose h1')).toHaveText('另一篇');
+ await expect(page.locator('.wysiwyg-content h1')).toHaveText('另一篇');
 });
 
 test('rich editor preserves selection for formatting, copying, cutting and undo', async ({ page }) => {
@@ -152,7 +152,8 @@ test('menus fit the viewport, support keyboard navigation, dismiss and replace e
  await expect(body).toBeVisible();
 });
 
-test('reading view offers selection copy and editing entry', async ({ page }) => {
+test('source preview offers selection copy and editing entry', async ({ page }) => {
+ await page.getByTitle('Markdown 源码与预览').click();
  await page.locator('.document > .prose').click({ button: 'right' });
  await expect(menu(page)).toHaveAttribute('aria-label', '笔记正文菜单');
  await menu(page).getByRole('menuitem', { name: '编辑笔记' }).click();
