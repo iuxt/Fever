@@ -8,8 +8,10 @@ import Paragraph from '@tiptap/extension-paragraph';
 import { TableKit } from '@tiptap/extension-table';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import Placeholder from '@tiptap/extension-placeholder';
-import { Bold, Code2, Heading2, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Table2, Undo2 } from 'lucide-react';
+import { Bold, Code2, Heading2, ImagePlus, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Shapes, Table2, Undo2 } from 'lucide-react';
 import type { Editor } from '@tiptap/core';
+import { NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
 import { readClipboard, writeClipboard } from './clipboard';
 import { InteractiveTable } from './InteractiveTable';
@@ -100,8 +102,20 @@ function splitContent(content: string) {
  return { prefix, body: content.slice(prefix.length) };
 }
 
-export default memo(function MarkdownEditor({ content, onChange, media, ref, onError }: {
+function focusEndParagraph(view: EditorView) {
+ const { doc, schema, tr } = view.state;
+ const last = doc.lastChild;
+ // Reuse an existing empty line so repeated clicks do not grow the document.
+ const reuse = last?.type === schema.nodes.paragraph && last.content.size === 0;
+ const position = reuse ? doc.content.size - last.nodeSize + 1 : doc.content.size + 1;
+ if (!reuse) tr.insert(doc.content.size, schema.nodes.paragraph.create());
+ view.dispatch(tr.setSelection(TextSelection.create(tr.doc, position)).scrollIntoView());
+ view.focus();
+}
+
+export default memo(function MarkdownEditor({ content, onChange, media, ref, onError, onInsertImage, onInsertDrawing }: {
  content: string; onChange: (value: string) => void; media: Media; ref?: Ref<MarkdownEditorHandle>; onError: (message: string) => void;
+ onInsertImage: () => void; onInsertDrawing: () => void;
 }) {
  const contextMenu = useContextMenu();
  const initial = useRef(splitContent(content));
@@ -111,6 +125,21 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   content: initial.current.body, contentType: 'markdown',
   editorProps: {
    attributes: { class: 'prose wysiwyg-content', role: 'textbox', 'aria-label': '笔记正文', 'aria-multiline': 'true', spellcheck: 'false' },
+   handleKeyDown(view, event) {
+    if (event.key !== 'Enter' || event.isComposing || view.composing || event.ctrlKey || event.metaKey || event.altKey) return false;
+    const { doc, selection } = view.state;
+    // Shift+Enter remains available for inserting a newline inside code.
+    if (event.shiftKey) return selection.$from.parent.type.spec.code ? editor?.commands.newlineInCode() || false : false;
+    const last = doc.lastChild;
+    const specialEnd = last && (last.type.name === 'codeBlock' || last.type.name === 'table' || last.isAtom || (last.lastChild?.isAtom && !last.lastChild.isText));
+    if (!specialEnd) return false;
+    const textEnd = selection instanceof TextSelection && selection.empty && selection.from === Selection.atEnd(doc).from;
+    const selectedEnd = selection instanceof NodeSelection && selection.to >= doc.content.size - 1;
+    const gapEnd = selection.empty && selection.from === doc.content.size;
+    if (!textEnd && !selectedEnd && !gapEnd) return false;
+    focusEndParagraph(view);
+    return true;
+   },
    handlePaste(view, event): boolean {
     if (event.clipboardData?.files.length || event.clipboardData?.getData('text/html')) return false;
     const text = event.clipboardData?.getData('text/plain') || '';
@@ -141,6 +170,19 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   undo: editor.can().undo(), redo: editor.can().redo(),
  } : null });
  if (!editor) return null;
+ function clickAfterContent(event: MouseEvent<HTMLElement>) {
+  if (!editor || event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+  const view = editor.view;
+  // Only the document's blank surface should create a line, never node controls.
+  const tableBottom = event.target instanceof Element && event.target.classList.contains('table-hover-edge') && event.target.classList.contains('bottom');
+  if (event.target !== event.currentTarget && event.target !== view.dom && event.target !== view.dom.parentElement && !tableBottom) return;
+  const last = view.state.doc.lastChild;
+  const lastDOM = last && view.nodeDOM(view.state.doc.content.size - last.nodeSize);
+  if (!(lastDOM instanceof HTMLElement) || event.clientY < lastDOM.getBoundingClientRect().bottom) return;
+  event.preventDefault();
+  event.stopPropagation();
+  focusEndParagraph(view);
+ }
  function showContextMenu(event: MouseEvent<HTMLElement>) {
   if (!editor) return;
   event.preventDefault(); event.stopPropagation();
@@ -213,6 +255,8 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
    {button('引用', <Quote size={15} />, () => { editor.chain().focus().toggleBlockquote().run(); }, state?.quote)}
    {button('代码块', <Code2 size={16} />, () => { editor.chain().focus().toggleCodeBlock().run(); }, state?.code)}
    {button('插入表格', <Table2 size={16} />, () => { editor.chain().focus().insertTable({ rows: 3, cols: 2, withHeaderRow: true }).run(); }, false, state?.table)}
+   {button('插入图片', <ImagePlus size={16} />, onInsertImage)}
+   {button('插入 Excalidraw', <Shapes size={16} />, onInsertDrawing)}
    <span className="format-divider" />
    {button('撤销', <Undo2 size={15} />, () => { editor.chain().focus().undo().run(); }, false, !state?.undo)}
    {button('重做', <Redo2 size={15} />, () => { editor.chain().focus().redo().run(); }, false, !state?.redo)}
@@ -224,7 +268,7 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
     <button onMouseDown={e => e.preventDefault()} onClick={() => editor.chain().focus().deleteTable().run()}>删除表格</button>
    </div>}
   </div>
-  <article className="document wysiwyg-document">
+  <article className="document wysiwyg-document" onMouseDownCapture={clickAfterContent}>
    {prefix.current && <details className="editor-frontmatter"><summary>文档属性 · 在源码中编辑</summary><pre>{prefix.current}</pre></details>}
    <EditorContent editor={editor} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} />
   </article>

@@ -22,6 +22,115 @@ async function chooseLanguage(input: Locator, language: string) {
  await input.press('Enter');
 }
 
+const terminalBlocks = [
+ { name: 'code block', markdown: '```js\nconst value = 42;\n```\n', cursor: 'pre code' },
+ { name: 'table', markdown: '| A | B |\n| --- | --- |\n| a1 | b1 |\n', cursor: 'td:last-child p' },
+ { name: 'image', markdown: '![末尾图片](missing.png)\n', cursor: '.editor-image' },
+ { name: 'wiki image', markdown: '![[missing.png|末尾图片]]\n', cursor: '.editor-image' },
+ { name: 'horizontal rule', markdown: '---\n', cursor: 'hr' },
+];
+
+for (const block of terminalBlocks) {
+ test(`creates a paragraph with Enter after a terminal ${block.name}`, async ({ page }) => {
+  await seed(page, block.markdown);
+  const editor = page.getByRole('textbox', { name: '笔记正文' });
+  expect(await saved(page)).toBe(block.markdown);
+  if (block.name === 'table') {
+   // Focusing a table reveals its toolbar; let the layout settle before clicking the final cell.
+   await editor.locator('td').last().click();
+   await expect(page.getByRole('button', { name: '添加行', exact: true })).toBeVisible();
+  }
+  await editor.locator(block.cursor).last().click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('块后的正文');
+  await expect(editor.locator(':scope > p').last()).toHaveText('块后的正文');
+  await expect.poll(() => saved(page)).toContain('\n\n块后的正文');
+  if (block.name === 'table') await expect(editor.locator('td')).toHaveText(['a1', 'b1']);
+  else expect(await saved(page)).toContain(block.markdown.trimEnd());
+  await page.reload();
+  await expect(editor.locator(':scope > p').last()).toHaveText('块后的正文');
+ });
+
+ test(`creates a paragraph by clicking below a terminal ${block.name}`, async ({ page }) => {
+  await seed(page, block.markdown);
+  const editor = page.getByRole('textbox', { name: '笔记正文' });
+  const last = editor.locator(':scope > :last-child');
+  await last.scrollIntoViewIfNeeded();
+  const bounds = await last.boundingBox();
+  await page.mouse.click(bounds!.x + 12, bounds!.y + bounds!.height + 16);
+  await expect(editor.locator(':scope > p').last()).toBeEmpty();
+  const count = await editor.locator(':scope > p').count();
+  const paragraph = await last.boundingBox();
+  await page.mouse.click(paragraph!.x + 12, paragraph!.y + paragraph!.height + 8);
+  await expect(editor.locator(':scope > p')).toHaveCount(count);
+  await page.keyboard.press('Enter');
+  await page.keyboard.insertText('点击后的正文');
+  await expect(editor.locator(':scope > p').last()).toHaveText('点击后的正文');
+  await expect.poll(() => saved(page)).toContain('点击后的正文');
+ });
+}
+
+test('keeps code newlines and composition while allowing Enter to leave the final block', async ({ page }) => {
+ await seed(page, '```text\nfirst\nlast\n```\n');
+ const code = page.locator('.editor-code-block pre code');
+ await code.click({ position: { x: 3, y: 3 } });
+ await page.keyboard.press('End');
+ await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+ await page.keyboard.press('Enter');
+ await expect(code).toHaveText('first\n\nlast');
+ // Place the browser caret at the end, independent of native vertical-arrow geometry.
+ await code.evaluate(element => {
+  const range = document.createRange(); range.selectNodeContents(element); range.collapse(false);
+  const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+ });
+ await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+ await page.keyboard.press('Shift+Enter');
+ await page.keyboard.insertText('more');
+ await expect(code).toHaveText('first\n\nlast\nmore');
+ await code.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(0);
+ await page.keyboard.press('Enter');
+ await page.keyboard.insertText('正文');
+ await expect(page.locator('.wysiwyg-content > p')).toHaveText('正文');
+ await expect(code).toHaveText('first\n\nlast\nmore');
+});
+
+test('creates a paragraph after a selected terminal image and supports undo', async ({ page }) => {
+ await seed(page, '![末尾图片](missing.png)\n');
+ const editor = page.locator('.wysiwyg-content');
+ await editor.locator('.editor-image').click();
+ await expect(editor.locator('.editor-image')).toHaveClass(/selected/);
+ await page.keyboard.press('Enter');
+ await expect(editor.locator(':scope > p')).toHaveCount(2);
+ await page.getByRole('button', { name: '撤销', exact: true }).click();
+ await expect(editor.locator(':scope > p')).toHaveCount(1);
+ await expect(editor.locator('.editor-image')).toBeVisible();
+ await page.getByRole('button', { name: '重做', exact: true }).click();
+ await expect(editor.locator(':scope > p')).toHaveCount(2);
+});
+
+test('keeps a clickable line below a code block taller than the editor viewport', async ({ page }) => {
+ const markdown = `\`\`\`text\n${Array.from({ length: 80 }, (_, i) => `line ${i}`).join('\n')}\n\`\`\`\n`;
+ await seed(page, markdown);
+ const block = page.locator('.editor-code-block');
+ await page.locator('.wysiwyg-content').evaluate(editor => editor.scrollIntoView({ block: 'end' }));
+ const bounds = await block.boundingBox();
+ await page.mouse.click(bounds!.x + 12, bounds!.y + bounds!.height + 16);
+ await page.keyboard.insertText('长代码块后的正文');
+ await expect(page.locator('.wysiwyg-content > p')).toHaveText('长代码块后的正文');
+ await expect.poll(() => saved(page)).toContain(`${markdown.trimEnd()}\n\n长代码块后的正文`);
+});
+
+test('clicking the bottom of the document surface creates a line after a short block', async ({ page }) => {
+ await seed(page, '```text\nshort\n```\n');
+ const surface = await page.locator('.document-space').boundingBox();
+ const editor = await page.locator('.wysiwyg-content').boundingBox();
+ await page.mouse.click(editor!.x + 20, surface!.y + surface!.height - 20);
+ await page.keyboard.insertText('底部新段落');
+ await expect(page.locator('.wysiwyg-content > p')).toHaveText('底部新段落');
+});
+
 for (const theme of ['light', 'dark']) {
  test(`searches code languages with keyboard and mouse without saving search text (${theme})`, async ({ page }) => {
   await page.addInitScript(theme => localStorage.setItem('fever-theme', theme), theme);
