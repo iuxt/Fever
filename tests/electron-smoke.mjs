@@ -73,8 +73,8 @@ try {
  await expect(page.getByText('已创建 Git 提交')).toBeVisible();
  await page.getByRole('button', { name: '历史', exact: true }).click();
  await page.getByRole('button', { name: /desktop integration commit/ }).click();
- await expect(page.getByRole('dialog').getByText('真实文件保存成功。')).toBeVisible();
- await page.getByRole('button', { name: '取消', exact: true }).click();
+ await expect(page.getByLabel('历史版本（只读）').getByText('真实文件保存成功。')).toBeVisible();
+ await page.getByRole('button', { name: '返回当前版本', exact: true }).click();
  const png = [...Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64')];
  const image = await page.evaluate(async ({ png, id }) => { const src = await window.fever.image(png, 'pixel.png'); const content = await window.fever.read(id); await window.fever.save(id, content + `\n\n![pixel](${src})\n`); return src; }, { png, id: note.id });
  await page.locator('.note-row.selected').click();
