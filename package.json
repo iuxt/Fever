@@ -15,6 +15,7 @@
     "dist:win": "npm run build && electron-builder --win",
     "dist:linux": "npm run build && electron-builder --linux",
     "test:desktop": "node tests/electron-smoke.mjs",
+    "test:desktop:tabs": "node tests/electron-tabs.mjs",
     "test:memory": "npm run build && node tests/memory-stress.mjs"
   },
   "keywords": [],
@@ -48,7 +49,8 @@
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",
-    "unist-util-visit": "^5.1.0"
+    "unist-util-visit": "^5.1.0",
+    "micromark": "^4.0.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -72,7 +74,18 @@
       "electron/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "assets/icons",
+        "to": "icons",
+        "filter": [
+          "fever.png",
+          "fever.ico"
+        ]
+      }
+    ],
     "mac": {
+      "icon": "assets/icons/fever.icns",
       "category": "public.app-category.productivity",
       "target": [
         "dmg",
@@ -80,12 +93,14 @@
       ]
     },
     "win": {
+      "icon": "assets/icons/fever.ico",
       "target": [
         "nsis"
       ],
       "artifactName": "Fever-${version}-Windows-${arch}.${ext}"
     },
     "linux": {
+      "icon": "assets/icons/png",
       "target": [
         "AppImage",
         "deb"

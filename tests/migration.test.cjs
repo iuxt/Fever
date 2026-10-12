@@ -36,6 +36,54 @@ test('legacy Git images render through aliases without changing inline or fenced
  assert.equal(resolveAsset('https://example.com/photo.jpeg', assets), '../images/remote.jpeg');
 });
 
+test('migration rewrites only URL destinations, preserving repeated labels, titles and escaped Markdown', async () => {
+ const { rewriteMarkdown } = await import('../scripts/notebook-migration.mjs');
+ const mapping = { paths: new Map([
+  ['photo.png', '../images/image.png'], ['B.md', 'note.md'],
+  ['photo(1).png', '../images/parentheses.png'], ['a&b.png', '../images/entity.png'],
+ ]), external: new Map() };
+ const cases = [
+  ['![photo.png](photo.png "photo.png")', '![photo.png](../images/image.png "photo.png")'],
+  ['[B.md](B.md)', '[B.md](note.md)'],
+  ['![photo.png](<photo.png>)', '![photo.png](<../images/image.png>)'],
+  ['[photo.png]: photo.png "photo.png"\r\n\r\n![photo.png][photo.png]\r\n', '[photo.png]: ../images/image.png "photo.png"\r\n\r\n![photo.png][photo.png]\r\n'],
+  ['[![photo.png](photo.png)](B.md)', '[![photo.png](../images/image.png)](note.md)'],
+  [String.raw`![x](photo\(1\).png)`, '![x](../images/parentheses.png)'],
+  ['![x](a&amp;b.png)', '![x](../images/entity.png)'],
+  ['| image |\n| --- |\n| ![photo.png](photo.png) |', '| image |\n| --- |\n| ![photo.png](../images/image.png) |'],
+ ];
+ for (const [input, expected] of cases) {
+  const result = rewriteMarkdown(input, 'A.md', mapping);
+  assert.deepEqual(result.unresolved, [], input);
+  assert.equal(result.content, expected);
+ }
+});
+
+test('migration maps existing PDF and other attachments before resolving references', async t => {
+ const root = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-attachment-test-'));
+ t.after(() => fs.rm(root, { recursive: true, force: true }));
+ const source = path.join(root, 'old'), destination = path.join(root, 'new');
+ await fs.mkdir(path.join(source, 'docs'), { recursive: true });
+ const git = async args => (await exec('git', args, { cwd: source })).stdout;
+ await git(['init', '-b', 'main']); await git(['config', 'user.name', 'Test']); await git(['config', 'user.email', 'test@example.com']);
+ const input = '# Attachments\n\n[PDF](docs/report%20%231.pdf)\n\n[[docs/archive.zip|下载]]\n';
+ await fs.writeFile(path.join(source, 'A.md'), input);
+ const pdf = Buffer.from('%PDF-1.4\nfixture\n'), zip = Buffer.from([0x50, 0x4b, 0, 1]);
+ await fs.writeFile(path.join(source, 'docs/report #1.pdf'), pdf);
+ await fs.writeFile(path.join(source, 'docs/archive.zip'), zip);
+ await git(['add', '.']); await git(['commit', '-m', 'attachments']);
+ const { migrateNotebook } = await import('../scripts/notebook-migration.mjs');
+ const result = await migrateNotebook(source, destination);
+ assert.equal(result.additionalFiles, 2);
+ const manifest = JSON.parse(await fs.readFile(path.join(destination, 'fever.json'), 'utf8'));
+ const content = await fs.readFile(path.join(destination, 'notes', manifest.notes[0].filename), 'utf8');
+ assert.equal(content, '# Attachments\n\n[PDF](../attachments/docs/report%20%231.pdf)\n\n[下载](../attachments/docs/archive.zip)\n');
+ assert.deepEqual(await fs.readFile(path.join(destination, 'attachments/docs/report #1.pdf')), pdf);
+ assert.deepEqual(await fs.readFile(path.join(destination, 'attachments/docs/archive.zip')), zip);
+ assert.equal(await fs.readFile(path.join(source, 'A.md'), 'utf8'), input);
+ assert.equal(await git(['status', '--porcelain']), '');
+});
+
 test('migrated vault retains Git lineage, resolves old revisions, and commits images through LFS', async t => {
  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-migration-test-'));
  t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -45,6 +93,10 @@ test('migrated vault retains Git lineage, resolves old revisions, and commits im
  await git(['init', '-b', 'main']); await git(['config', 'user.name', 'Test']); await git(['config', 'user.email', 'test@example.com']);
  const first = '# Article\n\n![[photo.png]]\n';
  await fs.writeFile(path.join(source, '分类', 'A.md'), first);
+ for (const folder of ['.claude', '.superpowers', '.obsidian']) {
+  await fs.mkdir(path.join(source, folder), { recursive: true });
+  await fs.writeFile(path.join(source, folder, 'internal.md'), '# Internal tool record\n');
+ }
  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64');
  await fs.writeFile(path.join(source, 'images', 'photo.png'), png);
  await git(['add', '.']); await git(['commit', '-m', 'original note']);

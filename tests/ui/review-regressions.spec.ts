@@ -1,0 +1,121 @@
+import { test, expect, type Page } from '@playwright/test';
+
+type Controls = {
+ contents: Record<string, string>;
+ holdNextRead: boolean;
+ waiting: boolean;
+ release: () => void;
+};
+declare global { interface Window { reviewControls: Controls } }
+
+async function desktopFixture(page: Page, content = '# Note A\n\n[Other note](b.md)\n') {
+ await page.addInitScript(content => {
+  const note = (id: string, title: string) => ({ id, title, filename: `${id}.md`, category: '', createdAt: '2026-10-12T00:00:00Z', updatedAt: '2026-10-12T00:00:00Z' });
+  let vault = { path: '/test/first', name: 'first', lfs: true, manifest: { version: 1 as const, categories: [], notes: [note('a', 'Note A'), note('b', 'Note B')] } };
+  const controls: Controls = { contents: { a: content, b: '# Note B\n\nTarget body', c: '# New vault note\n\nNew library body' }, holdNextRead: false, waiting: false, release: () => {} };
+  window.reviewControls = controls;
+  window.fever = {
+   desktop: true,
+   current: async () => structuredClone(vault),
+   open: async () => {
+    vault = { ...vault, path: '/test/second', name: 'second', manifest: { ...vault.manifest, notes: [note('c', 'New vault note')] } };
+    return structuredClone(vault);
+   },
+   read: async id => {
+    const value = controls.contents[id];
+    if (controls.holdNextRead) {
+     controls.holdNextRead = false;
+     await new Promise<void>(resolve => { controls.waiting = true; controls.release = () => { controls.waiting = false; resolve(); }; });
+    } else await new Promise(resolve => setTimeout(resolve, 30));
+    return value;
+   },
+   save: async (id, value) => { controls.contents[id] = value; },
+   status: async () => ({ branch: 'main', changes: [], ahead: 0, behind: 0, remote: '', lfs: true }),
+   settings: async () => ({ autoCommit: false, interval: 10, author: '', email: '', remote: '' }),
+   history: async () => [],
+   cancelSearch: async () => {},
+   asset: src => /^https?:\/\//i.test(src) ? src : '',
+  } as typeof window.fever;
+ }, content);
+ await page.goto('/');
+ await expect(page.locator('.note-row.selected')).toHaveText('Note A');
+ await expect(page.locator('.wysiwyg-content')).toBeVisible();
+}
+
+for (const mode of ['rich', 'source']) for (const savedBeforeRead of [false, true]) {
+ test(`${mode} keeps edits made during a read even when autosave ${savedBeforeRead ? 'has finished' : 'is pending'}`, async ({ page }) => {
+  await desktopFixture(page);
+  if (mode === 'source') await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+  const editor = page.locator(mode === 'source' ? '.cm-content' : '.wysiwyg-content');
+  await page.evaluate(() => { window.reviewControls.holdNextRead = true; });
+  await page.locator('.note-row').filter({ hasText: 'Note A' }).click();
+  await expect.poll(() => page.evaluate(() => window.reviewControls.waiting)).toBe(true);
+  await editor.fill('NEW INPUT');
+  if (savedBeforeRead) {
+   await expect.poll(() => page.evaluate(() => window.reviewControls.contents.a)).toContain('NEW INPUT');
+   await expect(page.getByText('所有更改已保存')).toBeVisible();
+  }
+  await page.evaluate(() => window.reviewControls.release());
+  await expect(editor).toContainText('NEW INPUT');
+  await editor.press('End');
+  await page.keyboard.insertText(' MORE');
+  await expect.poll(() => page.evaluate(() => window.reviewControls.contents.a)).toContain('NEW INPUT MORE');
+ });
+}
+
+test('switching libraries opens the first note after clearing the previous document', async ({ page }) => {
+ await desktopFixture(page);
+ await page.getByTitle('设置', { exact: true }).click();
+ await page.getByRole('button', { name: '切换', exact: true }).click();
+ await expect(page.locator('.note-row.selected')).toHaveText('New vault note');
+ await expect(page.locator('.wysiwyg-content')).toContainText('New library body');
+ await expect(page.locator('.tab')).toHaveCount(1);
+ await expect(page.locator('.tab.current')).toContainText('New vault note');
+});
+
+test('a delayed read cannot reopen the last note after its tab is closed', async ({ page }) => {
+ await desktopFixture(page);
+ await page.evaluate(() => { window.reviewControls.holdNextRead = true; });
+ await page.locator('.note-row').filter({ hasText: 'Note A' }).click();
+ await expect.poll(() => page.evaluate(() => window.reviewControls.waiting)).toBe(true);
+ await page.getByTitle('关闭标签', { exact: true }).click();
+ await expect(page.locator('.tab')).toHaveCount(0);
+ await page.evaluate(() => window.reviewControls.release());
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await page.locator('.note-row').filter({ hasText: 'Note B' }).click();
+ await expect(page.locator('.tab')).toHaveCount(1);
+ await expect(page.locator('.tab.current')).toContainText('Note B');
+});
+
+test('preview opens a migrated note link inside the app and preserves the source note', async ({ page }) => {
+ const content = '# Note A\n\n[Other note](b.md)\n';
+ await desktopFixture(page, content);
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await page.locator('.prose').getByRole('link', { name: 'Other note' }).click();
+ await expect(page.locator('.note-row.selected')).toHaveText('Note B');
+ await expect(page.locator('.cm-content')).toContainText('Target body');
+ expect(await page.evaluate(() => window.reviewControls.contents.a)).toBe(content);
+ expect(page.url()).toBe('http://127.0.0.1:5173/');
+});
+
+test('rich editor follows internal links with a modifier while normal clicks remain editable', async ({ page }) => {
+ await desktopFixture(page, '# Note A\n\n[Other note](../notes/b.md)\n');
+ const link = page.locator('.wysiwyg-content').getByRole('link', { name: 'Other note' });
+ await link.click();
+ await expect(page.locator('.note-row.selected')).toHaveText('Note A');
+ await link.click({ modifiers: ['ControlOrMeta'] });
+ await expect(page.locator('.note-row.selected')).toHaveText('Note B');
+ await expect(page.locator('.wysiwyg-content')).toContainText('Target body');
+});
+
+test('HTTP and HTTPS external images load under the actual page CSP', async ({ page }) => {
+ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64');
+ await page.route(/^https?:\/\/images\.example\.test\//, route => route.fulfill({ contentType: 'image/png', body: png }));
+ await desktopFixture(page, '# Note A\n\n![http](http://images.example.test/pixel.png)\n\n![https](https://images.example.test/pixel.png)\n');
+ const loadedImages = () => page.locator('.prose img[alt="http"], .prose img[alt="https"]').evaluateAll(images => images.length === 2 && images.every(image => (image as HTMLImageElement).naturalWidth === 1));
+ await expect(page.locator('.wysiwyg-content .editor-image img')).toHaveCount(2);
+ await expect.poll(loadedImages).toBe(true);
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await expect(page.locator('.prose img')).toHaveCount(2);
+ await expect.poll(loadedImages).toBe(true);
+});

@@ -9,6 +9,7 @@ export type Commit = { hash: string; author: string; date: string; message: stri
 export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string };
 export type Api = {
   desktop: boolean;
+  onCloseTab?: (callback: () => void) => () => void;
   readClipboard?: () => Promise<{ text: string; html?: string }>;
   writeClipboard?: (content: { text: string; html?: string }) => Promise<void>;
   current(): Promise<Vault | null>;

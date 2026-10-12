@@ -49,7 +49,12 @@ try {
   const range = document.createRange(); range.selectNodeContents(p);
   const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
  });
- await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+ // Wait for the editor to observe the DOM selection; two animation frames can
+ // finish before Chromium delivers selectionchange in a native window.
+ await expect.poll(() => page.locator('.wysiwyg-content').evaluate(element => {
+  const { doc, selection } = element.editor.state;
+  return doc.textBetween(selection.from, selection.to, '\n');
+ })).toBe('真实文件保存成功。');
  await page.locator('.wysiwyg-content > p').first().evaluate(element => element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 500, clientY: 300 })));
  await page.getByRole('menuitem', { name: '复制', exact: true }).click();
  await expect.poll(async () => {
@@ -132,8 +137,9 @@ try {
   { id: trashID, name: '废纸篓笔记', fileExtension: 'md', trashed: true },
  ] };
  const snapshotText = JSON.stringify(snapshot, null, 2) + '\n';
+ await page.route(/^https?:\/\/images\.example\.test\//, route => route.fulfill({ contentType: 'image/png', body: Buffer.from(png) }));
  await writeFile(path.join(fsnotes, 'metadata.json'), snapshotText);
- await writeFile(path.join(fsnotes, 'notes', `${fsnoteID}.md`), `# FSNotes 正文\n\n![嵌套截图](../images/${fsnoteID}/pixel.png)\n`);
+ await writeFile(path.join(fsnotes, 'notes', `${fsnoteID}.md`), `# FSNotes 正文\n\n![嵌套截图](../images/${fsnoteID}/pixel.png)\n\n![HTTP 图片](http://images.example.test/pixel.png)\n\n![HTTPS 图片](https://images.example.test/pixel.png)\n`);
  await writeFile(path.join(fsnotes, 'notes', `${trashID}.md`), 'trashed');
  await writeFile(path.join(fsnotes, 'images', fsnoteID, 'pixel.png'), Buffer.from(png));
  await app.evaluate(({ dialog }, vaultPath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [vaultPath] }); }, fsnotes);
@@ -143,7 +149,8 @@ try {
  await expect(page.locator('.note-row.selected')).toContainText('FSNotes 清单标题');
  await expect(page.locator('.breadcrumbs')).toContainText('嵌套分类');
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('FSNotes 正文');
- await expect.poll(() => page.locator('.wysiwyg-content .editor-image img').evaluate(img => img.complete && img.naturalWidth === 1)).toBe(true);
+ await expect(page.locator('.wysiwyg-content .editor-image img')).toHaveCount(3);
+ await expect.poll(() => page.locator('.wysiwyg-content .editor-image img').evaluateAll(images => images.every(img => img.complete && img.naturalWidth === 1))).toBe(true);
  if (await readFile(path.join(fsnotes, 'metadata.json'), 'utf8') !== snapshotText) throw new Error('Opening FSNotes rewrote its metadata');
  await page.getByTitle('更多笔记操作').click(); await page.getByRole('button', { name: '重命名 / 移动笔记' }).click();
  await page.getByLabel('笔记标题').fill('FSNotes 新标题'); await page.getByLabel('所属分类').fill('新分类/子分类');

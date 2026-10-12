@@ -113,11 +113,14 @@ function focusEndParagraph(view: EditorView) {
  view.focus();
 }
 
-export default memo(function MarkdownEditor({ content, onChange, media, ref, onError, onInsertImage, onInsertDrawing }: {
+export default memo(function MarkdownEditor({ content, onChange, media, ref, onError, onInsertImage, onInsertDrawing, onNavigate }: {
  content: string; onChange: (value: string) => void; media: Media; ref?: Ref<MarkdownEditorHandle>; onError: (message: string) => void;
  onInsertImage: () => void; onInsertDrawing: () => void;
+ onNavigate?: (href: string) => boolean;
 }) {
  const contextMenu = useContextMenu();
+ const navigate = useRef(onNavigate);
+ navigate.current = onNavigate;
  const initial = useRef(splitContent(content));
  const prefix = useRef(initial.current.prefix), lastContent = useRef(content);
  const editor: Editor | null = useEditor({
@@ -125,6 +128,13 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   content: initial.current.body, contentType: 'markdown',
   editorProps: {
    attributes: { class: 'prose wysiwyg-content', role: 'textbox', 'aria-label': '笔记正文', 'aria-multiline': 'true', spellcheck: 'false' },
+   handleClick(_view, _position, event) {
+    if (!(event.ctrlKey || event.metaKey) || !(event.target instanceof Element)) return false;
+    const href = event.target.closest('a')?.getAttribute('href');
+    if (!href || !navigate.current?.(href)) return false;
+    event.preventDefault();
+    return true;
+   },
    handleKeyDown(view, event) {
     if (event.key !== 'Enter' || event.isComposing || view.composing || event.ctrlKey || event.metaKey || event.altKey) return false;
     const { doc, selection } = view.state;

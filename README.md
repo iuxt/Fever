@@ -1,6 +1,6 @@
 # Fever
 
-一个本地优先的跨平台 Markdown 笔记应用。Electron + React + TypeScript，参考 Obsidian 的侧栏、分类树、多标签编辑区和右侧面板，提供浅色 / 深色主题。
+一个本地优先的跨平台 Markdown 笔记应用。Electron + React + TypeScript，参考 Obsidian 的侧栏、分类树、多标签编辑区和右侧面板，提供浅色 / 深色 / 跟随系统主题。
 
 ## 开始使用
 
@@ -20,6 +20,10 @@ npm run dev
 默认采用类似 Typora 的所见即所得体验：直接在排版后的正文中修改标题、列表、任务、表格和代码，图片与 Excalidraw 引用在正文中显示。输入 `# `、`- `、`> ` 等 Markdown 标记会自动转换格式；支持加粗、斜体、撤销 / 重做和 Markdown 粘贴。选中表格单元格后，可在格式栏添加或删除行列。图片可以通过按钮、拖放或粘贴插入。
 
 右上角的代码按钮打开 Markdown 源码与预览，笔形按钮返回所见即所得；⌘ / Ctrl E 可在两者之间切换。编辑结果仍自动保存为 `.md` 文件，沿用 Git 历史；仅进入编辑模式不会改写原文件，YAML 文档属性和 Obsidian 图片引用会保留。
+
+笔记之间的 Markdown 链接（如 `[相关笔记](UUID.md)` 或 `[相关笔记](../notes/UUID.md)`）会在应用内打开目标笔记。预览中直接点击，所见即所得编辑器中按住 ⌘ / Ctrl 点击；普通点击仍可编辑链接文字。
+
+在「设置 → 外观」中选择亮色、暗色或跟随系统；跟随系统会随系统外观变化自动切换。字体大小支持 12–24 px（默认 16 px），同时调整正文、源码、历史预览与界面文字。外观调整立即生效，并保存在当前设备上。
 
 ## 存储约定
 
@@ -152,6 +156,6 @@ macOS 本地构建并安装到「应用程序」文件夹：
 
 原生集成测试使用临时用户数据目录和临时笔记库，验证真实文件保存、IPC、Git 提交、历史预览和 LFS 图片加载，不使用你的实际笔记库。打包后也可以设置 `FEVER_EXECUTABLE` 为应用可执行文件路径，运行同一测试来验证生产应用。
 
-目前是可运行的首版。正式分发前还需要提供应用图标、macOS 签名 / 公证、Windows 签名，并在各目标平台验证。没有配置自动升级和产品遥测。
+目前是可运行的首版。应用图标位于 `assets/icons/`，已配置 macOS ICNS、Windows ICO 和 Linux 多尺寸 PNG，以及桌面窗口和 macOS Dock 图标。正式分发前还需要 macOS 签名 / 公证、Windows 签名，并在各目标平台验证。没有配置自动升级和产品遥测。
 
 框架文档：[Electron](https://www.electronjs.org/docs/latest/)、[electron-builder](https://www.electron.build/)、[Git LFS](https://git-lfs.com/)。

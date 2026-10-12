@@ -42,6 +42,14 @@ for (const block of terminalBlocks) {
   }
   await editor.locator(block.cursor).last().click();
   await page.keyboard.press('End');
+  if (block.name === 'code block') {
+   // Put the caret at the actual end, independent of font size and native End-key geometry.
+   await editor.locator(block.cursor).last().evaluate(element => {
+    const range = document.createRange(); range.selectNodeContents(element); range.collapse(false);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+   });
+   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  }
   await page.keyboard.press('Enter');
   await page.keyboard.insertText('块后的正文');
   await expect(editor.locator(':scope > p').last()).toHaveText('块后的正文');

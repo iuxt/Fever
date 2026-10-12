@@ -8,11 +8,12 @@ import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import { visit } from 'unist-util-visit';
+import { parse, preprocess, postprocess } from 'micromark';
 
 const exec = promisify(execFile);
 const parser = unified().use(remarkParse).use(remarkGfm);
 const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp']);
-const ignored = new Set(['.git', '.obsidian', 'node_modules', '.DS_Store']);
+const ignored = new Set(['.git', '.obsidian', '.claude', '.superpowers', 'node_modules', '.DS_Store']);
 const posix = value => value.split(path.sep).join('/');
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 function stableId(value) {
@@ -41,16 +42,30 @@ function excludedRanges(ast) {
 }
 const wikiPattern = /(!?)\[\[([^\]\n]+)\]\]/g;
 
+function destinationRanges(text) {
+ const destinations = new Map(), containers = [];
+ const events = postprocess(parse({ extensions: parser.data('micromarkExtensions') }).document().write(preprocess()(text, undefined, true)));
+ for (const [event, token] of events) {
+  if (['link', 'image', 'definition'].includes(token.type)) {
+   if (event === 'enter') containers.push(token);
+   else containers.pop();
+  } else if (event === 'enter' && ['resourceDestinationString', 'definitionDestinationString'].includes(token.type) && containers.length) {
+   destinations.set(containers.at(-1).start.offset, { start: token.start.offset, end: token.end.offset });
+  }
+ }
+ return destinations;
+}
+
 export function rewriteMarkdown(text, notePath, mapping) {
  const ast = parser.parse(text), edits = [], unresolved = [], ranges = excludedRanges(ast);
+ const destinations = destinationRanges(text);
  let replaced = 0;
  function resolve(raw) {
   if (mapping.external.has(raw)) return mapping.external.get(raw);
   if (/^[a-z][a-z\d+.-]*:/i.test(raw) || raw.startsWith('#')) return null;
-  let decoded;
-  try { decoded = decodeURIComponent(raw); } catch { decoded = raw; }
-  const index = decoded.indexOf('#'), anchor = index >= 0 ? decoded.slice(index) : '';
-  const target = index >= 0 ? decoded.slice(0, index) : decoded;
+  const index = raw.indexOf('#'), anchor = index >= 0 ? raw.slice(index) : '';
+  let target = index >= 0 ? raw.slice(0, index) : raw;
+  try { target = decodeURIComponent(target); } catch { /* Keep malformed escapes literal. */ }
   const normalized = target.replaceAll('\\', '/');
   const candidates = [path.posix.normalize(path.posix.join(path.posix.dirname(notePath), normalized)), path.posix.normalize(normalized.replace(/^\//, ''))];
   for (const candidate of candidates) {
@@ -66,10 +81,11 @@ export function rewriteMarkdown(text, notePath, mapping) {
   const target = resolve(node.url);
   if (target === null) return;
   if (target === undefined) { unresolved.push({ source: notePath, target: node.url, kind: node.type }); return; }
-  const start = node.position.start.offset, end = node.position.end.offset, original = text.slice(start, end);
-  const urlIndex = original.indexOf(node.url);
-  if (urlIndex < 0) { unresolved.push({ source: notePath, target: node.url, kind: 'escaped-url' }); return; }
-  edits.push({ start: start + urlIndex, end: start + urlIndex + node.url.length, value: target }); replaced++;
+  // Token offsets identify the destination even when the label/title repeats it,
+  // or Markdown escaping makes the source spelling differ from node.url.
+  const destination = destinations.get(node.position.start.offset);
+  if (!destination) { unresolved.push({ source: notePath, target: node.url, kind: 'unsupported-url' }); return; }
+  edits.push({ ...destination, value: target }); replaced++;
  });
  for (const match of text.matchAll(wikiPattern)) {
   const start = match.index, end = start + match[0].length;
@@ -98,7 +114,12 @@ export async function migrateNotebook(source, destination) {
  if (sourceStatus) throw new Error('Commit or stash source notebook changes before migration');
  await git(source, ['lfs', 'version']);
  const files = await filesIn(source), notes = files.filter(f => /\.(md|markdown)$/i.test(f)), images = files.filter(f => imageExtensions.has(path.posix.extname(f).toLowerCase()));
+ const attachments = files.filter(f => !notes.includes(f) && !images.includes(f) && !f.startsWith('.'));
  const mapping = { paths: new Map(), external: new Map() };
+ for (const file of attachments) {
+  const url = file.split('/').map(segment => encodeURIComponent(segment).replace(/[()]/g, char => `%${char.charCodeAt(0).toString(16)}`)).join('/');
+  mapping.paths.set(file, `../attachments/${url}`);
+ }
  const manifest = { version: 1, categories: [], notes: [], assets: {} };
  const report = { version: 1, source, destination, sourceHead, createdAt: new Date().toISOString(), originalCommits: Number((await git(source, ['rev-list', '--count', 'HEAD'])).trim()), notes: [], images: [], rewrittenReferences: 0, unresolved: [], externalImageFailures: [], additionalFiles: [] };
  const contents = new Map();
@@ -158,7 +179,7 @@ export async function migrateNotebook(source, destination) {
   for (const note of manifest.notes) await fs.copyFile(path.join(source, note.sourcePath), path.join(stage, 'notes', note.filename));
   for (const image of report.images) await fs.writeFile(path.join(stage, 'images', image.filename), image.sourcePath ? await fs.readFile(path.join(source, image.sourcePath)) : remoteBytes.get(image.filename));
   // Preserve unrelated user attachments too, without exposing them in the application source tree.
-  for (const file of files.filter(f => !notes.includes(f) && !images.includes(f) && !f.startsWith('.'))) {
+  for (const file of attachments) {
    const target = path.join(stage, 'attachments', file); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.copyFile(path.join(source, file), target); report.additionalFiles.push({ sourcePath: file, destinationPath: posix(path.relative(stage, target)) });
   }
   const objectDir = path.join(source, '.git', 'lfs', 'objects');

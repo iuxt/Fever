@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const call = method => (...args) => ipcRenderer.invoke(`fever:${method}`, ...args);
 contextBridge.exposeInMainWorld('fever', {
   desktop: true,
+  onCloseTab: callback => { const listener = () => callback(); ipcRenderer.on('fever:close-tab', listener); return () => ipcRenderer.removeListener('fever:close-tab', listener); },
   readClipboard: call('readClipboard'),
   writeClipboard: call('writeClipboard'),
   onBackupError: callback => { const listener = (_event, message) => callback(message); ipcRenderer.on('fever:backup-error', listener); return () => ipcRenderer.removeListener('fever:backup-error', listener); },

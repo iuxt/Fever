@@ -1,8 +1,9 @@
-const { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, Menu, clipboard, ClipboardItem, dialog, ipcMain, protocol, net, shell } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { VaultStore, defaults } = require('./vault.cjs');
+const appIcon = path.join(app.isPackaged ? path.join(process.resourcesPath, 'icons') : path.join(__dirname, '../assets/icons'), process.platform === 'win32' ? 'fever.ico' : 'fever.png');
 const customData = process.argv.find(arg => arg.startsWith('--fever-data='))?.slice('--fever-data='.length);
 if (customData) app.setPath('userData', path.resolve(customData));
 protocol.registerSchemesAsPrivileged([{ scheme: 'fever-asset', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
@@ -20,6 +21,7 @@ function scheduleBackup() {
   }, Math.max(1, Number(s.interval) || 10) * 60000);
 }
 async function boot() {
+  if (process.platform === 'darwin') app.dock.setIcon(appIcon);
   preferences = await fs.readFile(prefsFile(), 'utf8').then(JSON.parse).catch(() => ({}));
   ipcMain.handle('fever:readClipboard', async () => {
     const items = await clipboard.read();
@@ -64,10 +66,28 @@ async function boot() {
   });
   ipcMain.handle('fever:settings', async () => ({ ...defaults, ...preferences.settings, ...await store.settings(), autoCommit: preferences.settings?.autoCommit || false, interval: preferences.settings?.interval || 10 }));
   ipcMain.handle('fever:configure', async (_event, settings) => { await store.configure(settings); preferences.settings = { autoCommit: Boolean(settings.autoCommit), interval: Math.min(1440, Math.max(1, Number(settings.interval) || 10)) }; await persistPrefs(); scheduleBackup(); });
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
+    { label: '文件', submenu: [
+      { id: 'close-tab', label: '关闭标签页', accelerator: 'CommandOrControl+W', click: (_item, focusedWindow) => focusedWindow?.webContents.send('fever:close-tab') },
+      { role: 'close', label: '关闭窗口', accelerator: 'CommandOrControl+Shift+W' },
+      ...(process.platform === 'darwin' ? [] : [{ type: 'separator' }, { role: 'quit' }]),
+    ] },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    process.platform === 'darwin' ? { role: 'windowMenu' } : { label: '窗口', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
+  ]));
   await createWindow();
 }
 async function createWindow() {
-  window = new BrowserWindow({ width: 1480, height: 950, minWidth: 960, minHeight: 680, backgroundColor: '#f8f9f5', title: 'Fever', autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  window = new BrowserWindow({ width: 1480, height: 950, minWidth: 960, minHeight: 680, backgroundColor: '#f8f9f5', title: 'Fever', icon: appIcon, autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  window.webContents.on('before-input-event', (event, input) => {
+    const modifier = process.platform === 'darwin' ? input.meta : input.control;
+    if (input.type === 'keyDown' && modifier && !input.shift && !input.alt && input.key.toLowerCase() === 'w') {
+      event.preventDefault();
+      if (!input.isAutoRepeat) window.webContents.send('fever:close-tab');
+    }
+  });
   window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   window.webContents.on('will-navigate', (event, url) => { const current = window.webContents.getURL(); if (url.split('#')[0] !== current.split('#')[0]) event.preventDefault(); });
   if (app.isPackaged) await window.loadFile(path.join(__dirname, '../dist/index.html')); else await window.loadURL('http://127.0.0.1:5173');
