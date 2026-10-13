@@ -28,6 +28,10 @@ try {
  expect(page.isClosed()).toBe(false);
  await app.evaluate(({ dialog }, vaultPath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [vaultPath] }); }, folder);
  await page.getByRole('button', { name: '选择笔记库文件夹' }).click();
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await page.locator('.folder-row').filter({ hasText: '收件箱' }).click();
+ await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
+ await page.locator('.folder-row').filter({ hasText: '收件箱' }).click();
  await expect(page.getByRole('heading', { name: '欢迎使用 Fever' })).toBeVisible();
  await page.getByRole('button', { name: '新建笔记', exact: true }).first().click();
  await page.getByLabel('笔记标题').fill('快捷键测试');

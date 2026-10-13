@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import LZString from 'lz-string';
 test('note lifecycle, editing, Git commit, history restore and metadata', async ({ page }) => {
  await page.goto('/');
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+ await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
  await expect(page.getByRole('heading', { name: '让每一个想法，都有迹可循。' })).toBeVisible();
  await page.getByRole('button', { name: '新建笔记', exact: true }).first().click();
  await page.getByLabel('笔记标题').fill('集成测试笔记');
@@ -174,6 +176,7 @@ test('Obsidian compressed drawings, wiki embeds, code blocks and history preview
 test('inline history is read-only and preserves working content when returning or switching notes', async ({ page }) => {
  await page.goto('/');
  await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+ await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
  await page.getByTitle('Markdown 源码与预览').click();
  const draft = '# 当前工作版本\n\n尚未提交的修改。';
  await page.locator('.cm-content').fill(draft);

@@ -6,6 +6,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const exec = promisify(execFile);
 const { metadataView, updateMetadata } = require('./metadata.cjs');
+const { downloadImage } = require('./remote-images.cjs');
 const MANIFEST = 'fever.json';
 const UUID_FILE = /^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/;
 function validateManifest(manifest) {
@@ -215,7 +216,8 @@ class VaultStore {
     const title = (!drawing && content.match(/^#\s+(.+)$/m)?.[1]) || path.basename(file, path.extname(file));
     return this.createInternal(title.slice(0, 200), '收件箱', content, drawing ? 'excalidraw' : 'markdown', path.basename(file));
   }); }
-  image(bytes, name) { return this.queued(async () => {
+  image(bytes, name) { return this.queued(() => this.writeImage(bytes, name)); }
+  async writeImage(bytes, name) {
     if (!this.lfs) throw new Error('请先安装 Git LFS 后重新打开笔记库，确保图片通过 LFS 管理');
     const ext = typeof name === 'string' ? path.extname(name).toLowerCase() : '';
     const size = ArrayBuffer.isView(bytes) ? bytes.byteLength : Array.isArray(bytes) ? bytes.length : 0;
@@ -223,7 +225,24 @@ class VaultStore {
     const buffer = ArrayBuffer.isView(bytes) ? Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength) : Buffer.from(bytes);
     const filename = randomUUID() + ext;
     await fs.writeFile(await this.safe(`images/${filename}`), buffer, { flag: 'wx' }); return `../images/${filename}`;
-  }); }
+  }
+  async localizeImages(urls) {
+    if (!this.root) throw new Error('请先打开笔记库');
+    if (!this.lfs) throw new Error('请先安装 Git LFS 后重新打开笔记库，确保图片通过 LFS 管理');
+    if (!Array.isArray(urls) || urls.length > 500 || urls.some(url => typeof url !== 'string' || !/^https?:\/\//i.test(url))) throw new Error('外部图片链接无效，一次最多转换 500 张图片');
+    const root = this.root, replacements = {}, failed = [];
+    for (const url of new Set(urls)) {
+      try {
+        const { bytes, extension } = await downloadImage(url);
+        // Network requests must not hold up autosaves or note navigation.
+        replacements[url] = await this.queued(() => {
+          if (this.root !== root) throw new Error('笔记库已变化，请重新转换');
+          return this.writeImage(bytes, `image${extension}`);
+        });
+      } catch (e) { failed.push({ url, message: e.name === 'TimeoutError' ? '下载超时' : e.message }); }
+    }
+    return { replacements, failed };
+  }
   async status() {
     const raw = await this.git(['status', '--porcelain=v1', '-z', '--untracked-files=all']);
     const fields = raw.split('\0').filter(Boolean), changes = [];

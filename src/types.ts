@@ -24,6 +24,7 @@ export type Api = {
   category(path: string): Promise<void>;
   importNotes(): Promise<Note[]>;
   image(bytes: Uint8Array | number[], name: string): Promise<string>;
+  localizeImages(urls: string[]): Promise<{ replacements: Record<string, string>; failed: { url: string; message: string }[] }>;
   asset(src: string): string;
   status(): Promise<GitStatus>;
   diff(path: string, staged?: boolean): Promise<FileDiff>;

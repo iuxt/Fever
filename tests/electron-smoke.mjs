@@ -26,7 +26,7 @@ try {
  await page.screenshot({ path: 'test-results/desktop-welcome.png' });
  await app.evaluate(({ dialog }, vaultPath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [vaultPath] }); }, folder);
  await page.getByRole('button', { name: '选择笔记库文件夹' }).click();
- await expect(page.getByRole('heading', { name: '欢迎使用 Fever' })).toBeVisible();
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
  await page.getByTitle('设置', { exact: true }).click();
  await page.getByLabel('用户名', { exact: true }).fill('Desktop Test');
  await page.getByLabel('邮箱', { exact: true }).fill('desktop@example.com');
@@ -153,6 +153,7 @@ try {
  await page.locator('.folder-row').filter({ hasText: 'FSNotes' }).click();
  await expect(page.locator('.folder-row').filter({ hasText: '嵌套分类' })).toHaveAttribute('aria-expanded', 'false');
  await page.locator('.folder-row').filter({ hasText: '嵌套分类' }).click();
+ await page.locator('.note-row').filter({ hasText: 'FSNotes 清单标题' }).click();
  await expect(page.locator('.note-row.selected')).toContainText('FSNotes 清单标题');
  await expect(page.locator('.breadcrumbs')).toContainText('嵌套分类');
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('FSNotes 正文');

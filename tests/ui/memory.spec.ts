@@ -6,7 +6,7 @@ test('large sidebar renders visible rows, scrolls to the last note, and expands 
   localStorage.setItem('fever-demo-v1', JSON.stringify({ manifest: { version: 1, categories: ['大库/子分类', '空分类'], notes }, contents: Object.fromEntries(notes.map((note, i) => [note.id, `# ${note.title}\n\n正文专用编号 ${i === 1199 ? '最后一篇' : i}`])), versions: {}, images: {}, dirty: [], settings: { autoCommit: false, interval: 10, author: '', email: '', remote: '' } }));
  });
  await page.goto('/');
- await expect(page.locator('.wysiwyg-content h1')).toHaveText('笔记 0000');
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
  await expect(page.locator('.folder-row')).toHaveCount(2);
  await expect(page.locator('.folder-row[aria-expanded="true"]')).toHaveCount(0);
  await expect(page.locator('.note-tree .note-row')).toHaveCount(0);
@@ -15,6 +15,8 @@ test('large sidebar renders visible rows, scrolls to the last note, and expands 
  await expect(page.locator('.note-tree .note-row')).toHaveCount(0);
  await page.locator('.folder-row').filter({ hasText: '子分类' }).click();
  await expect(page.locator('.note-row').filter({ hasText: '笔记 0000' })).toBeVisible();
+ await page.locator('.note-row').filter({ hasText: '笔记 0000' }).click();
+ await expect(page.locator('.wysiwyg-content h1')).toHaveText('笔记 0000');
  await page.locator('.note-tree').evaluate(element => { element.scrollTop = element.scrollHeight; });
  await page.locator('.note-row').filter({ hasText: '笔记 1199' }).click();
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('笔记 1199');
@@ -34,6 +36,8 @@ test('large sidebar renders visible rows, scrolls to the last note, and expands 
 
 test('file picker imports the image before its FileList is reset', async ({ page }) => {
  await page.goto('/');
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+ await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
  await page.locator('input[type=file]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64') });
  await expect(page.getByText('图片已添加到 images/')).toBeVisible();
  await expect(page.getByRole('img', { name: 'pixel.png', exact: true })).toBeVisible();

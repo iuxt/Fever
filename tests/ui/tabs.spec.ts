@@ -4,6 +4,7 @@ for (const modifier of ['Meta', 'Control']) {
  test(`${modifier}+W saves and closes the active note, keeping the workspace open`, async ({ page }) => {
   await page.goto('/');
   await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+  await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
   await page.locator('.note-row').filter({ hasText: 'Markdown 语法指南' }).click();
   await page.getByTitle('Markdown 源码与预览').click();
   const draft = '# 关闭前保存\n\n尚未等待自动保存。';
@@ -25,6 +26,8 @@ for (const modifier of ['Meta', 'Control']) {
 
 test('close shortcut handles file and diff tabs without reopening closed notes', async ({ page }) => {
  await page.goto('/');
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+ await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
  await page.getByTitle('Markdown 源码与预览').click();
  await page.locator('.cm-content').fill('# 产生差异');
  await page.getByRole('button', { name: 'Git', exact: true }).click();
@@ -47,6 +50,8 @@ test('close shortcut handles file and diff tabs without reopening closed notes',
 
 test('closing the last note activates an existing editor tab and a modal blocks the shortcut', async ({ page }) => {
  await page.goto('/');
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+ await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
  await page.getByTitle('Markdown 源码与预览').click();
  await page.locator('.cm-content').fill('# 产生文件变更');
  await expect(page.getByText('所有更改已保存')).toBeVisible();

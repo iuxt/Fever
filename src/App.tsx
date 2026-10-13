@@ -13,6 +13,7 @@ import { HighlightedCode } from './codeHighlight';
 import remarkGfm from 'remark-gfm';
 import remarkLegacyImages, { resolveAsset } from './legacyImages';
 import { resolveNoteLink } from './noteLinks';
+import { externalImageUrls, replaceExternalImages } from './externalImages';
 import { demo } from './demo';
 import remarkDrawingEmbeds, { drawingJSON, isDrawingNote, isLegacyDrawing, resolveDrawing } from './drawings';
 const DrawingEditor = lazy(() => import('./Drawing'));
@@ -29,6 +30,14 @@ const defaultCommitMessage = () => {
  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 const headingId = (text: string) => `heading-${text.replace(/[^\p{L}\p{N}]/gu, '-')}`;
+const lastOpenedNoteKey = (path: string) => `fever-last-opened-note:${path}`;
+const lastOpenedNote = (vault: Vault) => {
+ try {
+  const id = localStorage.getItem(lastOpenedNoteKey(vault.path));
+  if (id && vault.manifest.notes.some(note => note.id === id)) return id;
+ } catch { /* Keep the workspace empty when storage is unavailable. */ }
+ return undefined;
+};
 const collapsedFolders = (vault: Vault) => {
  const folders = new Set<string>();
  const addPath = (category: string) => {
@@ -163,7 +172,12 @@ export default function App() {
   drawing: (value: string) => <Suspense fallback={<DrawingLoading />}><DrawingPreview content={value} /></Suspense>,
  }), [vault?.manifest.notes, vault?.manifest.assets, openDrawing]);
  const toggleFolder = useCallback((path: string) => setCollapsed(prev => { const next = new Set(prev); next.has(path) ? next.delete(path) : next.add(path); return next; }), []);
- useEffect(() => { let mounted = true; api.current().then(async v => { if (!mounted) return; setVault(v); if (v) { setCollapsed(collapsedFolders(v)); const id = v.manifest.notes[0]?.id; if (id) await select(id); setStatus(await api.status()); setSettings(await api.settings()); } }).catch(e => notify(e.message, true)).finally(() => setLoading(false)); return () => { mounted = false; }; }, [select, notify]);
+ useEffect(() => { let mounted = true; api.current().then(async v => { if (!mounted) return; setVault(v); if (v) { setCollapsed(collapsedFolders(v)); const id = lastOpenedNote(v); if (id) await select(id); setStatus(await api.status()); setSettings(await api.settings()); } }).catch(e => notify(e.message, true)).finally(() => setLoading(false)); return () => { mounted = false; }; }, [select, notify]);
+ useEffect(() => {
+  if (!vault || !vault.manifest.notes.some(note => note.id === activeId)) return;
+  try { localStorage.setItem(lastOpenedNoteKey(vault.path), activeId); }
+  catch { /* Keep navigation working when storage is unavailable. */ }
+ }, [vault, activeId]);
  useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 6000); return () => clearTimeout(timer); }, [notice]);
  useEffect(() => { if (!modal) setModalNoteId(null); }, [modal]);
  useEffect(() => { setHistory([]); }, [activeId]);
@@ -305,7 +319,7 @@ export default function App() {
    setModal(null); setDiscardChange(null);
   }, '已撤销文件变更');
  }
- async function openVault() { await run(async () => { const v = await api.open(); if (!v) return; setVault(v); setCollapsed(collapsedFolders(v)); setTabs([]); setEditorTabs([]); setActiveEditorKey(null); clearDocument(); if (v.manifest.notes[0]) await select(v.manifest.notes[0].id); setSettings(await api.settings()); }); }
+ async function openVault() { await run(async () => { const v = await api.open(); if (!v) return; setVault(v); setCollapsed(collapsedFolders(v)); setTabs([]); setEditorTabs([]); setActiveEditorKey(null); clearDocument(); const id = lastOpenedNote(v); if (id) await select(id); setSettings(await api.settings()); }); }
  const edit = useCallback((value: string) => { ++editVersion.current; currentDocument.current = { id: activeId, content: value }; setContent(value); pending.current.set(activeId, value); setSaved(false); if (saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => { flush().then(refresh).catch(e => notify(e.message, true)); }, 650); }, [activeId, flush, refresh, notify]);
  function showNew(kind: 'note' | 'folder' | 'drawing' | 'embed', path = active?.category || vault?.manifest.categories[0] || '收件箱') { setField(''); setCategory(path); if (kind === 'embed') setEmbedId(drawings[0]?.id || ''); setModal(kind); }
  const showNoteAction = useCallback((kind: 'rename' | 'delete', note: Note) => {
@@ -366,6 +380,29 @@ export default function App() {
   const selectedFiles = Array.from(files);
   await run(async () => { let markdown = ''; for (const file of selectedFiles) { if (file.size > 20 * 1024 * 1024) throw new Error('图片最大为 20 MB'); const src = await api.image(new Uint8Array(await file.arrayBuffer()), file.name); markdown += `\n\n![${file.name.replace(/[\[\]]/g, '')}](${src})\n`; } await insertMarkdown(markdown); await flush(); }, '图片已添加到 images/');
  }
+ async function localizeImages() {
+  if (!activeId || !vault || busy) return;
+  const targetId = activeId, vaultPath = vault.path;
+  const urls = externalImageUrls(currentDocument.current.content);
+  if (!urls.length) { notify('当前笔记没有外部图片'); return; }
+  await run(async () => {
+   notify(`正在下载 ${urls.length} 张外部图片…`);
+   const result = await api.localizeImages(urls);
+   const currentVault = await api.current();
+   if (currentVault?.path !== vaultPath || !currentVault.manifest.notes.some(note => note.id === targetId)) throw new Error('笔记库或笔记已变化，请重新打开原笔记后转换');
+   const stored = pending.current.get(targetId) ?? await api.read(targetId);
+   // Apply replacements to the latest text, retaining edits made during download.
+   const latest = currentDocument.current.id === targetId ? currentDocument.current.content : pending.current.get(targetId) ?? stored;
+   const next = replaceExternalImages(latest, result.replacements);
+   if (next.replaced) {
+    if (currentDocument.current.id === targetId) edit(next.content);
+    else pending.current.set(targetId, next.content);
+    await flush();
+   }
+   const downloaded = Object.keys(result.replacements).length;
+   notify(result.failed.length ? `已转换 ${downloaded} 张图片，${result.failed.length} 张失败，原链接已保留：${result.failed[0].message}` : `已将 ${downloaded} 张外部图片保存到 images/`, result.failed.length > 0);
+  });
+ }
  async function submitModal() {
   await run(async () => {
    if (modal === 'note' || modal === 'drawing') { const note = await api.create(field.trim(), category.trim(), modal === 'drawing' ? 'excalidraw' : 'markdown'); await refresh(); await select(note.id); setMode('edit'); }
@@ -410,8 +447,8 @@ export default function App() {
    <div className={`document-space ${selectedCommit ? 'revision-view' : activeEditor ? 'repository-document' : mode}`} onPaste={e => { if (selectedCommit || activeEditor || drawing) return; const files = Array.from(e.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { e.preventDefault(); void addImages(files); } }} onDragOver={e => { if (!selectedCommit && !activeEditor && !drawing) e.preventDefault(); }} onDrop={e => { if (selectedCommit || activeEditor || drawing) return; e.preventDefault(); if (e.dataTransfer.files.length) void addImages(e.dataTransfer.files); }}>
     {selectedCommit && active ? <article key={selectedCommit.hash} className="document revision-document" aria-label="历史版本（只读）" tabIndex={0}><div className="revision-meta"><GitCommitHorizontal size={15} /><strong title={selectedCommit.message}>{selectedCommit.message}</strong><code>{selectedCommit.hash.slice(0, 7)}</code><span>{selectedCommit.author} · {time(selectedCommit.date)}</span></div><div className="prose"><Suspense fallback={<DrawingLoading />}>{displayedDrawing ? <DrawingPreview content={revision} label={active.title} /> : <Markdown onNavigate={navigateNote} content={revision} assets={vault.manifest.assets} notes={vault.manifest.notes} />}</Suspense></div></article> : activeEditor ? activeEditor.kind === 'diff' ? <section className="diff-editor" aria-label="文件变更对比"><GitDiff diff={activeEditor.diff} staged={activeEditor.staged} /></section> : activeEditor.file.binary ? <div className="file-preview">{activeEditor.file.image ? <img src={activeEditor.file.image} alt={activeEditor.path} /> : <p>二进制文件，无法显示文本内容。</p>}</div> : <div className="source-editor file-editor"><div className="source-label"><span><Code2 size={13} />{activeEditor.path}</span><span>UTF-8</span></div><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><SourceEditor key={activeEditor.key} filename={activeEditor.path} content={activeEditor.file.content} dark={dark} onChange={value => editFile(activeEditor, value)} onError={message => notify(message, true)} /></Suspense></div> : !active ? <div className="empty-workspace"><BookOpen size={40} strokeWidth={1} /><h2>未打开笔记</h2><button className="primary" onClick={() => showNew('note')}><Plus size={16} />新建笔记</button></div> : drawing ? <Suspense fallback={<DrawingLoading />}><DrawingEditor key={`${activeId}:${editorVersion}`} content={content} dark={dark} onChange={edit} /></Suspense> : <>
      {mode === 'split' && <article className="document" tabIndex={-1} onContextMenu={showDocumentMenu}><div className="document-meta"><span className="category-pill"><Folder size={12} />{active.category || '未分类'}</span><span><Clock3 size={12} />更新于 {time(active.updatedAt)}</span></div><div className="prose"><Markdown onNavigate={navigateNote} content={content} assets={vault.manifest.assets} notes={vault.manifest.notes} onOpen={openDrawing} /></div></article>}
-     {mode === 'edit' && <div className="wysiwyg-editor"><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><MarkdownEditor onNavigate={navigateNote} ref={editorRef} key={`${activeId}:${editorVersion}`} content={content} onChange={edit} media={editorMedia} onError={message => notify(message, true)} onInsertImage={() => imageRef.current?.click()} onInsertDrawing={() => showNew('embed')} /></Suspense></div>}
-     {mode === 'split' && <div className="source-editor"><div className="source-label"><span><PenLine size={13} />MARKDOWN</span><span><button className="text-button" onClick={() => showNew('embed')}><Shapes size={14} />插入 Excalidraw</button><button className="text-button" onClick={() => imageRef.current?.click()}><ImagePlus size={14} />插入图片</button></span></div><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><SourceEditor key={activeId} content={content} dark={dark} onChange={edit} onError={message => notify(message, true)} /></Suspense></div>}
+     {mode === 'edit' && <div className="wysiwyg-editor"><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><MarkdownEditor onNavigate={navigateNote} ref={editorRef} key={`${activeId}:${editorVersion}`} content={content} onChange={edit} media={editorMedia} onError={message => notify(message, true)} onInsertImage={() => imageRef.current?.click()} onInsertDrawing={() => showNew('embed')} onLocalizeImages={() => void localizeImages()} busy={busy} /></Suspense></div>}
+     {mode === 'split' && <div className="source-editor"><div className="source-label"><span><PenLine size={13} />MARKDOWN</span><span><button className="icon-button" title="外部图片转为本地文件" aria-label="外部图片转为本地文件" disabled={busy} onClick={() => void localizeImages()}><ArrowDownToLine size={16} /></button><button className="text-button" onClick={() => showNew('embed')}><Shapes size={14} />插入 Excalidraw</button><button className="text-button" onClick={() => imageRef.current?.click()}><ImagePlus size={14} />插入图片</button></span></div><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><SourceEditor key={activeId} content={content} dark={dark} onChange={edit} onError={message => notify(message, true)} /></Suspense></div>}
     </>}
    </div><footer className="status-bar"><div><span className="saved-state">{saved ? <CheckCheck size={13} /> : <LoaderCircle className="spin" size={13} />}{saved ? '所有更改已保存' : '正在保存…'}</span>{!api.desktop && <span className="demo-label">浏览器演示</span>}</div><div>{activeEditor ? <span>{activeEditor.kind === 'diff' ? '文件变更对比' : activeEditor.path.split('/').pop()}</span> : displayedDrawing ? <span>{drawingCount} 个元素</span> : <><span>{counts.words.toLocaleString()} 字</span><span>{counts.chars.toLocaleString()} 字符</span></>}{!activeEditor && <span>{displayedDrawing ? 'Excalidraw' : 'Markdown'}</span>}<span>UTF-8</span><button title="Git 状态" onClick={() => { setPanel('git'); setRightOpen(true); }}><GitBranch size={12} />{status?.branch || 'main'}</button></div></footer>
   </main>

@@ -11,7 +11,7 @@ declare global { interface Window { reviewControls: Controls } }
 async function desktopFixture(page: Page, content = '# Note A\n\n[Other note](b.md)\n') {
  await page.addInitScript(content => {
   const note = (id: string, title: string) => ({ id, title, filename: `${id}.md`, category: '', createdAt: '2026-10-12T00:00:00Z', updatedAt: '2026-10-12T00:00:00Z' });
-  let vault = { path: '/test/first', name: 'first', lfs: true, manifest: { version: 1 as const, categories: [], notes: [note('a', 'Note A'), note('b', 'Note B')] } };
+  let vault = { path: '/test/first', name: 'first', lfs: true, manifest: { version: 1 as const, categories: [], notes: [note('a', 'Note A'), note('b', 'Note B')].filter(note => note.id !== localStorage.getItem('test-removed-note')) } };
   const controls: Controls = { contents: { a: content, b: '# Note B\n\nTarget body', c: '# New vault note\n\nNew library body' }, holdNextRead: false, waiting: false, release: () => {} };
   window.reviewControls = controls;
   window.fever = {
@@ -38,6 +38,7 @@ async function desktopFixture(page: Page, content = '# Note A\n\n[Other note](b.
   } as typeof window.fever;
  }, content);
  await page.goto('/');
+ await page.locator('.note-row').filter({ hasText: 'Note A' }).click();
  await expect(page.locator('.note-row.selected')).toHaveText('Note A');
  await expect(page.locator('.wysiwyg-content')).toBeVisible();
 }
@@ -63,14 +64,60 @@ for (const mode of ['rich', 'source']) for (const savedBeforeRead of [false, tru
  });
 }
 
-test('switching libraries opens the first note after clearing the previous document', async ({ page }) => {
+test('switching to a new library leaves the workspace empty', async ({ page }) => {
  await desktopFixture(page);
  await page.getByTitle('设置', { exact: true }).click();
  await page.getByRole('button', { name: '切换', exact: true }).click();
- await expect(page.locator('.note-row.selected')).toHaveText('New vault note');
- await expect(page.locator('.wysiwyg-content')).toContainText('New library body');
+ await expect(page.locator('.note-row')).toHaveText('New vault note');
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await expect(page.locator('.tab')).toHaveCount(0);
+});
+
+test('reopening restores the last selected note, including selection through a link', async ({ page }) => {
+ await desktopFixture(page);
+ await page.locator('.wysiwyg-content').getByRole('link', { name: 'Other note' }).click({ modifiers: ['ControlOrMeta'] });
+ await expect(page.locator('.tab.current')).toContainText('Note B');
+ await page.reload();
  await expect(page.locator('.tab')).toHaveCount(1);
- await expect(page.locator('.tab.current')).toContainText('New vault note');
+ await expect(page.locator('.tab.current')).toContainText('Note B');
+ await expect(page.locator('.wysiwyg-content')).toContainText('Target body');
+});
+
+test('a removed last note leaves the workspace empty on every reopen', async ({ page }) => {
+ await desktopFixture(page);
+ await page.locator('.note-row').filter({ hasText: 'Note B' }).click();
+ await expect(page.locator('.tab.current')).toContainText('Note B');
+ await page.evaluate(() => localStorage.setItem('test-removed-note', 'b'));
+ await page.reload();
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await expect(page.locator('.tab')).toHaveCount(0);
+ await page.reload();
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await expect(page.locator('.tab')).toHaveCount(0);
+});
+
+test('each library restores its own last note even when note IDs overlap', async ({ page }) => {
+ await desktopFixture(page);
+ await page.locator('.note-row').filter({ hasText: 'Note B' }).click();
+ await expect(page.locator('.tab.current')).toContainText('Note B');
+ await page.evaluate(() => {
+  let second = false;
+  const current = window.fever!.current;
+  window.fever!.current = async () => ({ ...(await current())!, path: second ? '/test/second' : '/test/first' });
+  window.fever!.open = async () => { second = !second; return window.fever!.current(); };
+ });
+ async function switchLibrary() {
+  await page.getByTitle('设置', { exact: true }).click();
+  await page.getByRole('button', { name: '切换', exact: true }).click();
+ }
+ await switchLibrary();
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await page.locator('.note-row').filter({ hasText: 'Note A' }).click();
+ await expect(page.locator('.tab.current')).toContainText('Note A');
+ await switchLibrary();
+ await expect(page.locator('.tab.current')).toContainText('Note B');
+ await switchLibrary();
+ await expect(page.locator('.tab.current')).toContainText('Note A');
 });
 
 test('a delayed read cannot reopen the last note after its tab is closed', async ({ page }) => {

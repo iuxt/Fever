@@ -54,6 +54,7 @@ export const demo: Api = {
  remove: async id => { const note = state.manifest.notes.find(n => n.id === id)!; state.manifest.notes = state.manifest.notes.filter(n => n.id !== id); delete state.contents[id]; dirty(`notes/${note.filename}`); dirty('fever.json'); },
  category: async path => { if (!state.manifest.categories.includes(path)) state.manifest.categories.push(path); dirty('fever.json'); },
  importNotes: async () => [],
+ localizeImages: async () => { throw new Error('请在桌面版中转换外部图片'); },
  image: async (bytes, name) => { const file = `../images/${crypto.randomUUID()}.${name.split('.').pop()}`; const blob = new Blob([new Uint8Array(bytes)]); state.images[file] = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.readAsDataURL(blob); }); dirty(file.slice(3)); return file; },
  asset: src => state.images[src] || '',
  status: async () => ({ branch: 'main', changes: fileChanges(), ahead: 0, behind: 0, remote: state.settings.remote, lfs: true }),

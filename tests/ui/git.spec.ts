@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 
 test('Git file rows show differences, stage snapshots, open notes and confirm discard', async ({ page }) => {
  await page.goto('/');
+ await page.getByPlaceholder('搜索你的笔记…').fill('欢迎使用 Fever');
+ await page.locator('.note-row').click();
+ await page.getByPlaceholder('搜索你的笔记…').fill('');
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  await page.locator('.cm-content').fill('# staged snapshot\n\nfirst change');
  await expect(page.getByText('所有更改已保存')).toBeVisible();
@@ -66,6 +69,9 @@ test('unstaging retains edits and discarding a new note removes its library entr
 
 test('repository text files open as editable tabs and save before switching to notes', async ({ page }) => {
  await page.goto('/');
+ await page.getByPlaceholder('搜索你的笔记…').fill('欢迎使用 Fever');
+ await page.locator('.note-row').click();
+ await page.getByPlaceholder('搜索你的笔记…').fill('');
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  await page.locator('.cm-content').fill('# Note kept during file navigation\n\nunsaved note');
  await page.getByRole('button', { name: 'Git', exact: true }).click();

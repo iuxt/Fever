@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 async function openSettings(page: Page) {
  await page.getByTitle('设置', { exact: true }).click();
  await expect(page.getByRole('dialog')).toBeVisible();
- await expect(page.locator('.document-space .prose').first()).toBeVisible();
+ await expect(page.locator('.document-space')).toBeVisible();
 }
 
 test('follows live system changes and remembers explicit theme overrides', async ({ page }) => {
@@ -36,6 +36,8 @@ test('follows live system changes and remembers explicit theme overrides', async
 
 test('font size applies to interface, rich text, source and history without rewriting notes', async ({ page }) => {
  await page.goto('/');
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+ await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
  await openSettings(page);
  await page.getByRole('button', { name: '保存设置', exact: true }).click();
  const initialNotes = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).contents);
@@ -97,6 +99,8 @@ for (const theme of ['light', 'dark']) {
   await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' });
   await page.goto('/');
   await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+  await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
+  await expect(page.locator('.wysiwyg-content p').first()).toBeVisible();
   await openSettings(page);
   const samples = await page.evaluate(() => {
    const luminance = (color: string) => {

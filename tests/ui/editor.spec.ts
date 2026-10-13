@@ -11,6 +11,9 @@ async function seed(page: Page, markdown: string) {
   localStorage.setItem('fever-demo-v1', JSON.stringify({ manifest: { version: 1, notes: [note], categories: ['测试'] }, contents: { [note.id]: content }, versions: {}, images: {}, dirty: [], settings: { autoCommit: false, interval: 10, author: '', email: '', remote: '' } }));
  }, markdown);
  await page.goto('/');
+ await page.locator('.folder-row').filter({ hasText: '测试' }).click();
+ await page.locator('.note-row').filter({ hasText: '编辑器测试' }).click();
+ await page.locator('.folder-row').filter({ hasText: '测试' }).click();
  await expect(page.getByTitle('阅读模式', { exact: true })).toHaveCount(0);
  await expect(page.getByRole('textbox', { name: '笔记正文' })).toBeVisible();
 }

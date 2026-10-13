@@ -10,6 +10,7 @@ test.beforeEach(async ({ page }) => {
  (page as Page & { errors: string[] }).errors = errors;
  await page.goto('/');
  await page.locator('.folder-row').filter({ hasText: '测试' }).click();
+ await page.locator('.note-row').filter({ hasText: '当前笔记' }).click();
  await expect(page.locator('.note-row.selected')).toHaveText('当前笔记');
 });
 test.afterEach(({ page }) => { expect((page as Page & { errors: string[] }).errors).toEqual([]); });
