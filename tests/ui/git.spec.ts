@@ -27,6 +27,7 @@ test('Git file rows show differences, stage snapshots, open notes and confirm di
  await page.getByRole('button', { name: '提交已暂存变更 (1)', exact: true }).click();
  await expect(row).toHaveCount(1);
  await expect(page.locator('.cm-content')).toContainText('second change');
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
  await page.locator('.note-row').filter({ hasText: 'Markdown 语法指南' }).click();
  await row.getByTitle('打开文件：notes/demo-1.md', { exact: true }).click();
  await expect(page.locator('.wysiwyg-content')).toContainText('second change');
@@ -50,6 +51,7 @@ test('unstaging retains edits and discarding a new note removes its library entr
  await row.getByRole('button', { name: /^暂存变更：/ }).click();
  await row.getByRole('button', { name: /^取消暂存：/ }).click();
  await expect(page.getByText('已暂存变更', { exact: true })).toHaveCount(0);
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
  await expect(page.locator('.note-row.selected')).toContainText('新文件');
  await page.getByRole('button', { name: '查看工作区差异：fever.json' }).click();
  await expect(page.locator('.diff-editor')).toContainText('新文件');

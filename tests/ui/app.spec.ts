@@ -95,9 +95,11 @@ test('Excalidraw canvas saves, embeds in Markdown, reloads and exports', async (
  expect(await page.locator('.wysiwyg-content .drawing-preview img').evaluate(img => (window as unknown as { previewSVGs: Map<string, Blob> }).previewSVGs.get((img as HTMLImageElement).src)!.text())).toContain(';base64,');
  await page.getByRole('button', { name: '编辑绘图', exact: true }).click();
  await expect(page.locator('.drawing-canvas')).toBeVisible();
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
  await page.locator('.note-row').filter({ hasText: '绘图文档' }).click();
  await expect(page.locator('.wysiwyg-content .drawing-preview img')).toBeVisible();
  await page.reload();
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
  await page.locator('.note-row').filter({ hasText: '绘图文档' }).click();
  await expect(page.locator('.wysiwyg-content .drawing-preview img')).toBeVisible();
  await page.screenshot({ path: 'test-results/excalidraw-embed.png', fullPage: true });
@@ -126,6 +128,7 @@ test('Obsidian compressed drawings, wiki embeds, code blocks and history preview
   localStorage.setItem('fever-demo-v1', JSON.stringify(state));
  }, { legacy, scene });
  await page.reload();
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
  await page.locator('.note-row').filter({ hasText: '引用兼容' }).click();
  await expect(page.locator('.wysiwyg-content .drawing-preview img')).toHaveCount(3);
  await expect(page.locator('.wysiwyg-content code').filter({ hasText: '![[旧图.excalidraw]]' })).toHaveCount(2);
@@ -170,6 +173,7 @@ test('Obsidian compressed drawings, wiki embeds, code blocks and history preview
 
 test('inline history is read-only and preserves working content when returning or switching notes', async ({ page }) => {
  await page.goto('/');
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
  await page.getByTitle('Markdown 源码与预览').click();
  const draft = '# 当前工作版本\n\n尚未提交的修改。';
  await page.locator('.cm-content').fill(draft);

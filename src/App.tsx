@@ -29,6 +29,16 @@ const defaultCommitMessage = () => {
  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 const headingId = (text: string) => `heading-${text.replace(/[^\p{L}\p{N}]/gu, '-')}`;
+const collapsedFolders = (vault: Vault) => {
+ const folders = new Set<string>();
+ const addPath = (category: string) => {
+  const parts = category ? category.split('/') : [];
+  for (let i = 1; i <= parts.length; i++) folders.add(parts.slice(0, i).join('/'));
+ };
+ vault.manifest.categories.forEach(addPath);
+ vault.manifest.notes.forEach(note => addPath(note.category));
+ return folders;
+};
 
 function DrawingReference({ source, notes, onOpen }: { source: string; notes: Note[]; onOpen?: (id: string) => void }) {
  const note = resolveDrawing(source, notes);
@@ -153,7 +163,7 @@ export default function App() {
   drawing: (value: string) => <Suspense fallback={<DrawingLoading />}><DrawingPreview content={value} /></Suspense>,
  }), [vault?.manifest.notes, vault?.manifest.assets, openDrawing]);
  const toggleFolder = useCallback((path: string) => setCollapsed(prev => { const next = new Set(prev); next.has(path) ? next.delete(path) : next.add(path); return next; }), []);
- useEffect(() => { let mounted = true; api.current().then(async v => { if (!mounted) return; setVault(v); if (v) { const id = v.manifest.notes[0]?.id; if (id) await select(id); setStatus(await api.status()); setSettings(await api.settings()); } }).catch(e => notify(e.message, true)).finally(() => setLoading(false)); return () => { mounted = false; }; }, [select, notify]);
+ useEffect(() => { let mounted = true; api.current().then(async v => { if (!mounted) return; setVault(v); if (v) { setCollapsed(collapsedFolders(v)); const id = v.manifest.notes[0]?.id; if (id) await select(id); setStatus(await api.status()); setSettings(await api.settings()); } }).catch(e => notify(e.message, true)).finally(() => setLoading(false)); return () => { mounted = false; }; }, [select, notify]);
  useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 6000); return () => clearTimeout(timer); }, [notice]);
  useEffect(() => { if (!modal) setModalNoteId(null); }, [modal]);
  useEffect(() => { setHistory([]); }, [activeId]);
@@ -295,7 +305,7 @@ export default function App() {
    setModal(null); setDiscardChange(null);
   }, '已撤销文件变更');
  }
- async function openVault() { await run(async () => { const v = await api.open(); if (!v) return; setVault(v); setTabs([]); setEditorTabs([]); setActiveEditorKey(null); clearDocument(); if (v.manifest.notes[0]) await select(v.manifest.notes[0].id); setSettings(await api.settings()); }); }
+ async function openVault() { await run(async () => { const v = await api.open(); if (!v) return; setVault(v); setCollapsed(collapsedFolders(v)); setTabs([]); setEditorTabs([]); setActiveEditorKey(null); clearDocument(); if (v.manifest.notes[0]) await select(v.manifest.notes[0].id); setSettings(await api.settings()); }); }
  const edit = useCallback((value: string) => { ++editVersion.current; currentDocument.current = { id: activeId, content: value }; setContent(value); pending.current.set(activeId, value); setSaved(false); if (saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => { flush().then(refresh).catch(e => notify(e.message, true)); }, 650); }, [activeId, flush, refresh, notify]);
  function showNew(kind: 'note' | 'folder' | 'drawing' | 'embed', path = active?.category || vault?.manifest.categories[0] || '收件箱') { setField(''); setCategory(path); if (kind === 'embed') setEmbedId(drawings[0]?.id || ''); setModal(kind); }
  const showNoteAction = useCallback((kind: 'rename' | 'delete', note: Note) => {

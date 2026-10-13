@@ -9,6 +9,7 @@ test.beforeEach(async ({ page }) => {
  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
  (page as Page & { errors: string[] }).errors = errors;
  await page.goto('/');
+ await page.locator('.folder-row').filter({ hasText: '测试' }).click();
  await expect(page.locator('.note-row.selected')).toHaveText('当前笔记');
 });
 test.afterEach(({ page }) => { expect((page as Page & { errors: string[] }).errors).toEqual([]); });
@@ -52,6 +53,7 @@ test('list actions target the clicked note while keeping the current document op
  await expect(renamed).toHaveCount(0);
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('标题');
  await page.reload();
+ await page.locator('.folder-row').filter({ hasText: '测试' }).click();
  await expect(page.locator('.note-row')).toHaveCount(1);
 });
 

@@ -7,8 +7,11 @@ test('large sidebar renders visible rows, scrolls to the last note, and expands 
  });
  await page.goto('/');
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('笔记 0000');
- expect(await page.locator('.note-tree .note-row').count()).toBeLessThan(60);
- await page.locator('.folder-row').filter({ hasText: '子分类' }).click();
+ await expect(page.locator('.folder-row')).toHaveCount(2);
+ await expect(page.locator('.folder-row[aria-expanded="true"]')).toHaveCount(0);
+ await expect(page.locator('.note-tree .note-row')).toHaveCount(0);
+ await page.locator('.folder-row').filter({ hasText: '大库' }).click();
+ await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toHaveAttribute('aria-expanded', 'false');
  await expect(page.locator('.note-tree .note-row')).toHaveCount(0);
  await page.locator('.folder-row').filter({ hasText: '子分类' }).click();
  await expect(page.locator('.note-row').filter({ hasText: '笔记 0000' })).toBeVisible();
@@ -23,6 +26,10 @@ test('large sidebar renders visible rows, scrolls to the last note, and expands 
  await expect(page.locator('.note-row.selected')).toHaveText('笔记 1199');
  await page.locator('.tabs .tab').first().getByRole('button').first().click();
  await expect(page.locator('.note-row.selected')).toHaveText('笔记 0000');
+ await page.reload();
+ await expect(page.locator('.wysiwyg-content h1')).toHaveText('笔记 0000');
+ await expect(page.locator('.folder-row[aria-expanded="true"]')).toHaveCount(0);
+ await expect(page.locator('.note-tree .note-row')).toHaveCount(0);
 });
 
 test('file picker imports the image before its FileList is reset', async ({ page }) => {
@@ -58,6 +65,7 @@ test('drawing preview releases its Blob URL when the note unmounts', async ({ pa
  await expect(page.locator('.drawing-preview img')).toBeVisible();
  const url = (await page.locator('.drawing-preview img').getAttribute('src'))!;
  expect(url).toMatch(/^blob:/);
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
  await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
  await expect(page.locator('.wysiwyg-content h1')).toBeVisible();
  expect(await page.evaluate(url => (window as unknown as { feverPreviewUrls: Set<string> }).feverPreviewUrls.has(url), url)).toBe(false);

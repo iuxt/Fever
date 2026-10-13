@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 for (const modifier of ['Meta', 'Control']) {
  test(`${modifier}+W saves and closes the active note, keeping the workspace open`, async ({ page }) => {
   await page.goto('/');
+  await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
   await page.locator('.note-row').filter({ hasText: 'Markdown 语法指南' }).click();
   await page.getByTitle('Markdown 源码与预览').click();
   const draft = '# 关闭前保存\n\n尚未等待自动保存。';

@@ -96,6 +96,7 @@ for (const theme of ['light', 'dark']) {
  test(`body, secondary text and controls have readable contrast (${theme})`, async ({ page }) => {
   await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' });
   await page.goto('/');
+  await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
   await openSettings(page);
   const samples = await page.evaluate(() => {
    const luminance = (color: string) => {

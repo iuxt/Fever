@@ -567,6 +567,7 @@ test('pastes Markdown as formatted content and keeps paste literal inside code b
 
 test('finishing an image import after switching notes updates its original document', async ({ page }) => {
  await seed(page, '# 原笔记\n\n正文\n');
+ await page.locator('.folder-row').filter({ hasText: '测试' }).click();
  await page.getByRole('button', { name: '新建笔记', exact: true }).first().click();
  await page.getByLabel('笔记标题').fill('另一篇');
  await page.getByRole('button', { name: '创建笔记', exact: true }).click();

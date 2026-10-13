@@ -113,6 +113,8 @@ try {
  }, note.id);
  // Exercise the production file:// build with its local fonts and existing IPC vault.
  await app.evaluate(async ({ BrowserWindow }, file) => { await BrowserWindow.getAllWindows()[0].loadFile(file); }, path.resolve('dist/index.html'));
+ await page.locator('.folder-row').filter({ hasText: '项目' }).click();
+ await page.locator('.folder-row').filter({ hasText: '测试' }).click();
  await page.locator('.note-row').filter({ hasText: '桌面集成测试' }).click({ button: 'right' });
  await page.getByRole('menuitem', { name: '复制 Markdown', exact: true }).click();
  await expect.poll(() => app.evaluate(async ({ clipboard }) => (await clipboard.readText()).includes('真实文件保存成功。'))).toBe(true);
@@ -146,6 +148,11 @@ try {
  await page.getByTitle('设置', { exact: true }).click();
  await page.getByRole('dialog').getByRole('button', { name: '切换', exact: true }).click();
  await expect(page.locator('.sidebar-foot')).toContainText('1 篇笔记');
+ await expect(page.locator('.folder-row').filter({ hasText: 'FSNotes' })).toHaveAttribute('aria-expanded', 'false');
+ await expect(page.locator('.note-row')).toHaveCount(0);
+ await page.locator('.folder-row').filter({ hasText: 'FSNotes' }).click();
+ await expect(page.locator('.folder-row').filter({ hasText: '嵌套分类' })).toHaveAttribute('aria-expanded', 'false');
+ await page.locator('.folder-row').filter({ hasText: '嵌套分类' }).click();
  await expect(page.locator('.note-row.selected')).toContainText('FSNotes 清单标题');
  await expect(page.locator('.breadcrumbs')).toContainText('嵌套分类');
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('FSNotes 正文');

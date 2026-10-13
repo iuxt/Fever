@@ -47,6 +47,7 @@ try {
  await expect(page.locator('.tab')).toHaveCount(0);
  await shortcut();
  expect(page.isClosed()).toBe(false);
+ await page.locator('.folder-row').filter({ hasText: '收件箱' }).click();
  await page.locator('.note-row').filter({ hasText: '快捷键测试' }).click();
  await expect(page.locator('.cm-content')).toContainText('快捷键关闭前的修改');
  await app.evaluate(({ Menu, BrowserWindow }) => Menu.getApplicationMenu().getMenuItemById('close-tab').click(undefined, BrowserWindow.getAllWindows()[0]));
