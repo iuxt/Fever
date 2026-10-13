@@ -2,6 +2,9 @@ import { test, expect, type Page } from '@playwright/test';
 
 type Controls = {
  contents: Record<string, string>;
+ currentCalls: number;
+ waitingSearch?: boolean;
+ releaseSearch?: () => void;
  holdNextRead: boolean;
  waiting: boolean;
  release: () => void;
@@ -12,11 +15,11 @@ async function desktopFixture(page: Page, content = '# Note A\n\n[Other note](b.
  await page.addInitScript(content => {
   const note = (id: string, title: string) => ({ id, title, filename: `${id}.md`, category: '', createdAt: '2026-10-12T00:00:00Z', updatedAt: '2026-10-12T00:00:00Z' });
   let vault = { path: '/test/first', name: 'first', lfs: true, manifest: { version: 1 as const, categories: [], notes: [note('a', 'Note A'), note('b', 'Note B')].filter(note => note.id !== localStorage.getItem('test-removed-note')) } };
-  const controls: Controls = { contents: { a: content, b: '# Note B\n\nTarget body', c: '# New vault note\n\nNew library body' }, holdNextRead: false, waiting: false, release: () => {} };
+  const controls: Controls = { contents: { a: content, b: '# Note B\n\nTarget body', c: '# New vault note\n\nNew library body' }, currentCalls: 0, holdNextRead: false, waiting: false, release: () => {} };
   window.reviewControls = controls;
   window.fever = {
    desktop: true,
-   current: async () => structuredClone(vault),
+   current: async () => { controls.currentCalls++; return structuredClone(vault); },
    open: async () => {
     vault = { ...vault, path: '/test/second', name: 'second', manifest: { ...vault.manifest, notes: [note('c', 'New vault note')] } };
     return structuredClone(vault);
@@ -29,7 +32,13 @@ async function desktopFixture(page: Page, content = '# Note A\n\n[Other note](b.
     } else await new Promise(resolve => setTimeout(resolve, 30));
     return value;
    },
-   save: async (id, value) => { controls.contents[id] = value; },
+   save: async (id, value) => {
+    controls.contents[id] = value;
+    const note = vault.manifest.notes.find(note => note.id === id)!;
+    note.updatedAt = new Date().toISOString();
+    return { updatedAt: note.updatedAt };
+   },
+   search: async query => Object.keys(controls.contents).filter(id => controls.contents[id].toLowerCase().includes(query.toLowerCase())),
    status: async () => ({ branch: 'main', changes: [], ahead: 0, behind: 0, remote: '', lfs: true }),
    settings: async () => ({ autoCommit: false, interval: 10, author: '', email: '', remote: '' }),
    history: async () => [],
@@ -42,6 +51,70 @@ async function desktopFixture(page: Page, content = '# Note A\n\n[Other note](b.
  await expect(page.locator('.note-row.selected')).toHaveText('Note A');
  await expect(page.locator('.wysiwyg-content')).toBeVisible();
 }
+
+for (const mode of ['rich', 'source']) {
+ test(`${mode} autosaves and manual saves update metadata without reloading the library`, async ({ page }) => {
+  await desktopFixture(page);
+  if (mode === 'source') await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+  const editor = page.locator(mode === 'source' ? '.cm-content' : '.wysiwyg-content');
+  const calls = await page.evaluate(() => window.reviewControls.currentCalls);
+  const oldTime = await page.locator('.note-info dd').nth(1).textContent();
+  for (const value of ['First edit', 'Second edit']) {
+   await editor.fill(value);
+   await expect.poll(() => page.evaluate(() => window.reviewControls.contents.a)).toContain(value);
+   await expect(page.getByText('所有更改已保存')).toBeVisible();
+   expect(await page.evaluate(() => window.reviewControls.currentCalls)).toBe(calls);
+   await expect(page.locator('.note-row.selected')).toHaveText('Note A');
+  }
+  await expect(page.locator('.note-info dd').nth(1)).not.toHaveText(oldTime!);
+  await editor.fill('Manual save');
+  await editor.press('ControlOrMeta+s');
+  await expect(page.getByText('笔记已保存', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.reviewControls.contents.a)).toContain('Manual save');
+  expect(await page.evaluate(() => window.reviewControls.currentCalls)).toBe(calls);
+ });
+}
+
+test('autosave retains content search results during a search and removes matches after content changes', async ({ page }) => {
+ await desktopFixture(page, '# Note A\n\nUnique search phrase');
+ await page.getByPlaceholder('搜索你的笔记…').fill('Unique search phrase');
+ await expect(page.locator('.note-row')).toHaveText('Note A');
+ await page.evaluate(() => {
+  const search = window.fever!.search;
+  window.fever!.search = async query => {
+   const result = await search(query);
+   await new Promise<void>(resolve => {
+    window.reviewControls.waitingSearch = true;
+    window.reviewControls.releaseSearch = () => { window.fever!.search = search; resolve(); };
+   });
+   return result;
+  };
+ });
+ await page.locator('.wysiwyg-content').fill('Unique search phrase with more text');
+ await expect.poll(() => page.evaluate(() => window.reviewControls.waitingSearch)).toBe(true);
+ await expect(page.locator('.note-row')).toHaveText('Note A');
+ await page.evaluate(() => window.reviewControls.releaseSearch!());
+ await page.locator('.wysiwyg-content').fill('Unrelated content');
+ await expect.poll(() => page.evaluate(() => window.reviewControls.contents.a)).toContain('Unrelated content');
+ await expect(page.locator('.note-row')).toHaveCount(0);
+ await expect(page.getByText('没有找到相关笔记')).toBeVisible();
+});
+
+test('saving applies library metadata returned after an external rename', async ({ page }) => {
+ await desktopFixture(page);
+ await page.evaluate(async () => {
+  const vault = (await window.fever!.current())!, save = window.fever!.save;
+  window.fever!.save = async (id, content) => {
+   const result = await save(id, content);
+   return { updatedAt: result!.updatedAt, vault: { ...vault, manifest: { ...vault.manifest, notes: vault.manifest.notes.map(note => note.id === id ? { ...note, title: 'Renamed externally' } : note) } } };
+  };
+ });
+ const calls = await page.evaluate(() => window.reviewControls.currentCalls);
+ await page.locator('.wysiwyg-content').fill('Edited after rename');
+ await expect(page.locator('.note-row.selected')).toHaveText('Renamed externally');
+ await expect(page.locator('.tab.current')).toContainText('Renamed externally');
+ expect(await page.evaluate(() => window.reviewControls.currentCalls)).toBe(calls);
+});
 
 for (const mode of ['rich', 'source']) for (const savedBeforeRead of [false, true]) {
  test(`${mode} keeps edits made during a read even when autosave ${savedBeforeRead ? 'has finished' : 'is pending'}`, async ({ page }) => {

@@ -98,7 +98,8 @@ test('external metadata edits are retained and external trash prevents overwriti
   metadata.notes[0].name = '外部修改';
   metadata.extra.external = 'kept';
   await fs.writeFile(path.join(dir, 'metadata.json'), JSON.stringify(metadata));
-  await store.save(noteID, 'latest body');
+  const saved = await store.save(noteID, 'latest body');
+  assert.equal(saved.vault.manifest.notes.find(note => note.id === noteID).title, '外部修改');
   const next = JSON.parse(await fs.readFile(path.join(dir, 'metadata.json'), 'utf8'));
   assert.equal(next.notes[0].name, '外部修改'); assert.equal(next.extra.external, 'kept');
   assert.equal(store.note(noteID).title, '外部修改');

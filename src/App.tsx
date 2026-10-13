@@ -115,6 +115,7 @@ export default function App() {
  const { dark, themeMode, fontSize, setThemeMode, setFontSize } = useAppearance();
  const pending = useRef(new Map<string, string>()), saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null), readToken = useRef(0);
  const editVersion = useRef(0);
+ const [searchVersion, setSearchVersion] = useState(0);
  const currentDocument = useRef({ id: activeId, content });
  currentDocument.current = { id: activeId, content };
  const editorRef = useRef<MarkdownEditorHandle | null>(null);
@@ -126,13 +127,23 @@ export default function App() {
  const displayedDrawing = selectedCommit ? Boolean(active && (isDrawingNote(active) || isLegacyDrawing(revision))) : drawing;
  const drawings = vault?.manifest.notes.filter(isDrawingNote) || [];
  const notify = useCallback((message: string, error = false) => setNotice({ message, error }), []);
+ const refreshStatus = useCallback(async () => { setStatus(await api.status()); }, []);
  const refresh = useCallback(async () => {
   const v = await api.current(); setVault(v); setStatus(v ? await api.status() : null);
  }, []);
  const flush = useCallback(async () => {
   if (saveTimer.current) clearTimeout(saveTimer.current);
   for (const [id, value] of [...pending.current]) {
-   if (id.startsWith('file:')) await api.saveFile(id.slice(5), value); else await api.save(id, value);
+   if (id.startsWith('file:')) {
+    await api.saveFile(id.slice(5), value);
+    // Repository files can include the manifest, so their saves may change the tree.
+    setVault(await api.current());
+   } else {
+    const result = await api.save(id, value);
+    if (result?.vault) setVault(result.vault);
+    else if (result) setVault(previous => previous ? { ...previous, manifest: { ...previous.manifest, notes: previous.manifest.notes.map(note => note.id === id ? { ...note, updatedAt: result.updatedAt } : note) } } : previous);
+   }
+   setSearchVersion(version => version + 1);
    if (pending.current.get(id) === value) pending.current.delete(id);
   }
   setSaved(pending.current.size === 0);
@@ -189,25 +200,25 @@ export default function App() {
   return () => clearInterval(timer);
  }, [vault?.path]);
  useEffect(() => { if (panel !== 'history' || !activeId) return; let cancelled = false; api.history(activeId).then(h => { if (!cancelled) setHistory(h); }).catch(e => notify(e.message, true)); return () => { cancelled = true; }; }, [panel, activeId, status, notify]);
+ useEffect(() => { setTextMatches([]); }, [query, vault?.path]);
  useEffect(() => {
-  setTextMatches([]);
   if (!query.trim() || !vault) { void api.cancelSearch().catch(() => {}); return; }
   let cancelled = false;
-  const timer = setTimeout(() => { api.search(query).then(result => { if (!cancelled) setTextMatches(result); }).catch(e => { if (!cancelled) notify(e.message, true); }); }, 250);
+  const timer = setTimeout(() => { api.search(query).then(result => { if (!cancelled) setTextMatches(previous => previous.length === result.length && previous.every((id, index) => id === result[index]) ? previous : result); }).catch(e => { if (!cancelled) notify(e.message, true); }); }, 250);
   return () => { cancelled = true; clearTimeout(timer); void api.cancelSearch().catch(() => {}); };
- }, [query, vault]);
+ }, [query, vault, searchVersion, notify]);
  useEffect(() => {
   const keydown = (e: KeyboardEvent) => {
    if (e.metaKey || e.ctrlKey) {
     if (e.key.toLowerCase() === 'k') { e.preventDefault(); setLeftOpen(true); setTimeout(() => searchRef.current?.focus(), 0); }
     if (e.key.toLowerCase() === 'n') { e.preventDefault(); setField(''); setCategory(active?.category || vault?.manifest.categories[0] || '收件箱'); setModal('note'); }
-    if (e.key.toLowerCase() === 's') { e.preventDefault(); flush().then(refresh).then(() => notify('笔记已保存')).catch(err => notify(err.message, true)); }
+    if (e.key.toLowerCase() === 's') { e.preventDefault(); flush().then(refreshStatus).then(() => notify('笔记已保存')).catch(err => notify(err.message, true)); }
     if (!activeEditorKey && !selectedCommit && e.key.toLowerCase() === 'e') { e.preventDefault(); setMode(m => drawing || m === 'split' ? 'edit' : 'split'); }
    }
    if (e.key === 'Escape') { setModal(null); setMenu(false); setQuery(''); }
   };
   window.addEventListener('keydown', keydown); return () => window.removeEventListener('keydown', keydown);
- }, [active, vault, flush, refresh, notify, activeEditorKey, drawing, selectedCommit]);
+ }, [active, vault, flush, refreshStatus, notify, activeEditorKey, drawing, selectedCommit]);
  useEffect(() => {
   const unload = (e: BeforeUnloadEvent) => { if (pending.current.size) { e.preventDefault(); e.returnValue = ''; void flush(); } };
   window.addEventListener('beforeunload', unload); return () => window.removeEventListener('beforeunload', unload);
@@ -300,7 +311,7 @@ export default function App() {
   setEditorTabs(previous => previous.map(item => item.key === tab.key ? { ...tab, file: { ...tab.file, content: value } } : item));
   pending.current.set(`file:${tab.path}`, value); setSaved(false);
   if (saveTimer.current) clearTimeout(saveTimer.current);
-  saveTimer.current = setTimeout(() => { flush().then(refresh).catch(e => notify(e.message, true)); }, 650);
+  saveTimer.current = setTimeout(() => { flush().then(refreshStatus).catch(e => notify(e.message, true)); }, 650);
  }
  async function discardFile() {
   if (!discardChange) return;
@@ -320,7 +331,7 @@ export default function App() {
   }, '已撤销文件变更');
  }
  async function openVault() { await run(async () => { const v = await api.open(); if (!v) return; setVault(v); setCollapsed(collapsedFolders(v)); setTabs([]); setEditorTabs([]); setActiveEditorKey(null); clearDocument(); const id = lastOpenedNote(v); if (id) await select(id); setSettings(await api.settings()); }); }
- const edit = useCallback((value: string) => { ++editVersion.current; currentDocument.current = { id: activeId, content: value }; setContent(value); pending.current.set(activeId, value); setSaved(false); if (saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => { flush().then(refresh).catch(e => notify(e.message, true)); }, 650); }, [activeId, flush, refresh, notify]);
+ const edit = useCallback((value: string) => { ++editVersion.current; currentDocument.current = { id: activeId, content: value }; setContent(value); pending.current.set(activeId, value); setSaved(false); if (saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => { flush().then(refreshStatus).catch(e => notify(e.message, true)); }, 650); }, [activeId, flush, refreshStatus, notify]);
  function showNew(kind: 'note' | 'folder' | 'drawing' | 'embed', path = active?.category || vault?.manifest.categories[0] || '收件箱') { setField(''); setCategory(path); if (kind === 'embed') setEmbedId(drawings[0]?.id || ''); setModal(kind); }
  const showNoteAction = useCallback((kind: 'rename' | 'delete', note: Note) => {
   setModalNoteId(note.id); setField(note.title); setCategory(note.category); setModal(kind); setMenu(false);

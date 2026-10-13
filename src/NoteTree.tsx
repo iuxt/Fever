@@ -10,11 +10,31 @@ const ROW_HEIGHT = 36, OVERSCAN = 6;
 
 export type NoteTreeTarget = { kind: 'note'; note: Note } | { kind: 'folder'; path: string } | { kind: 'blank' };
 
-export default memo(function NoteTree({ notes, categories, results, activeId, collapsed, onToggle, onSelect, onContextMenu }: {
+type NoteTreeProps = {
  notes: Note[]; categories: string[]; results: Note[] | null; activeId: string; collapsed: Set<string>;
  onToggle: (path: string) => void; onSelect: (id: string) => void;
  onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
-}) {
+};
+// Saving content only changes timestamps; neither the rows nor their actions use them.
+const sameRows = (previous: Note[] | null, next: Note[] | null) => previous === next || Boolean(previous && next && previous.length === next.length && previous.every((note, index) => {
+ const other = next[index];
+ return note.id === other.id && note.title === other.title && note.category === other.category && note.filename === other.filename && note.sourcePath === other.sourcePath;
+}));
+
+function useStableRows<T extends Note[] | null>(notes: T): T {
+ const previous = useRef(notes);
+ return useMemo(() => {
+  if (!sameRows(previous.current, notes)) previous.current = notes;
+  return previous.current;
+ }, [notes]);
+}
+
+export default memo(function NoteTree(props: NoteTreeProps) {
+ const notes = useStableRows(props.notes), results = useStableRows(props.results);
+ return <TreeRows {...props} notes={notes} results={results} />;
+});
+
+const TreeRows = memo(function TreeRows({ notes, categories, results, activeId, collapsed, onToggle, onSelect, onContextMenu }: NoteTreeProps) {
  const container = useRef<HTMLDivElement>(null);
  const previous = useRef({ activeId: '', searching: false });
  const [viewport, setViewport] = useState({ top: 0, height: 600 });

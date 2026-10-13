@@ -1,6 +1,7 @@
 export type Note = { id: string; title: string; category: string; filename: string; createdAt: string; updatedAt: string; sourcePath?: string };
 export type Manifest = { version: 1; categories: string[]; notes: Note[]; assets?: Record<string, string> };
 export type Vault = { path: string; name: string; manifest: Manifest; lfs: boolean; format?: 'fever' | 'fsnotes' };
+export type SaveResult = { updatedAt: string; vault?: Vault };
 export type Change = { status: string; path: string; staged: boolean; unstaged: boolean; originalPath?: string };
 export type FileDiff = { path: string; patch: string };
 export type VaultFile = { path: string; content: string; binary: boolean; image?: string };
@@ -17,7 +18,7 @@ export type Api = {
   read(id: string): Promise<string>;
   search(query: string): Promise<string[]>;
   cancelSearch(): Promise<void>;
-  save(id: string, content: string): Promise<void>;
+  save(id: string, content: string): Promise<SaveResult | void>;
   create(title: string, category: string, format?: 'markdown' | 'excalidraw'): Promise<Note>;
   update(id: string, title: string, category: string): Promise<Note>;
   remove(id: string): Promise<void>;
@@ -32,7 +33,7 @@ export type Api = {
   unstage(path: string): Promise<void>;
   discard(path: string): Promise<void>;
   openFile(path: string): Promise<VaultFile>;
-  saveFile(path: string, content: string): Promise<void>;
+  saveFile(path: string, content: string): Promise<SaveResult | void>;
   commit(message: string, stagedOnly?: boolean): Promise<void>;
   pull(): Promise<void>;
   push(): Promise<void>;

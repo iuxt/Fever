@@ -192,14 +192,19 @@ class VaultStore {
   }
   create(title, category, format) { return this.mutate(() => this.createInternal(title, category, undefined, format)); }
   async read(id) { return fs.readFile(await this.safe(`notes/${this.note(id).filename}`), 'utf8'); }
-  save(id, content) { return this.mutate(async () => {
-    if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('笔记最大为 10 MB');
-    const note = this.note(id), file = await this.safe(`notes/${note.filename}`);
-    if (note.filename.endsWith('.excalidraw')) validateDrawing(content);
-    const temp = await this.safe(`notes/.${randomUUID()}.tmp`);
-    await fs.writeFile(temp, content); await fs.rename(temp, file);
-    note.updatedAt = new Date().toISOString(); await this.persist();
-  }); }
+  save(id, content) {
+    const manifest = this.manifest;
+    return this.mutate(async () => {
+      if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('笔记最大为 10 MB');
+      const note = this.note(id), file = await this.safe(`notes/${note.filename}`);
+      if (note.filename.endsWith('.excalidraw')) validateDrawing(content);
+      const temp = await this.safe(`notes/.${randomUUID()}.tmp`);
+      await fs.writeFile(temp, content); await fs.rename(temp, file);
+      note.updatedAt = new Date().toISOString(); await this.persist();
+      // Include a snapshot only when mutate loaded metadata changed by another app.
+      return { updatedAt: note.updatedAt, ...(manifest !== this.manifest ? { vault: this.snapshot() } : {}) };
+    });
+  }
   update(id, title, category) { return this.mutate(async () => {
     if (typeof title !== 'string' || !title.trim() || title.length > 200 || typeof category !== 'string' || category.length > 200) throw new Error('标题或分类无效');
     if (this.metadata && category && category.split('/').some(c => !c.trim())) throw new Error('分类无效');

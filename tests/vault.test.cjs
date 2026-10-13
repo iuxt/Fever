@@ -17,7 +17,9 @@ test('UUID files, nested categories, stable filenames and persisted manifest', a
  const { dir, store } = await fixture(t);
  const note = await store.create('第一篇', '项目/Fever');
  assert.match(note.filename, /^[0-9a-f-]{36}\.md$/);
- await store.save(note.id, '# 第一篇\n\n思考');
+ const saved = await store.save(note.id, '# 第一篇\n\n思考');
+ assert.equal(saved.updatedAt, store.snapshot().manifest.notes.find(n => n.id === note.id).updatedAt);
+ assert.equal(saved.vault, undefined);
  await store.update(note.id, '重命名', '日记/2026');
  const manifest = JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'));
  const persisted = manifest.notes.find(n => n.id === note.id);
