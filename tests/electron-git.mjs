@@ -20,6 +20,8 @@ try {
  app = await electron.launch({ args: ['.', `--fever-data=${data}`], env });
  const page = await app.firstWindow();
  const errors = []; page.on('pageerror', error => errors.push(error.message));
+ await page.locator('.folder-row').filter({ hasText: '收件箱' }).click();
+ await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
  await expect(page.getByRole('heading', { name: '欢迎使用 Fever' })).toBeVisible();
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  await page.locator('.cm-content').fill('# desktop staged\n\nselected content\n');
@@ -40,6 +42,7 @@ try {
  await expect(page.getByText('已创建 Git 提交')).toBeVisible();
  assert.equal(await store.git(['show', `HEAD:${file}`]), '# desktop staged\n\nselected content\n');
  assert.match(await readFile(path.join(folder, file), 'utf8'), /later edit/);
+ await page.locator('.change').filter({ hasText: '欢迎使用 Fever' }).hover();
  await page.getByTitle(`撤销变更：${file}`, { exact: true }).click();
  await page.getByRole('dialog').getByRole('button', { name: '撤销变更', exact: true }).click();
  await expect(page.locator('.cm-content')).toContainText('selected content');
@@ -52,6 +55,7 @@ try {
   globalThis.feverGitOpenedFiles = [];
   shell.openPath = async file => { globalThis.feverGitOpenedFiles.push(file); return ''; };
  });
+ await page.locator('.change').filter({ hasText: 'fever.json' }).hover();
  await page.getByTitle('打开文件：fever.json', { exact: true }).click();
  await expect(page.locator('.file-editor .cm-content')).toContainText(note.filename);
  await expect(page.locator('.tab.current')).toContainText('fever.json');
@@ -63,8 +67,17 @@ try {
  await expect(page.getByText('所有更改已保存')).toBeVisible();
  await expect.poll(async () => JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8')).categories).toContain('raw editor category');
  await page.getByTitle('关闭文件：fever.json', { exact: true }).click();
+ await page.getByRole('button', { name: '全部暂存', exact: true }).click();
+ await expect(page.getByText('已暂存全部变更', { exact: true })).toBeVisible();
+ await expect(page.getByRole('button', { name: '全部暂存', exact: true })).toBeDisabled();
+ assert.ok((await store.status()).changes.every(change => change.staged && !change.unstaged));
+ await page.getByRole('button', { name: '全部取消暂存', exact: true }).click();
+ await expect(page.getByText('已取消全部暂存', { exact: true })).toBeVisible();
+ await expect(page.getByRole('button', { name: '全部取消暂存', exact: true })).toBeDisabled();
+ assert.ok((await store.status()).changes.every(change => !change.staged));
+ assert.ok(JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8')).categories.includes('raw editor category'));
  assert.deepEqual(errors, []);
- console.log('Desktop Git diff, staging, selected commit and discard passed.');
+ console.log('Desktop Git diff, individual/global staging, selected commit and discard passed.');
 } finally {
  if (app) await app.close();
  await rm(scratch, { recursive: true, force: true });

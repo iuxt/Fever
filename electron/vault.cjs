@@ -294,12 +294,16 @@ class VaultStore {
       if (relative === this.manifestFile) this.manifest = this.metadata ? await this.loadMetadata(content) : manifest;
     });
   }
+  async validateChange(change) {
+    await this.changeFile(change.path);
+    if (change.originalPath) await this.changeFile(change.originalPath);
+    if (/^(DD|AU|UD|UA|DU|AA|UU)$/.test(change.status)) throw new Error('请先解决文件的合并冲突');
+  }
   async change(relative) {
     await this.changeFile(relative);
     const change = (await this.status()).changes.find(c => c.path === relative);
     if (!change) throw new Error('文件已没有变更，请刷新 Git 状态');
-    if (change.originalPath) await this.changeFile(change.originalPath);
-    if (/^(DD|AU|UD|UA|DU|AA|UU)$/.test(change.status)) throw new Error('请先解决文件的合并冲突');
+    await this.validateChange(change);
     return change;
   }
   diff(relative, staged = false) { return this.queued(async () => {
@@ -325,6 +329,19 @@ class VaultStore {
     const paths = [relative, ...(change.originalPath ? [change.originalPath] : [])].map(p => `:(literal)${p}`);
     if ((await this.git(['rev-parse', '--verify', 'HEAD'], true)).trim()) await this.git(['reset', 'HEAD', '--', ...paths]);
     else await this.git(['rm', '--cached', '-f', '--', ...paths]);
+  }); }
+  stageAll() { return this.queued(async () => {
+    const changes = (await this.status()).changes.filter(change => change.unstaged);
+    if (!changes.length) return;
+    for (const change of changes) await this.validateChange(change);
+    await this.git(['add', '-A', '--', '.']);
+  }); }
+  unstageAll() { return this.queued(async () => {
+    const changes = (await this.status()).changes.filter(change => change.staged);
+    if (!changes.length) return;
+    for (const change of changes) await this.validateChange(change);
+    if ((await this.git(['rev-parse', '--verify', 'HEAD'], true)).trim()) await this.git(['reset', 'HEAD', '--', '.']);
+    else await this.git(['rm', '--cached', '-r', '-f', '--', '.']);
   }); }
   discard(relative) { return this.mutate(async () => {
     const change = await this.change(relative), hasHead = Boolean((await this.git(['rev-parse', '--verify', 'HEAD'], true)).trim());

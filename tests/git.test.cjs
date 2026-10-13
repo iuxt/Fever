@@ -45,6 +45,68 @@ test('unstage works before the first commit and preserves untracked file content
  await assert.rejects(store.discard('fever.json'), /初始笔记库/);
 });
 
+test('bulk staging includes modifications, deletions, renames and new repository files without changing contents', async t => {
+ const { store, dir, note, file } = await fixture(t);
+ const oldPath = 'notes/中文 old [1].txt', newPath = 'notes/中文 new [1].txt', deletedPath = 'notes/deleted.txt';
+ await fs.writeFile(path.join(dir, oldPath), 'rename text\n');
+ await fs.writeFile(path.join(dir, deletedPath), 'delete text\n');
+ await store.commit('bulk fixture');
+ await store.save(note.id, 'first staged snapshot\n'); await store.stage(file);
+ await store.save(note.id, 'latest working content\n');
+ await store.git(['mv', '--', oldPath, newPath]);
+ await fs.unlink(path.join(dir, deletedPath));
+ await fs.writeFile(path.join(dir, 'repository [1].txt'), 'new repository file\n');
+ await fs.writeFile(path.join(dir, '.gitignore'), 'ignored.txt\n');
+ await fs.writeFile(path.join(dir, 'ignored.txt'), 'ignored content\n');
+ await store.stageAll();
+ const staged = (await store.status()).changes;
+ assert.ok(staged.length >= 5);
+ assert.ok(staged.every(change => change.staged && !change.unstaged));
+ assert.ok(staged.some(change => change.path === newPath && change.originalPath === oldPath));
+ assert.ok(staged.some(change => change.path === deletedPath));
+ assert.ok(staged.some(change => change.path === 'repository [1].txt'));
+ assert.ok(!staged.some(change => change.path === 'ignored.txt'));
+ assert.equal(await store.git(['show', `:${file}`]), 'latest working content\n');
+ await store.save(note.id, 'edit after staging\n');
+ await store.unstageAll();
+ assert.ok((await store.status()).changes.every(change => !change.staged));
+ assert.equal(await store.read(note.id), 'edit after staging\n');
+ assert.equal(await fs.readFile(path.join(dir, newPath), 'utf8'), 'rename text\n');
+ assert.equal(await fs.readFile(path.join(dir, 'repository [1].txt'), 'utf8'), 'new repository file\n');
+ await assert.rejects(fs.access(path.join(dir, oldPath)), { code: 'ENOENT' });
+ await assert.rejects(fs.access(path.join(dir, deletedPath)), { code: 'ENOENT' });
+ await store.unstageAll();
+});
+
+test('bulk unstaging before the first commit preserves all working files and can be repeated', async t => {
+ const { store, dir, file } = await fixture(t, false);
+ await fs.writeFile(path.join(dir, 'new [1].txt'), 'initial content\n');
+ const original = await fs.readFile(path.join(dir, file), 'utf8');
+ await store.stageAll();
+ assert.ok((await store.status()).changes.every(change => change.staged && !change.unstaged));
+ await store.unstageAll();
+ assert.ok((await store.status()).changes.every(change => change.status === '??'));
+ assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), original);
+ assert.equal(await fs.readFile(path.join(dir, 'new [1].txt'), 'utf8'), 'initial content\n');
+ await store.unstageAll(); await store.stageAll(); await store.stageAll();
+ await store.commit('initial bulk commit', true);
+ await store.stageAll(); await store.unstageAll();
+ assert.equal((await store.status()).changes.length, 0);
+});
+
+test('bulk staging validates every changed file before updating the index', async t => {
+ const { store, dir, note, file } = await fixture(t);
+ const outside = path.join(dir, '..', `${path.basename(dir)}-outside.txt`);
+ await fs.writeFile(outside, 'untouched'); t.after(() => fs.rm(outside, { force: true }));
+ await store.save(note.id, 'keep unstaged\n');
+ await fs.symlink(outside, path.join(dir, 'notes/link.txt'));
+ await assert.rejects(store.stageAll(), /符号链接/);
+ assert.ok((await store.status()).changes.every(change => !change.staged));
+ assert.equal(await store.read(note.id), 'keep unstaged\n');
+ assert.equal(await fs.readFile(outside, 'utf8'), 'untouched');
+ assert.ok((await store.status()).changes.some(change => change.path === file));
+});
+
 test('discard restores modified and deleted files, removes new notes and reloads the manifest', async t => {
  const { store, dir, note, file } = await fixture(t);
  const original = await store.read(note.id), originalTitle = note.title;

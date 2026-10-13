@@ -68,6 +68,12 @@ export const demo: Api = {
  },
  stage: async path => { state.stagedFiles![path] = workingFiles()[path] ?? null; persist(); },
  unstage: async path => { delete state.stagedFiles![path]; persist(); },
+ stageAll: async () => {
+  const files = workingFiles();
+  for (const change of fileChanges().filter(change => change.unstaged)) state.stagedFiles![change.path] = files[change.path] ?? null;
+  persist();
+ },
+ unstageAll: async () => { state.stagedFiles = {}; persist(); },
  discard: async path => {
   const before = state.baseFiles![path], id = noteIdFor(path);
   if (path === 'fever.json') state.manifest = JSON.parse(before);

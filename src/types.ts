@@ -31,6 +31,8 @@ export type Api = {
   diff(path: string, staged?: boolean): Promise<FileDiff>;
   stage(path: string): Promise<void>;
   unstage(path: string): Promise<void>;
+  stageAll(): Promise<void>;
+  unstageAll(): Promise<void>;
   discard(path: string): Promise<void>;
   openFile(path: string): Promise<VaultFile>;
   saveFile(path: string, content: string): Promise<SaveResult | void>;
