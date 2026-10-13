@@ -78,6 +78,7 @@ try {
  await expect(page.getByText('已创建 Git 提交')).toBeVisible();
  await page.getByRole('button', { name: '历史', exact: true }).click();
  await page.getByRole('button', { name: /desktop integration commit/ }).click();
+ await page.getByRole('button', { name: '预览此版本', exact: true }).click();
  await expect(page.getByLabel('历史版本（只读）').getByText('真实文件保存成功。')).toBeVisible();
  await page.getByRole('button', { name: '返回当前版本', exact: true }).click();
  const png = [...Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64')];
@@ -128,6 +129,22 @@ try {
  await expect(page.locator('.drawing-canvas')).toBeVisible();
  await page.screenshot({ path: 'test-results/desktop-drawing.png' });
  await page.screenshot({ path: 'test-results/desktop-editor.png' });
+
+ const retainedBody = await readFile(path.join(folder, 'notes', note.filename), 'utf8');
+ await page.locator('.note-row').filter({ hasText: '桌面集成测试' }).click({ button: 'right' });
+ await page.getByRole('menuitem', { name: '删除笔记', exact: true }).click();
+ await page.getByRole('dialog').getByRole('button', { name: '删除笔记', exact: true }).click();
+ await expect(page.locator('.toast')).toContainText('已移入回收站');
+ if (await readFile(path.join(folder, 'notes', note.filename), 'utf8') !== retainedBody) throw new Error('Trashing lost note content');
+ await readFile(path.join(folder, image.slice(3)));
+ await page.reload();
+ await page.getByRole('button', { name: /^回收站/ }).click();
+ await expect(page.locator('.trash-item')).toContainText('桌面集成测试');
+ await page.getByRole('button', { name: '恢复：桌面集成测试', exact: true }).click();
+ await expect(page.locator('.note-row.selected')).toHaveText('桌面集成测试');
+ await expect(page.locator('.wysiwyg-content')).toContainText('真实文件保存成功。');
+ const restoredManifest = JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8'));
+ if (!restoredManifest.notes.some(n => n.id === note.id && n.filename === note.filename && n.category === note.category) || restoredManifest.trash.length) throw new Error('Trash restore did not preserve note identity and category');
 
  // Open FSNotes' native metadata format and exercise the production asset protocol.
  const fsnotes = path.join(scratch, 'fsnotes');

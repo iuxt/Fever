@@ -1,5 +1,40 @@
 import { test, expect } from '@playwright/test';
 
+for (const remaining of ['none', 'note', 'file'] as const) {
+ test(`deleting the active note closes its tab with ${remaining} remaining`, async ({ page }) => {
+  await page.goto('/');
+  if (remaining === 'note') {
+   await page.locator('.folder-row').filter({ hasText: '知识管理' }).click();
+   await page.locator('.note-row').filter({ hasText: '构建我的第二大脑' }).click();
+  }
+  await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+  await page.locator('.note-row').filter({ hasText: 'Markdown 语法指南' }).click();
+  if (remaining === 'file') {
+   await page.getByTitle('Markdown 源码与预览').click();
+   await page.locator('.cm-content').fill('# 删除前的修改');
+   await page.getByRole('button', { name: 'Git', exact: true }).click();
+   await page.getByTitle('刷新 Git 状态', { exact: true }).click();
+   await page.getByRole('button', { name: '查看工作区差异：fever.json', exact: true }).hover();
+   await page.getByTitle('打开文件：fever.json', { exact: true }).click();
+   await page.locator('.tab').getByRole('button', { name: 'Markdown 语法指南', exact: true }).click();
+  }
+  await page.getByTitle('更多笔记操作').click();
+  await page.getByRole('button', { name: '删除笔记', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '删除笔记', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.note-row').filter({ hasText: 'Markdown 语法指南' })).toHaveCount(0);
+  await expect(page.locator('.tab')).toHaveCount(remaining === 'none' ? 0 : 1);
+  if (remaining === 'none') {
+   await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+   await page.reload();
+   await expect(page.locator('.tab')).toHaveCount(0);
+   await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+  } else {
+   await expect(page.locator('.tab.current')).toContainText(remaining === 'note' ? '构建我的第二大脑' : 'fever.json');
+  }
+ });
+}
+
 for (const modifier of ['Meta', 'Control']) {
  test(`${modifier}+W saves and closes the active note, keeping the workspace open`, async ({ page }) => {
   await page.goto('/');
@@ -33,6 +68,7 @@ test('close shortcut handles file and diff tabs without reopening closed notes',
  await page.getByRole('button', { name: 'Git', exact: true }).click();
  await page.getByTitle('刷新 Git 状态', { exact: true }).click();
  await page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever', exact: true }).click();
+ await page.getByRole('button', { name: '查看工作区差异：fever.json', exact: true }).hover();
  await page.getByTitle('打开文件：fever.json', { exact: true }).click();
  const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
  state.manifest.categories.push('关闭文件时保存');
@@ -57,6 +93,7 @@ test('closing the last note activates an existing editor tab and a modal blocks 
  await expect(page.getByText('所有更改已保存')).toBeVisible();
  await page.getByRole('button', { name: 'Git', exact: true }).click();
  await page.getByTitle('刷新 Git 状态', { exact: true }).click();
+ await page.getByRole('button', { name: '查看工作区差异：fever.json', exact: true }).hover();
  await page.getByTitle('打开文件：fever.json', { exact: true }).click();
  await page.locator('.tab').getByRole('button', { name: '欢迎使用 Fever', exact: true }).click();
  await page.getByRole('button', { name: '新建笔记', exact: true }).first().click();

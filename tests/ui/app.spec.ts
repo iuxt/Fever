@@ -26,6 +26,7 @@ test('note lifecycle, editing, Git commit, history restore and metadata', async 
  await page.getByRole('button', { name: '提交所有笔记变更' }).click();
  await page.getByRole('button', { name: '历史', exact: true }).click();
  await page.getByRole('button', { name: /测试首次提交/ }).click();
+ await page.getByRole('button', { name: '预览此版本', exact: true }).click();
  await expect(page.getByLabel('历史版本（只读）').getByText('这是第一版的正文。')).toBeVisible();
  await expect(page.getByRole('dialog')).toHaveCount(0);
  await expect(page.locator('.history-item.selected')).toContainText('测试首次提交');
@@ -166,6 +167,7 @@ test('Obsidian compressed drawings, wiki embeds, code blocks and history preview
  await page.getByRole('button', { name: '提交所有笔记变更' }).click();
  await page.getByRole('button', { name: '历史', exact: true }).click();
  await page.getByRole('button', { name: /绘图版本/ }).click();
+ await page.getByRole('button', { name: '预览此版本', exact: true }).click();
  await expect(page.getByLabel('历史版本（只读）').locator('.drawing-preview img')).toBeVisible();
  await page.getByRole('button', { name: '恢复这个版本' }).click();
  await expect(page.locator('.drawing-canvas')).toBeVisible();

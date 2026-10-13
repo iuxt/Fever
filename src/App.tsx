@@ -1,6 +1,8 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Circle, Clock3, Code2, Copy, FilePlus2, FileText, Flame, Folder, FolderOpen, FolderPlus, GitBranch, GitCommitHorizontal, History, ImagePlus, LayoutList, LoaderCircle, MoreHorizontal, PanelLeftClose, PanelRightClose, PenLine, Shapes, Plus, Minus, RefreshCw, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Circle, Clock3, Code2, Copy, FilePlus2, FileText, Flame, Folder, FolderOpen, FolderPlus, GitBranch, GitCommitHorizontal, History, ImagePlus, Eye, LayoutList, LoaderCircle, MoreHorizontal, PanelLeftClose, PanelRightClose, PenLine, Shapes, Plus, Minus, RefreshCw, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
 import GitChanges, { GitDiff } from './GitChanges';
+import RevisionDiff from './RevisionDiff';
+import EditorWidthButton, { EditorWidthOptions } from './EditorWidth';
 import NoteTree, { type NoteTreeTarget } from './NoteTree';
 import ContextMenu, { useContextMenu, type MenuItem } from './ContextMenu';
 import { writeClipboard } from './clipboard';
@@ -14,15 +16,16 @@ import remarkGfm from 'remark-gfm';
 import remarkLegacyImages, { resolveAsset } from './legacyImages';
 import { resolveNoteLink } from './noteLinks';
 import { externalImageUrls, replaceExternalImages } from './externalImages';
+import { parseImageAlt } from './imageSize';
 import { demo } from './demo';
 import remarkDrawingEmbeds, { drawingJSON, isDrawingNote, isLegacyDrawing, resolveDrawing } from './drawings';
 const DrawingEditor = lazy(() => import('./Drawing'));
 const DrawingPreview = lazy(() => import('./Drawing').then(module => ({ default: module.DrawingPreview })));
 const DrawingLoading = () => <span className="drawing-placeholder">正在加载绘图…</span>;
-import type { Change, Commit, FileDiff, GitStatus, Note, Settings, Vault, VaultFile } from './types';
+import type { Change, Commit, FileDiff, GitStatus, Note, RevisionComparison, Settings, Vault, VaultFile } from './types';
 
 const api = window.fever || demo;
-type Modal = 'drawing' | 'embed' | 'note' | 'folder' | 'rename' | 'delete' | 'settings' | 'discard' | null;
+type Modal = 'drawing' | 'embed' | 'note' | 'folder' | 'rename' | 'delete' | 'settings' | 'discard' | 'trash' | null;
 type EditorTab = { key: string; path: string } & ({ kind: 'diff'; diff: FileDiff; staged: boolean } | { kind: 'file'; file: VaultFile });
 const time = (date: string) => new Date(date).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const defaultCommitMessage = () => {
@@ -68,7 +71,11 @@ const Markdown = memo(function Markdown({ content, assets, notes = [], onOpen, o
   h1: ({ children }) => <h1 id={headingId(String(children))}>{children}</h1>,
   h2: ({ children }) => <h2 id={headingId(String(children))}>{children}</h2>,
   h3: ({ children }) => <h3 id={headingId(String(children))}>{children}</h3>,
-  img: ({ src, alt }) => /\.excalidraw(?:\.md)?$/i.test(src || '') || resolveDrawing(src || '', notes) ? <DrawingReference source={src || ''} notes={notes} onOpen={onOpen} /> : <img src={api.asset(resolveAsset(src || '', assets)) || undefined} alt={alt || '笔记图片'} loading="lazy" decoding="async" />,
+  img: ({ src, alt, title }) => {
+   if (/\.excalidraw(?:\.md)?$/i.test(src || '') || resolveDrawing(src || '', notes)) return <DrawingReference source={src || ''} notes={notes} onOpen={onOpen} />;
+   const image = parseImageAlt(alt || '');
+   return <img src={api.asset(resolveAsset(src || '', assets)) || undefined} alt={image.alt || '笔记图片'} title={title} style={image.width ? { width: image.width, height: 'auto' } : undefined} loading="lazy" decoding="async" />;
+  },
   pre: ({ node, children }) => {
    const code = node?.children[0];
    if (code?.type === 'element' && Array.isArray(code.properties.className) && code.properties.className.includes('language-excalidraw')) {
@@ -105,17 +112,20 @@ export default function App() {
  const contextMenu = useContextMenu();
  const [settings, setSettings] = useState<Settings>({ autoCommit: false, interval: 10, author: '', email: '', remote: '' });
  const [embedId, setEmbedId] = useState(''), [editorVersion, setEditorVersion] = useState(0);
- const [revision, setRevision] = useState(''), [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
+ const [revisionComparison, setRevisionComparison] = useState<RevisionComparison | null>(null), [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
+ const [revisionMode, setRevisionMode] = useState<'diff' | 'preview'>('diff');
+ const revision = revisionComparison?.content ?? '';
  const [editorTabs, setEditorTabs] = useState<EditorTab[]>([]), [activeEditorKey, setActiveEditorKey] = useState<string | null>(null);
  const activeEditor = editorTabs.find(tab => tab.key === activeEditorKey);
  const [discardChange, setDiscardChange] = useState<Change | null>(null);
  const stagedCount = status?.changes.filter(change => change.staged).length || 0;
  const [commitMessage, setCommitMessage] = useState(defaultCommitMessage), [busy, setBusy] = useState(false), [saved, setSaved] = useState(true);
  const [notice, setNotice] = useState<{ message: string; error: boolean } | null>(null), [menu, setMenu] = useState(false);
- const { dark, themeMode, fontSize, setThemeMode, setFontSize } = useAppearance();
+ const { dark, themeMode, fontSize, editorWidth, editorFullWidth, setThemeMode, setFontSize, setEditorWidth, setEditorFullWidth } = useAppearance();
  const pending = useRef(new Map<string, string>()), saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null), readToken = useRef(0);
  const editVersion = useRef(0);
  const [searchVersion, setSearchVersion] = useState(0);
+ const editorWidthProps = { width: editorWidth, fullWidth: editorFullWidth, onWidthChange: setEditorWidth, onFullWidthChange: setEditorFullWidth };
  const currentDocument = useRef({ id: activeId, content });
  currentDocument.current = { id: activeId, content };
  const editorRef = useRef<MarkdownEditorHandle | null>(null);
@@ -150,7 +160,7 @@ export default function App() {
  }, []);
  const select = useCallback(async (id: string, preserveEditor = false) => {
   const token = ++readToken.current, version = editVersion.current;
-  setSelectedCommit(null); setRevision('');
+  setSelectedCommit(null); setRevisionComparison(null);
   try {
    await flush();
    const value = await api.read(id);
@@ -169,7 +179,7 @@ export default function App() {
  const clearDocument = useCallback(() => {
   // Cancel old reads before starting the next selection, never in a later effect.
   ++readToken.current;
-  setActiveId(''); setContent(''); setSelectedCommit(null); setRevision('');
+  setActiveId(''); setContent(''); setSelectedCommit(null); setRevisionComparison(null);
  }, []);
  const navigateNote = useCallback((href: string) => {
   const note = resolveNoteLink(href, vault?.manifest.notes || []);
@@ -179,7 +189,7 @@ export default function App() {
  }, [vault?.manifest.notes, select]);
  const openDrawing = useCallback((id: string) => { void select(id); setMode('edit'); }, [select]);
  const editorMedia = useMemo(() => ({
-  image: (src: string, alt: string) => /\.excalidraw(?:\.md)?$/i.test(src) || resolveDrawing(src, vault?.manifest.notes || []) ? <DrawingReference source={src} notes={vault?.manifest.notes || []} onOpen={openDrawing} /> : <img src={api.asset(resolveAsset(src, vault?.manifest.assets)) || undefined} alt={alt || '笔记图片'} loading="lazy" decoding="async" />,
+  image: (src: string, alt: string, width?: number) => /\.excalidraw(?:\.md)?$/i.test(src) || resolveDrawing(src, vault?.manifest.notes || []) ? <DrawingReference source={src} notes={vault?.manifest.notes || []} onOpen={openDrawing} /> : <img src={api.asset(resolveAsset(src, vault?.manifest.assets)) || undefined} alt={alt || '笔记图片'} style={width ? { width, height: 'auto' } : undefined} draggable={false} loading="lazy" decoding="async" />,
   drawing: (value: string) => <Suspense fallback={<DrawingLoading />}><DrawingPreview content={value} /></Suspense>,
  }), [vault?.manifest.notes, vault?.manifest.assets, openDrawing]);
  const toggleFolder = useCallback((path: string) => setCollapsed(prev => { const next = new Set(prev); next.has(path) ? next.delete(path) : next.add(path); return next; }), []);
@@ -228,21 +238,21 @@ export default function App() {
  async function run(fn: () => Promise<void>, success?: string) { setBusy(true); try { await flush(); await fn(); await refresh(); if (success) notify(success); } catch (e) { notify((e as Error).message, true); } finally { setBusy(false); } }
  function showEditorTab(tab: EditorTab) {
   ++readToken.current;
-  setSelectedCommit(null); setRevision('');
+  setSelectedCommit(null); setRevisionComparison(null);
   setEditorTabs(previous => previous.some(item => item.key === tab.key) ? previous.map(item => item.key === tab.key ? tab : item) : [...previous, tab]);
   setActiveEditorKey(tab.key); setMenu(false);
  }
  function leaveRevision() {
-  ++readToken.current; setSelectedCommit(null); setRevision('');
+  ++readToken.current; setSelectedCommit(null); setRevisionComparison(null);
  }
  async function openRevision(commit: Commit) {
   if (!activeId) return;
   const id = activeId, token = ++readToken.current;
   try {
    await flush();
-   const value = await api.revision(id, commit.hash);
+   const comparison = await api.revisionComparison(id, commit.hash);
    if (token !== readToken.current) return;
-   setActiveEditorKey(null); setRevision(value); setSelectedCommit(commit); setMenu(false); contextMenu.close();
+   setActiveEditorKey(null); setRevisionComparison(comparison); setRevisionMode('diff'); setSelectedCommit(commit); setMenu(false); contextMenu.close();
   } catch (e) { if (token === readToken.current) notify((e as Error).message, true); }
  }
  async function restoreRevision() {
@@ -266,17 +276,18 @@ export default function App() {
  async function activateEditor(tab: EditorTab) {
   await run(async () => { if (tab.kind === 'file') showEditorTab({ ...tab, file: await api.openFile(tab.path) }); else showEditorTab(tab); });
  }
- async function closeNote(id: string) {
-  await run(async () => {
-   const remaining = tabs.filter(tab => tab !== id); setTabs(remaining);
-   if (id === activeId && !activeEditorKey) {
-    if (remaining.length) await select(remaining.at(-1)!);
-    else {
-     clearDocument();
-     if (editorTabs.length) setActiveEditorKey(editorTabs.at(-1)!.key);
-    }
+ async function closeNoteTab(id: string) {
+  const remaining = tabs.filter(tab => tab !== id); setTabs(remaining);
+  if (id === activeId && !activeEditorKey) {
+   if (remaining.length) await select(remaining.at(-1)!);
+   else {
+    clearDocument();
+    if (editorTabs.length) setActiveEditorKey(editorTabs.at(-1)!.key);
    }
-  });
+  }
+ }
+ async function closeNote(id: string) {
+  await run(() => closeNoteTab(id));
  }
  async function closeEditor(tab: EditorTab) {
   await run(async () => {
@@ -331,6 +342,18 @@ export default function App() {
    }
    setModal(null); setDiscardChange(null);
   }, '已撤销文件变更');
+ }
+ async function restoreTrashedNote(note: Note) {
+  await run(async () => {
+   await api.restoreTrash(note.id);
+   await refresh();
+   setCollapsed(previous => {
+    const next = new Set(previous), parts = note.category.split('/');
+    for (let i = 1; i <= parts.length; i++) next.delete(parts.slice(0, i).join('/'));
+    return next;
+   });
+   setQuery(''); setModal(null); await select(note.id);
+  }, '笔记已从回收站恢复');
  }
  async function openVault() { await run(async () => { const v = await api.open(); if (!v) return; setVault(v); setCollapsed(collapsedFolders(v)); setTabs([]); setEditorTabs([]); setActiveEditorKey(null); clearDocument(); const id = lastOpenedNote(v); if (id) await select(id); setSettings(await api.settings()); }); }
  const edit = useCallback((value: string) => { ++editVersion.current; currentDocument.current = { id: activeId, content: value }; setContent(value); pending.current.set(activeId, value); setSaved(false); if (saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => { flush().then(refreshStatus).catch(e => notify(e.message, true)); }, 650); }, [activeId, flush, refreshStatus, notify]);
@@ -430,9 +453,11 @@ export default function App() {
    if (modal === 'folder') await api.category(field.trim());
    if (modal === 'rename' && modalNote) await api.update(modalNote.id, field.trim(), category.trim());
    if (modal === 'delete' && modalNote) {
-    await api.remove(modalNote.id); setTabs(t => t.filter(id => id !== modalNote.id));
+    await api.remove(modalNote.id);
     const v = await api.current(); setVault(v);
-    if (modalNote.id === activeId) { const next = v?.manifest.notes[0]; if (next) await select(next.id); else clearDocument(); }
+    await closeNoteTab(modalNote.id);
+    notify('笔记已移入回收站');
+    if (modalNote.id === activeId && activeEditorKey) clearDocument();
    }
    if (modal === 'settings') { await api.configure(settings); notify('设置已保存'); }
    setModal(null);
@@ -454,11 +479,11 @@ export default function App() {
  if (!vault) return <div className="welcome"><div className="welcome-art"><Flame size={56} strokeWidth={1.3} /><span className="orbit one" /><span className="orbit two" /></div><h1>Fever</h1><button className="primary large" onClick={() => void openVault()} disabled={busy}><FolderOpen size={18} />选择笔记库文件夹<ArrowRight size={17} /></button>{notice && <div className="toast error">{notice.message}</div>}</div>;
 
  return <div className="app-shell">
-  {leftOpen && <aside className="sidebar"><div className="sidebar-brand"><span>fever<span className="brand-period">.</span></span><button className="icon-button" title="设置" onClick={() => { api.settings().then(setSettings); setModal('settings'); }}><Settings2 size={18} /></button></div><div className="sidebar-search"><Search size={15} /><input ref={searchRef} value={query} placeholder="搜索你的笔记…" onChange={e => setQuery(e.target.value)} /><kbd>⌘ K</kbd></div><button className="new-note" onClick={() => showNew('note')}><Plus size={17} /><span>新建笔记</span><kbd>⌘ N</kbd></button><div className="tree-label"><span>{query ? `搜索结果 · ${filtered.length}` : '我的笔记'}</span><div><button title="新建绘图" onClick={() => showNew('drawing')}><Shapes size={15} /></button><button title="新建分类" onClick={() => showNew('folder')}><FolderPlus size={15} /></button><button title="导入 Markdown / Excalidraw" onClick={() => void run(async () => { const notes = await api.importNotes(); if (notes.length) { await refresh(); await select(notes[0].id); } else if (!api.desktop) notify('Markdown / Excalidraw 导入请使用桌面应用'); })}><Upload size={15} /></button></div></div><NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} results={query ? filtered : null} activeId={activeEditor ? '' : activeId} collapsed={collapsed} onToggle={toggleFolder} onSelect={select} onContextMenu={showTreeMenu} /><div className="sidebar-bottom"><div className="sidebar-foot"><span>{vault.manifest.notes.length} 篇笔记</span></div></div></aside>}
+  {leftOpen && <aside className="sidebar"><div className="sidebar-brand"><span>fever<span className="brand-period">.</span></span><button className="icon-button" title="设置" onClick={() => { api.settings().then(setSettings); setModal('settings'); }}><Settings2 size={18} /></button></div><div className="sidebar-search"><Search size={15} /><input ref={searchRef} value={query} placeholder="搜索你的笔记…" onChange={e => setQuery(e.target.value)} /><kbd>⌘ K</kbd></div><button className="new-note" onClick={() => showNew('note')}><Plus size={17} /><span>新建笔记</span><kbd>⌘ N</kbd></button><div className="tree-label"><span>{query ? `搜索结果 · ${filtered.length}` : '我的笔记'}</span><div><button title="新建绘图" onClick={() => showNew('drawing')}><Shapes size={15} /></button><button title="新建分类" onClick={() => showNew('folder')}><FolderPlus size={15} /></button><button title="导入 Markdown / Excalidraw" onClick={() => void run(async () => { const notes = await api.importNotes(); if (notes.length) { await refresh(); await select(notes[0].id); } else if (!api.desktop) notify('Markdown / Excalidraw 导入请使用桌面应用'); })}><Upload size={15} /></button></div></div><NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} results={query ? filtered : null} activeId={activeEditor ? '' : activeId} collapsed={collapsed} onToggle={toggleFolder} onSelect={select} onContextMenu={showTreeMenu} /><div className="sidebar-bottom"><button className="trash-entry" disabled={busy} onClick={() => { setMenu(false); contextMenu.close(); setModal('trash'); }}><Trash2 size={16} /><span>回收站</span><span className="trash-count">{vault.manifest.trash?.length || 0}</span></button><div className="sidebar-foot"><span>{vault.manifest.notes.length} 篇笔记</span></div></div></aside>}
   <main className="workspace"><header className="tab-bar"><button className="icon-button toggle-left" title="切换侧栏" onClick={() => setLeftOpen(!leftOpen)}><PanelLeftClose size={17} /></button><div className="tabs">{tabs.map(id => { const n = vault.manifest.notes.find(n => n.id === id); return n && <div key={id} className={`tab ${!activeEditor && id === activeId ? 'current' : ''}`}><button onClick={() => void select(id)}>{isDrawingNote(n) ? <Shapes size={14} /> : <FileText size={14} />}<span>{n.title}</span></button><button title="关闭标签" disabled={busy} onClick={() => void closeNote(id)}><X size={13} /></button></div>; })}{editorTabs.map(tab => <div key={tab.key} className={`tab ${activeEditorKey === tab.key ? 'current' : ''}`}><button title={tab.path} disabled={busy} onClick={() => void activateEditor(tab)}>{tab.kind === 'diff' ? <GitBranch size={14} /> : <FileText size={14} />}<span>{vault.manifest.notes.find(note => `notes/${note.filename}` === tab.path)?.title || tab.path.split('/').pop()}{tab.kind === 'diff' ? ` · ${tab.staged ? '已暂存' : '工作区'}对比` : ''}</span></button><button title={`关闭${tab.kind === 'diff' ? '对比' : '文件'}：${tab.path}`} disabled={busy} onClick={() => void closeEditor(tab)}><X size={13} /></button></div>)}<button className="icon-button tab-add" title="新建笔记" onClick={() => showNew('note')}><Plus size={17} /></button></div><button className="icon-button toggle-right" title="切换右侧面板" onClick={() => setRightOpen(!rightOpen)}><PanelRightClose size={17} /></button></header>
-   <div className="editor-toolbar"><div className="breadcrumbs"><Folder size={14} />{!activeEditor && active?.category.split('/').map(c => <span key={c}>{c}<ChevronRight size={12} /></span>)}<span className="breadcrumb-title">{activeEditor?.path || active?.title || '我的笔记'}</span></div>{selectedCommit ? <div className="editor-actions revision-actions"><span className="revision-readonly">只读</span><button className="text-button" disabled={busy} onClick={leaveRevision}>返回当前版本</button><button className="text-button" disabled={busy} onClick={() => void restoreRevision()}><History size={14} />恢复这个版本</button></div> : activeEditor ? <div className="editor-actions"><span className="editor-kind">{activeEditor.kind === 'diff' ? '文件变更对比' : activeEditor.file.binary ? '文件预览' : '源码编辑'}</span>{activeEditor.kind === 'diff' && <button className="text-button" disabled={busy} onClick={() => void openChangedFile({ path: activeEditor.path, status: '', staged: false, unstaged: false })}><PenLine size={14} />打开文件</button>}</div> : <div className="editor-actions">{!drawing && <div className="mode-switch"><button className={mode === 'edit' ? 'chosen' : ''} title="编辑模式 · ⌘ E" onClick={() => setMode('edit')}><PenLine size={15} /></button><button className={mode === 'split' ? 'chosen' : ''} title="Markdown 源码与预览" onClick={() => setMode('split')}><Code2 size={16} /></button></div>}<button className="icon-button" title="笔记历史" onClick={() => { setPanel('history'); setRightOpen(true); }}><History size={17} /></button><div className="more-wrap"><button className="icon-button" title="更多笔记操作" onClick={() => setMenu(!menu)}><MoreHorizontal size={19} /></button>{menu && <div className="dropdown"><button disabled={!active} onClick={() => { if (active) showNoteAction('rename', active); }}><PenLine size={14} />重命名 / 移动笔记</button><button disabled={!active || drawing} onClick={() => imageRef.current?.click()}><ImagePlus size={14} />插入图片</button><button disabled={!active || drawing} onClick={() => { showNew('embed'); setMenu(false); }}><Shapes size={14} />插入 Excalidraw</button><button disabled={!active} onClick={() => { writeClipboard({ text: content }).then(() => notify(drawing ? '已复制绘图数据' : '已复制 Markdown')).catch(() => notify('复制失败', true)); setMenu(false); }}><Copy size={14} />{drawing ? '复制绘图数据' : '复制 Markdown'}</button>{drawing && <button onClick={() => { try { const blob = new Blob([drawingJSON(content)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${active?.title || 'drawing'}.excalidraw`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setMenu(false); } catch (e) { notify((e as Error).message, true); } }}><ArrowDownToLine size={14} />导出 .excalidraw</button>}<button className="danger-text" disabled={!active} onClick={() => { if (active) showNoteAction('delete', active); }}><Trash2 size={14} />删除笔记</button></div>}</div></div>}</div>
+   <div className="editor-toolbar"><div className="breadcrumbs"><Folder size={14} />{!activeEditor && active?.category.split('/').map(c => <span key={c}>{c}<ChevronRight size={12} /></span>)}<span className="breadcrumb-title">{activeEditor?.path || active?.title || '我的笔记'}</span></div>{selectedCommit ? <div className="editor-actions revision-actions"><span className="revision-readonly">只读</span>{revisionMode === 'preview' && !displayedDrawing && <EditorWidthButton {...editorWidthProps} />}<button className="text-button" disabled={busy} onClick={() => setRevisionMode(value => value === 'diff' ? 'preview' : 'diff')}>{revisionMode === 'diff' ? <Eye size={14} /> : <GitBranch size={14} />}{revisionMode === 'diff' ? '预览此版本' : '查看 diff'}</button><button className="text-button" disabled={busy} onClick={leaveRevision}>返回当前版本</button><button className="text-button" disabled={busy} onClick={() => void restoreRevision()}><History size={14} />恢复这个版本</button></div> : activeEditor ? <div className="editor-actions"><span className="editor-kind">{activeEditor.kind === 'diff' ? '文件变更对比' : activeEditor.file.binary ? '文件预览' : '源码编辑'}</span>{activeEditor.kind === 'diff' && <button className="text-button" disabled={busy} onClick={() => void openChangedFile({ path: activeEditor.path, status: '', staged: false, unstaged: false })}><PenLine size={14} />打开文件</button>}</div> : <div className="editor-actions">{!drawing && <div className="mode-switch"><button className={mode === 'edit' ? 'chosen' : ''} title="编辑模式 · ⌘ E" onClick={() => setMode('edit')}><PenLine size={15} /></button><button className={mode === 'split' ? 'chosen' : ''} title="Markdown 源码与预览" onClick={() => setMode('split')}><Code2 size={16} /></button></div>}{!drawing && <EditorWidthButton {...editorWidthProps} />}<button className="icon-button" title="笔记历史" onClick={() => { setPanel('history'); setRightOpen(true); }}><History size={17} /></button><div className="more-wrap"><button className="icon-button" title="更多笔记操作" onClick={() => setMenu(!menu)}><MoreHorizontal size={19} /></button>{menu && <div className="dropdown"><button disabled={!active} onClick={() => { if (active) showNoteAction('rename', active); }}><PenLine size={14} />重命名 / 移动笔记</button><button disabled={!active || drawing} onClick={() => imageRef.current?.click()}><ImagePlus size={14} />插入图片</button><button disabled={!active || drawing} onClick={() => { showNew('embed'); setMenu(false); }}><Shapes size={14} />插入 Excalidraw</button><button disabled={!active} onClick={() => { writeClipboard({ text: content }).then(() => notify(drawing ? '已复制绘图数据' : '已复制 Markdown')).catch(() => notify('复制失败', true)); setMenu(false); }}><Copy size={14} />{drawing ? '复制绘图数据' : '复制 Markdown'}</button>{drawing && <button onClick={() => { try { const blob = new Blob([drawingJSON(content)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${active?.title || 'drawing'}.excalidraw`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setMenu(false); } catch (e) { notify((e as Error).message, true); } }}><ArrowDownToLine size={14} />导出 .excalidraw</button>}<button className="danger-text" disabled={!active} onClick={() => { if (active) showNoteAction('delete', active); }}><Trash2 size={14} />删除笔记</button></div>}</div></div>}</div>
    <div className={`document-space ${selectedCommit ? 'revision-view' : activeEditor ? 'repository-document' : mode}`} onPaste={e => { if (selectedCommit || activeEditor || drawing) return; const files = Array.from(e.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { e.preventDefault(); void addImages(files); } }} onDragOver={e => { if (!selectedCommit && !activeEditor && !drawing) e.preventDefault(); }} onDrop={e => { if (selectedCommit || activeEditor || drawing) return; e.preventDefault(); if (e.dataTransfer.files.length) void addImages(e.dataTransfer.files); }}>
-    {selectedCommit && active ? <article key={selectedCommit.hash} className="document revision-document" aria-label="历史版本（只读）" tabIndex={0}><div className="revision-meta"><GitCommitHorizontal size={15} /><strong title={selectedCommit.message}>{selectedCommit.message}</strong><code>{selectedCommit.hash.slice(0, 7)}</code><span>{selectedCommit.author} · {time(selectedCommit.date)}</span></div><div className="prose"><Suspense fallback={<DrawingLoading />}>{displayedDrawing ? <DrawingPreview content={revision} label={active.title} /> : <Markdown onNavigate={navigateNote} content={revision} assets={vault.manifest.assets} notes={vault.manifest.notes} />}</Suspense></div></article> : activeEditor ? activeEditor.kind === 'diff' ? <section className="diff-editor" aria-label="文件变更对比"><GitDiff diff={activeEditor.diff} staged={activeEditor.staged} /></section> : activeEditor.file.binary ? <div className="file-preview">{activeEditor.file.image ? <img src={activeEditor.file.image} alt={activeEditor.path} /> : <p>二进制文件，无法显示文本内容。</p>}</div> : <div className="source-editor file-editor"><div className="source-label"><span><Code2 size={13} />{activeEditor.path}</span><span>UTF-8</span></div><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><SourceEditor key={activeEditor.key} filename={activeEditor.path} content={activeEditor.file.content} dark={dark} onChange={value => editFile(activeEditor, value)} onError={message => notify(message, true)} /></Suspense></div> : !active ? <div className="empty-workspace"><BookOpen size={40} strokeWidth={1} /><h2>未打开笔记</h2><button className="primary" onClick={() => showNew('note')}><Plus size={16} />新建笔记</button></div> : drawing ? <Suspense fallback={<DrawingLoading />}><DrawingEditor key={`${activeId}:${editorVersion}`} content={content} dark={dark} onChange={edit} /></Suspense> : <>
+    {selectedCommit && active ? <article key={`${selectedCommit.hash}:${revisionMode}`} className={`document revision-document ${revisionMode === 'diff' ? 'revision-diff-document' : ''}`} aria-label="历史版本（只读）" tabIndex={0}><div className="revision-meta"><GitCommitHorizontal size={15} /><strong title={selectedCommit.message}>{selectedCommit.message}</strong><code>{selectedCommit.hash.slice(0, 7)}</code><span>{selectedCommit.author} · {time(selectedCommit.date)}</span></div>{revisionMode === 'diff' && revisionComparison ? <RevisionDiff comparison={revisionComparison} hash={selectedCommit.hash} /> : <div className="prose"><Suspense fallback={<DrawingLoading />}>{displayedDrawing ? <DrawingPreview content={revision} label={active.title} /> : <Markdown onNavigate={navigateNote} content={revision} assets={vault.manifest.assets} notes={vault.manifest.notes} />}</Suspense></div>}</article> : activeEditor ? activeEditor.kind === 'diff' ? <section className="diff-editor" aria-label="文件变更对比"><GitDiff diff={activeEditor.diff} staged={activeEditor.staged} /></section> : activeEditor.file.binary ? <div className="file-preview">{activeEditor.file.image ? <img src={activeEditor.file.image} alt={activeEditor.path} /> : <p>二进制文件，无法显示文本内容。</p>}</div> : <div className="source-editor file-editor"><div className="source-label"><span><Code2 size={13} />{activeEditor.path}</span><span>UTF-8</span></div><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><SourceEditor key={activeEditor.key} filename={activeEditor.path} content={activeEditor.file.content} dark={dark} onChange={value => editFile(activeEditor, value)} onError={message => notify(message, true)} /></Suspense></div> : !active ? <div className="empty-workspace"><BookOpen size={40} strokeWidth={1} /><h2>未打开笔记</h2><button className="primary" onClick={() => showNew('note')}><Plus size={16} />新建笔记</button></div> : drawing ? <Suspense fallback={<DrawingLoading />}><DrawingEditor key={`${activeId}:${editorVersion}`} content={content} dark={dark} onChange={edit} /></Suspense> : <>
      {mode === 'split' && <article className="document" tabIndex={-1} onContextMenu={showDocumentMenu}><div className="document-meta"><span className="category-pill"><Folder size={12} />{active.category || '未分类'}</span><span><Clock3 size={12} />更新于 {time(active.updatedAt)}</span></div><div className="prose"><Markdown onNavigate={navigateNote} content={content} assets={vault.manifest.assets} notes={vault.manifest.notes} onOpen={openDrawing} /></div></article>}
      {mode === 'edit' && <div className="wysiwyg-editor"><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><MarkdownEditor onNavigate={navigateNote} ref={editorRef} key={`${activeId}:${editorVersion}`} content={content} onChange={edit} media={editorMedia} onError={message => notify(message, true)} onInsertImage={() => imageRef.current?.click()} onInsertDrawing={() => showNew('embed')} onLocalizeImages={() => void localizeImages()} busy={busy} /></Suspense></div>}
      {mode === 'split' && <div className="source-editor"><div className="source-label"><span><PenLine size={13} />MARKDOWN</span><span><button className="icon-button" title="外部图片转为本地文件" aria-label="外部图片转为本地文件" disabled={busy} onClick={() => void localizeImages()}><ArrowDownToLine size={16} /></button><button className="text-button" onClick={() => showNew('embed')}><Shapes size={14} />插入 Excalidraw</button><button className="text-button" onClick={() => imageRef.current?.click()}><ImagePlus size={14} />插入图片</button></span></div><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><SourceEditor key={activeId} content={content} dark={dark} onChange={edit} onError={message => notify(message, true)} /></Suspense></div>}
@@ -487,12 +512,13 @@ export default function App() {
   <ContextMenu menu={contextMenu.menu} onClose={contextMenu.close} onError={message => notify(message, true)} />
   <input ref={imageRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" multiple hidden onChange={e => { if (e.target.files) void addImages(e.target.files); e.target.value = ''; }} />
   {notice && <div className={`toast ${notice.error ? 'error' : ''}`}>{notice.error ? <Circle size={16} /> : <CheckCheck size={17} />}<span>{notice.message}</span><button onClick={() => setNotice(null)}><X size={14} /></button></div>}
-  {modal && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setModal(null); }}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><span className="modal-icon">{modal === 'settings' ? <Settings2 size={20} /> : modal === 'folder' ? <FolderPlus size={20} /> : <FilePlus2 size={20} />}</span><h2 id="modal-title">{{ drawing: '新建 Excalidraw 绘图', embed: '插入 Excalidraw', note: '新建笔记', folder: '新建分类', rename: '重命名 / 移动笔记', delete: '删除这篇笔记？', settings: '笔记库设置', discard: '撤销这个文件的变更？' }[modal]}</h2></div><button className="icon-button" disabled={busy} onClick={() => setModal(null)}><X size={18} /></button></div>
+  {modal && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setModal(null); }}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><span className="modal-icon">{modal === 'settings' ? <Settings2 size={20} /> : modal === 'folder' ? <FolderPlus size={20} /> : modal === 'trash' || modal === 'delete' ? <Trash2 size={20} /> : <FilePlus2 size={20} />}</span><h2 id="modal-title">{{ drawing: '新建 Excalidraw 绘图', embed: '插入 Excalidraw', note: '新建笔记', folder: '新建分类', rename: '重命名 / 移动笔记', delete: '将这篇笔记移入回收站？', trash: '回收站', settings: '笔记库设置', discard: '撤销这个文件的变更？' }[modal]}</h2></div><button className="icon-button" disabled={busy} onClick={() => setModal(null)}><X size={18} /></button></div>
    <div className="modal-body">{modal === 'discard' && discardChange && <p className="delete-description">将「{discardChange.path}」恢复到上次提交，并取消该文件的暂存。新增文件会被删除，未提交的修改无法恢复。</p>}{['note', 'folder', 'rename', 'drawing'].includes(modal) && <><label>{modal === 'folder' ? '分类名称' : modal === 'drawing' ? '绘图标题' : '笔记标题'}<input autoFocus value={field} placeholder={modal === 'folder' ? '例如：项目/Fever' : modal === 'drawing' ? '绘图标题' : '笔记标题'} onChange={e => setField(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && field.trim()) void submitModal(); }} maxLength={200} /></label>{modal !== 'folder' && <label>所属分类<input list="category-options" value={category} onChange={e => setCategory(e.target.value)} placeholder="收件箱" maxLength={200} /><datalist id="category-options">{vault.manifest.categories.map(c => <option key={c}>{c}</option>)}</datalist></label>}</>}
     {modal === 'embed' && <><label>选择绘图<select value={embedId} onChange={e => setEmbedId(e.target.value)}><option value="">新建绘图并插入</option>{drawings.map(note => <option key={note.id} value={note.id}>{note.category ? `${note.category} / ` : ''}{note.title}</option>)}</select></label>{!embedId && <><label>绘图标题<input autoFocus value={field} onChange={e => setField(e.target.value)} maxLength={200} placeholder="给绘图起个名字" /></label><label>所属分类<input value={category} onChange={e => setCategory(e.target.value)} maxLength={200} /></label></>}</>}
-    {modal === 'delete' && <p className="delete-description">{vault.format === 'fsnotes' ? `「${modalNote?.title}」将移至 FSNotes 废纸篓，正文与图片会保留。` : `「${modalNote?.title}」将从当前工作区移除。已提交的内容仍保留在 Git 历史中。`}</p>}
-    {modal === 'settings' && <><div className="settings-vault"><FolderOpen size={17} /><div><strong>{vault.name}</strong><span>{vault.path}</span></div><button className="text-button" onClick={() => { setModal(null); void openVault(); }}>切换</button></div>{!api.desktop && <div className="demo-info">当前是浏览器演示，数据保存在此浏览器中。真实文件、Git、LFS 和定时备份请在桌面应用中使用。</div>}<div className="form-section-title">外观</div><div className="form-columns"><label>颜色模式<select value={themeMode} onChange={e => setThemeMode(e.target.value as ThemeMode)}><option value="system">跟随系统</option><option value="light">亮色模式</option><option value="dark">暗色模式</option></select></label><label>字体大小<select value={fontSize} onChange={e => setFontSize(Number(e.target.value))}>{fontSizes.map(size => <option key={size} value={size}>{size} px{size === 16 ? '（默认）' : ''}</option>)}</select></label></div><p className="form-hint">外观调整立即生效，并在此设备上记住。字体大小同时调整正文、源码和界面文字；跟随系统会自动切换亮色与暗色。</p><div className="font-preview" aria-label="字体预览">让每一个想法，都有迹可循。<span>Fever · Markdown 0123456789</span></div><div className="form-section-title">GIT 提交身份</div><div className="form-columns"><label>用户名<input value={settings.author} onChange={e => setSettings({ ...settings, author: e.target.value })} placeholder="你的名字" /></label><label>邮箱<input type="email" value={settings.email} onChange={e => setSettings({ ...settings, email: e.target.value })} placeholder="you@example.com" /></label></div><label>远程仓库（origin）<input value={settings.remote} onChange={e => setSettings({ ...settings, remote: e.target.value })} placeholder="git@github.com:you/notes.git" /></label><p className="form-hint">使用系统 Git 的 SSH 密钥或凭据管理器进行认证。</p><div className="setting-toggle"><div><strong>定时自动备份</strong><small>自动创建本地 Git 提交，推送由你手动操作。</small></div><button className={`switch ${settings.autoCommit ? 'on' : ''}`} role="switch" aria-checked={settings.autoCommit} aria-label="定时自动备份" disabled={!api.desktop} onClick={() => setSettings({ ...settings, autoCommit: !settings.autoCommit })}><span /></button></div>{settings.autoCommit && <label>备份间隔（分钟）<input type="number" min={1} max={1440} value={settings.interval} onChange={e => setSettings({ ...settings, interval: Number(e.target.value) })} /></label>}<div className="settings-lfs"><Check size={15} />笔记目录 <code>notes/</code> · 图片目录 <code>images/</code> · Git LFS {status?.lfs ? '已启用' : '待安装'}</div></>}
-   </div><div className="modal-footer">{modal === 'discard' ? <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className="danger" disabled={busy} onClick={() => void discardFile()}>撤销变更</button></> : <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className={modal === 'delete' ? 'danger' : 'primary'} disabled={busy || (['note', 'folder', 'rename', 'drawing'].includes(modal) && !field.trim()) || (modal === 'embed' && !embedId && !field.trim())} onClick={() => void submitModal()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{modal === 'settings' ? '保存设置' : modal === 'delete' ? '删除笔记' : modal === 'folder' ? '创建分类' : modal === 'rename' ? '保存更改' : modal === 'drawing' ? '创建绘图' : modal === 'embed' ? '插入绘图' : '创建笔记'}</button></>}</div>
+    {modal === 'delete' && <p className="delete-description">「{modalNote?.title}」将移入回收站，正文、图片和原分类会保留，可随时恢复。</p>}
+    {modal === 'trash' && <><p className="delete-description">删除的笔记保留在这里，恢复后会回到原来的分类。</p>{vault.manifest.trash?.length ? <ul className="trash-list">{[...vault.manifest.trash].reverse().map(note => <li className="trash-item" key={note.id}>{isDrawingNote(note) ? <Shapes size={18} /> : <FileText size={18} />}<div><strong>{note.title}</strong><span>{note.category || '未分类'}</span></div><button className="secondary" aria-label={`恢复：${note.title}`} disabled={busy} onClick={() => void restoreTrashedNote(note)}><History size={14} />恢复</button></li>)}</ul> : <div className="trash-empty"><Trash2 size={30} /><span>回收站是空的</span></div>}</>}
+    {modal === 'settings' && <><div className="settings-vault"><FolderOpen size={17} /><div><strong>{vault.name}</strong><span>{vault.path}</span></div><button className="text-button" onClick={() => { setModal(null); void openVault(); }}>切换</button></div>{!api.desktop && <div className="demo-info">当前是浏览器演示，数据保存在此浏览器中。真实文件、Git、LFS 和定时备份请在桌面应用中使用。</div>}<div className="form-section-title">外观</div><div className="form-columns"><label>颜色模式<select value={themeMode} onChange={e => setThemeMode(e.target.value as ThemeMode)}><option value="system">跟随系统</option><option value="light">亮色模式</option><option value="dark">暗色模式</option></select></label><label>字体大小<select value={fontSize} onChange={e => setFontSize(Number(e.target.value))}>{fontSizes.map(size => <option key={size} value={size}>{size} px{size === 16 ? '（默认）' : ''}</option>)}</select></label></div><p className="form-hint">外观调整立即生效，并在此设备上记住。字体大小同时调整正文、源码和界面文字；跟随系统会自动切换亮色与暗色。</p><EditorWidthOptions {...editorWidthProps} /><div className="font-preview" aria-label="字体预览">让每一个想法，都有迹可循。<span>Fever · Markdown 0123456789</span></div><div className="form-section-title">GIT 提交身份</div><div className="form-columns"><label>用户名<input value={settings.author} onChange={e => setSettings({ ...settings, author: e.target.value })} placeholder="你的名字" /></label><label>邮箱<input type="email" value={settings.email} onChange={e => setSettings({ ...settings, email: e.target.value })} placeholder="you@example.com" /></label></div><label>远程仓库（origin）<input value={settings.remote} onChange={e => setSettings({ ...settings, remote: e.target.value })} placeholder="git@github.com:you/notes.git" /></label><p className="form-hint">使用系统 Git 的 SSH 密钥或凭据管理器进行认证。</p><div className="setting-toggle"><div><strong>定时自动备份</strong><small>自动创建本地 Git 提交，推送由你手动操作。</small></div><button className={`switch ${settings.autoCommit ? 'on' : ''}`} role="switch" aria-checked={settings.autoCommit} aria-label="定时自动备份" disabled={!api.desktop} onClick={() => setSettings({ ...settings, autoCommit: !settings.autoCommit })}><span /></button></div>{settings.autoCommit && <label>备份间隔（分钟）<input type="number" min={1} max={1440} value={settings.interval} onChange={e => setSettings({ ...settings, interval: Number(e.target.value) })} /></label>}<div className="settings-lfs"><Check size={15} />笔记目录 <code>notes/</code> · 图片目录 <code>images/</code> · Git LFS {status?.lfs ? '已启用' : '待安装'}</div></>}
+   </div><div className="modal-footer">{modal === 'trash' ? <button className="secondary" disabled={busy} onClick={() => setModal(null)}>关闭</button> : modal === 'discard' ? <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className="danger" disabled={busy} onClick={() => void discardFile()}>撤销变更</button></> : <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className={modal === 'delete' ? 'danger' : 'primary'} disabled={busy || (['note', 'folder', 'rename', 'drawing'].includes(modal) && !field.trim()) || (modal === 'embed' && !embedId && !field.trim())} onClick={() => void submitModal()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{modal === 'settings' ? '保存设置' : modal === 'delete' ? '删除笔记' : modal === 'folder' ? '创建分类' : modal === 'rename' ? '保存更改' : modal === 'drawing' ? '创建绘图' : modal === 'embed' ? '插入绘图' : '创建笔记'}</button></>}</div>
   </section></div>}
  </div>;
 }

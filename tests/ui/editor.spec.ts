@@ -4,12 +4,12 @@ const errors = new WeakMap<Page, string[]>();
 test.beforeEach(({ page }) => { const list: string[] = []; errors.set(page, list); page.on('pageerror', error => list.push(error.message)); });
 test.afterEach(({ page }) => { expect(errors.get(page)).toEqual([]); });
 
-async function seed(page: Page, markdown: string) {
- await page.addInitScript(content => {
+async function seed(page: Page, markdown: string, images: Record<string, string> = {}) {
+ await page.addInitScript(({ content, images }) => {
   if (localStorage.getItem('fever-demo-v1')) return;
   const note = { id: 'editor-test', title: '编辑器测试', category: '测试', filename: 'editor-test.md', createdAt: '2026-10-07T00:00:00Z', updatedAt: '2026-10-07T00:00:00Z' };
-  localStorage.setItem('fever-demo-v1', JSON.stringify({ manifest: { version: 1, notes: [note], categories: ['测试'] }, contents: { [note.id]: content }, versions: {}, images: {}, dirty: [], settings: { autoCommit: false, interval: 10, author: '', email: '', remote: '' } }));
- }, markdown);
+  localStorage.setItem('fever-demo-v1', JSON.stringify({ manifest: { version: 1, notes: [note], categories: ['测试'] }, contents: { [note.id]: content }, versions: {}, images, dirty: [], settings: { autoCommit: false, interval: 10, author: '', email: '', remote: '' } }));
+ }, { content: markdown, images });
  await page.goto('/');
  await page.locator('.folder-row').filter({ hasText: '测试' }).click();
  await page.locator('.note-row').filter({ hasText: '编辑器测试' }).click();
@@ -23,6 +23,36 @@ async function saved(page: Page) {
 async function chooseLanguage(input: Locator, language: string) {
  await input.fill(language);
  await input.press('Enter');
+}
+
+for (const theme of ['light', 'dark']) {
+ test(`scrolls source and preview independently with the mouse wheel (${theme})`, async ({ page }) => {
+  await page.addInitScript(theme => localStorage.setItem('fever-theme', theme), theme);
+  const markdown = Array.from({ length: 120 }, (_, i) => `第 ${i + 1} 段正文\n`).join('\n');
+  await seed(page, markdown);
+  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+  const source = page.locator('.source-editor .cm-scroller');
+  const preview = page.locator('.split .document');
+  await expect(source).toBeVisible();
+  const scrollTop = (element: Locator) => element.evaluate(node => node.scrollTop);
+  async function wheel(element: Locator, delta: number) {
+   const bounds = (await element.boundingBox())!;
+   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 100);
+   await page.mouse.wheel(0, delta);
+  }
+  await wheel(source, 500);
+  await expect.poll(() => scrollTop(source)).toBeGreaterThan(0);
+  expect(await scrollTop(preview)).toBe(0);
+  await wheel(source, -500);
+  await expect.poll(() => scrollTop(source)).toBe(0);
+  await wheel(preview, 500);
+  await expect.poll(() => scrollTop(preview)).toBeGreaterThan(0);
+  expect(await scrollTop(source)).toBe(0);
+  await page.setViewportSize({ width: 640, height: 800 });
+  await wheel(source, 500);
+  await expect.poll(() => scrollTop(source)).toBeGreaterThan(0);
+  expect(await saved(page)).toBe(markdown);
+ });
 }
 
 const terminalBlocks = [
@@ -500,6 +530,188 @@ test('shows only hovered row and column handles and keeps insertion buttons on t
  await page.mouse.move(300, 600);
  await expect.poll(visibleHandles).toEqual([]);
  await expect(table.locator('.table-insert')).toBeHidden();
+});
+
+const resizeImageUrl = 'https://example.com/resize.png';
+async function resizeFixture(page: Page, markdown: string) {
+ const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#95aa7c"/></svg>';
+ const data = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+ await seed(page, markdown, { [resizeImageUrl]: data, [`${resizeImageUrl}?edited=1`]: data });
+ await expect.poll(() => page.locator('.editor-image img').first().evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(400);
+}
+async function dragImage(page: Page, dx: number, dy = 0) {
+ const image = page.locator('.editor-image').first();
+ await image.hover();
+ const bounds = (await image.getByRole('button', { name: '拖动调整图片大小' }).boundingBox())!;
+ await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+ await page.mouse.down();
+ await page.mouse.move(bounds.x + bounds.width / 2 + dx, bounds.y + bounds.height / 2 + dy, { steps: 6 });
+ await page.mouse.up();
+}
+
+test('resizes images proportionally, saves Markdown width, and supports undo and reload', async ({ page }) => {
+ const original = `正文\n\n![图片名字](${resizeImageUrl} "图片标题")\n`;
+ await resizeFixture(page, original);
+ const image = page.locator('.editor-image img');
+ await dragImage(page, -120);
+ await expect.poll(() => saved(page)).toContain(`![图片名字|280](${resizeImageUrl} "图片标题")`);
+ expect((await image.boundingBox())!.width).toBe(280);
+ expect((await image.boundingBox())!.height).toBe(140);
+ await page.getByRole('button', { name: '撤销', exact: true }).click();
+ await expect.poll(() => saved(page)).toBe(original);
+ expect((await image.boundingBox())!.width).toBe(400);
+ await page.getByRole('button', { name: '重做', exact: true }).click();
+ await expect.poll(() => saved(page)).toContain('![图片名字|280]');
+ await page.reload();
+ await expect(image).toHaveAttribute('alt', '图片名字');
+ expect((await image.boundingBox())!.width).toBe(280);
+ await dragImage(page, 0, 20);
+ await expect.poll(() => saved(page)).toContain('![图片名字|320]');
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ const preview = page.locator('.split .document img');
+ await expect(preview).toHaveAttribute('alt', '图片名字');
+ await expect(preview).toHaveAttribute('title', '图片标题');
+ expect((await preview.boundingBox())!.width).toBe(320);
+ expect((await preview.boundingBox())!.height).toBe(160);
+});
+
+test('reads width metadata without changing the note and keeps oversized images within the editor', async ({ page }) => {
+ const original = `![图片|561](${resizeImageUrl})\n\n![名字|非尺寸](${resizeImageUrl})\n`;
+ await resizeFixture(page, original);
+ const image = page.locator('.editor-image img').first();
+ await expect(image).toHaveAttribute('alt', '图片');
+ expect((await image.boundingBox())!.width).toBe(561);
+ await expect(page.locator('.editor-image img').last()).toHaveAttribute('alt', '名字|非尺寸');
+ expect(await saved(page)).toBe(original);
+ await page.setViewportSize({ width: 780, height: 800 });
+ const editor = page.locator('.wysiwyg-content');
+ const size = (await image.boundingBox())!;
+ expect(size.width).toBeLessThan(561);
+ expect(size.x + size.width).toBeLessThanOrEqual((await editor.boundingBox())!.x + (await editor.boundingBox())!.width);
+ expect(await saved(page)).toBe(original);
+ await dragImage(page, -1000);
+ await expect.poll(() => saved(page)).toContain('![图片|32]');
+ await dragImage(page, 2000);
+ const resized = (await image.boundingBox())!;
+ expect(resized.x + resized.width).toBeLessThanOrEqual((await editor.boundingBox())!.x + (await editor.boundingBox())!.width);
+});
+
+test('canceling a resize leaves Markdown unchanged and wiki image widths survive reload', async ({ page }) => {
+ const original = `![[${resizeImageUrl}|别名|240]]\n`;
+ await resizeFixture(page, original);
+ const image = page.locator('.editor-image');
+ await image.hover();
+ const handle = image.getByRole('button', { name: '拖动调整图片大小' });
+ const bounds = (await handle.boundingBox())!;
+ await page.mouse.move(bounds.x + 6, bounds.y + 6); await page.mouse.down();
+ await page.mouse.move(bounds.x + 66, bounds.y + 6);
+ await handle.dispatchEvent('pointercancel', { pointerId: 1 });
+ await page.mouse.up();
+ expect(await saved(page)).toBe(original);
+ expect((await image.locator('img').boundingBox())!.width).toBe(240);
+ await dragImage(page, 80);
+ await expect.poll(() => saved(page)).toBe(`![[${resizeImageUrl}|别名|320]]\n`);
+ await page.reload();
+ await expect(image.locator('img')).toHaveAttribute('alt', '别名');
+ expect((await image.locator('img').boundingBox())!.width).toBe(320);
+});
+
+test('edits image Markdown from the selected top-right code icon and commits on outside click', async ({ page }) => {
+ const original = `图片前的正文\n\n![图片名字|240](${resizeImageUrl} "原标题")\n\n图片后的正文\n`;
+ await resizeFixture(page, original);
+ const image = page.locator('.editor-image img');
+ const toggle = page.getByRole('button', { name: '编辑图片 Markdown', exact: true });
+ const source = page.getByRole('textbox', { name: '图片 Markdown', exact: true });
+ await expect(toggle).toHaveCount(0);
+ await image.click();
+ await expect(toggle).toBeVisible();
+ const bounds = (await image.boundingBox())!, icon = (await toggle.boundingBox())!;
+ expect(icon.x).toBeGreaterThan(bounds.x + bounds.width / 2);
+ expect(icon.y).toBeLessThan(bounds.y + bounds.height / 2);
+ await page.screenshot({ path: test.info().outputPath('image-code-icon.png') });
+ await toggle.click();
+ await expect(source).toBeFocused();
+ await expect(source).toHaveValue(`![图片名字|240](${resizeImageUrl} "原标题")`);
+ await page.screenshot({ path: test.info().outputPath('image-markdown-source.png') });
+ await expect(image).toHaveCount(0);
+ await expect(page.getByRole('button', { name: '拖动调整图片大小' })).toHaveCount(0);
+ const modified = `![修改后的图片|320](${resizeImageUrl}?edited=1 "新标题")`;
+ await source.fill(modified);
+ expect(await saved(page)).toBe(original);
+ await page.locator('.wysiwyg-content > p').first().click();
+ await expect(source).toHaveCount(0);
+ await expect(image).toHaveAttribute('alt', '修改后的图片');
+ await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(400);
+ expect((await image.boundingBox())!.width).toBe(320);
+ await expect.poll(() => saved(page)).toBe(`图片前的正文\n\n${modified}\n\n图片后的正文\n`);
+ await expect(toggle).toHaveCount(0);
+ await page.getByRole('button', { name: '撤销', exact: true }).click();
+ await expect.poll(() => saved(page)).toBe(original);
+ await page.getByRole('button', { name: '重做', exact: true }).click();
+ await expect.poll(() => saved(page)).toContain(modified);
+ await page.reload();
+ await expect(image).toHaveAttribute('alt', '修改后的图片');
+ await image.click(); await toggle.click();
+ await expect(source).toHaveValue(modified);
+ await page.getByRole('button', { name: '新建笔记', exact: true }).first().click();
+ await expect(source).toHaveCount(0);
+ await expect(image).toBeVisible();
+});
+
+test('opening image source is clean, Escape cancels changes, and typing stays in the source field', async ({ page }) => {
+ const original = `![图片|240](${resizeImageUrl})\n`;
+ await resizeFixture(page, original);
+ const image = page.locator('.editor-image img');
+ const toggle = page.getByRole('button', { name: '编辑图片 Markdown', exact: true });
+ const source = page.getByRole('textbox', { name: '图片 Markdown', exact: true });
+ await image.click(); await toggle.click();
+ await page.locator('.breadcrumbs').click();
+ await expect(source).toHaveCount(0);
+ expect(await saved(page)).toBe(original);
+ await image.click(); await toggle.click();
+ await source.fill(`![取消的修改|100](${resizeImageUrl})`);
+ await source.press('Escape');
+ await expect(source).toHaveCount(0);
+ await expect(image).toHaveAttribute('alt', '图片');
+ expect(await saved(page)).toBe(original);
+ await image.click(); await toggle.click();
+ await source.press('ControlOrMeta+A');
+ await source.press('Backspace');
+ await expect(source).toHaveValue('');
+ await page.keyboard.insertText(`![键盘修改|200](${resizeImageUrl})`);
+ await source.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+ await expect(source).toBeVisible();
+ await source.press('Enter');
+ await expect(source).toHaveCount(0);
+ await expect(image).toHaveAttribute('alt', '键盘修改');
+ await expect.poll(() => saved(page)).toBe(`![键盘修改|200](${resizeImageUrl})\n`);
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(1);
+ await dragImage(page, 40);
+ await expect.poll(() => saved(page)).toContain('![键盘修改|240]');
+});
+
+test('invalid image Markdown restores the original image and wiki source remains editable', async ({ page }) => {
+ const original = `正文\n\n![[${resizeImageUrl}|别名|240]]\n`;
+ await resizeFixture(page, original);
+ const image = page.locator('.editor-image img');
+ const toggle = page.getByRole('button', { name: '编辑图片 Markdown', exact: true });
+ const source = page.getByRole('textbox', { name: '图片 Markdown', exact: true });
+ await image.click(); await toggle.click();
+ await expect(source).toHaveValue(`![[${resizeImageUrl}|别名|240]]`);
+ await source.fill('![尚未完成的图片](');
+ await page.locator('.wysiwyg-content > p').first().click();
+ await expect(source).toHaveCount(0);
+ await expect(image).toHaveAttribute('alt', '别名');
+ await expect(page.getByText('图片 Markdown 格式无效，已保留原图片')).toBeVisible();
+ expect(await saved(page)).toBe(original);
+ await image.click(); await toggle.click();
+ await source.fill(`![改为普通图片|300](${resizeImageUrl})`);
+ await source.press('Tab');
+ await expect(source).toHaveCount(0);
+ await expect(image).toHaveAttribute('alt', '改为普通图片');
+ await expect.poll(() => saved(page)).toBe(`正文\n\n![改为普通图片|300](${resizeImageUrl})\n`);
+ await image.click(); await toggle.click();
+ await expect(source).toHaveValue(`![改为普通图片|300](${resizeImageUrl})`);
 });
 
 test('inserts local images at the cursor and can undo the insertion', async ({ page }) => {

@@ -111,6 +111,11 @@ test('migrated vault retains Git lineage, resolves old revisions, and commits im
  const history = await store.history(note.id);
  assert.ok(history.some(h => h.hash === original));
  assert.equal(await store.revision(note.id, original), first);
+ assert.deepEqual(await store.revisionComparison(note.id, original), { content: first, previousContent: '', previousHash: undefined });
+ assert.deepEqual(await store.revisionComparison(note.id, head), { content: first, previousContent: first, previousHash: original });
+ const comparison = await store.revisionComparison(note.id, history[0].hash);
+ assert.equal(comparison.content, await store.read(note.id));
+ assert.equal(comparison.previousContent, first);
  assert.equal((await git(['rev-parse', 'HEAD'])).trim(), head);
  assert.equal(await git(['status', '--porcelain']), '');
  assert.deepEqual(await fs.readFile(path.join(source, '分类', 'B.md')), Buffer.from(first));

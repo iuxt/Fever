@@ -33,14 +33,16 @@ function folderPaths(metadata) {
 
 function metadataView(metadata) {
   const paths = folderPaths(metadata);
+  const viewNote = note => ({
+    id: note.id, filename: `${note.id}.${note.fileExtension}`, title: note.name,
+    category: note.folderID == null ? '' : paths.get(note.folderID), createdAt: '', updatedAt: '',
+    ...(note.legacyPath ? { sourcePath: note.legacyPath } : {}),
+  });
   return {
     version: 1,
     categories: metadata.folders.map(folder => paths.get(folder.id)),
-    notes: metadata.notes.filter(note => !note.trashed).map(note => ({
-      id: note.id, filename: `${note.id}.${note.fileExtension}`, title: note.name,
-      category: note.folderID == null ? '' : paths.get(note.folderID), createdAt: '', updatedAt: '',
-      ...(note.legacyPath ? { sourcePath: note.legacyPath } : {}),
-    })),
+    notes: metadata.notes.filter(note => !note.trashed).map(viewNote),
+    trash: metadata.notes.filter(note => note.trashed).map(viewNote),
   };
 }
 

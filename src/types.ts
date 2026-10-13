@@ -1,5 +1,5 @@
 export type Note = { id: string; title: string; category: string; filename: string; createdAt: string; updatedAt: string; sourcePath?: string };
-export type Manifest = { version: 1; categories: string[]; notes: Note[]; assets?: Record<string, string> };
+export type Manifest = { version: 1; categories: string[]; notes: Note[]; trash?: Note[]; assets?: Record<string, string> };
 export type Vault = { path: string; name: string; manifest: Manifest; lfs: boolean; format?: 'fever' | 'fsnotes' };
 export type SaveResult = { updatedAt: string; vault?: Vault };
 export type Change = { status: string; path: string; staged: boolean; unstaged: boolean; originalPath?: string };
@@ -7,6 +7,7 @@ export type FileDiff = { path: string; patch: string };
 export type VaultFile = { path: string; content: string; binary: boolean; image?: string };
 export type GitStatus = { branch: string; changes: Change[]; ahead: number; behind: number; remote: string; lfs: boolean };
 export type Commit = { hash: string; author: string; date: string; message: string };
+export type RevisionComparison = { content: string; previousContent: string; previousHash?: string };
 export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string };
 export type Api = {
   desktop: boolean;
@@ -22,6 +23,7 @@ export type Api = {
   create(title: string, category: string, format?: 'markdown' | 'excalidraw'): Promise<Note>;
   update(id: string, title: string, category: string): Promise<Note>;
   remove(id: string): Promise<void>;
+  restoreTrash(id: string): Promise<Note>;
   category(path: string): Promise<void>;
   importNotes(): Promise<Note[]>;
   image(bytes: Uint8Array | number[], name: string): Promise<string>;
@@ -41,6 +43,7 @@ export type Api = {
   push(): Promise<void>;
   history(id?: string): Promise<Commit[]>;
   revision(id: string, hash: string): Promise<string>;
+  revisionComparison(id: string, hash: string): Promise<RevisionComparison>;
   restore(id: string, hash: string): Promise<string>;
   settings(): Promise<Settings>;
   configure(settings: Settings): Promise<void>;

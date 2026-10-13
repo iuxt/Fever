@@ -87,7 +87,8 @@ Obsidian 的 `excalidraw-plugin` Markdown 文件支持 `json` 和 `compressed-js
 ## 已实现功能
 
 - 首次选择笔记库，记住上次使用的文件夹，切换笔记库。
-- 新建 / 重命名 / 移动 / 删除笔记与 Excalidraw 绘图，嵌套分类，导入 Markdown / Excalidraw 文件。
+- 新建 / 重命名 / 移动笔记与 Excalidraw 绘图，嵌套分类，导入 Markdown / Excalidraw 文件。
+- 回收站：删除笔记只移动清单记录，正文和附件保留。侧栏回收站可恢复到原分类，笔记 ID、文件名和历史保持不变；关闭或重启应用后仍可恢复。
 - CodeMirror Markdown 编辑、阅读、双栏预览；表格、代码块、任务列表；输入后 650 ms 自动保存。
 - 多标签页、标题 / 分类 / 正文搜索、标题大纲、字数统计、浅色 / 深色主题。
 - Git 分支、工作区变更、提交说明、提交笔记库文件、拉取与推送。

@@ -57,6 +57,7 @@ test('font size applies to interface, rich text, source and history without rewr
  await page.getByRole('button', { name: '取消', exact: true }).click();
  await page.getByRole('button', { name: '历史', exact: true }).click();
  await page.getByRole('button', { name: /创建笔记，记录最初的想法/ }).click();
+ await page.getByRole('button', { name: '预览此版本', exact: true }).click();
  await expect.poll(() => page.locator('.revision-document .prose').evaluate(el => getComputedStyle(el).fontSize)).toBe('24px');
  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).contents)).toEqual(initialNotes);
  await openSettings(page);
@@ -85,6 +86,8 @@ test('invalid appearance preferences fall back to readable defaults', async ({ p
  await page.addInitScript(() => {
   localStorage.setItem('fever-theme', 'unknown');
   localStorage.setItem('fever-font-size', '-100');
+  localStorage.setItem('fever-editor-width', '99999');
+  localStorage.setItem('fever-editor-full-width', 'unknown');
  });
  await page.emulateMedia({ colorScheme: 'light' });
  await page.goto('/');
@@ -92,6 +95,65 @@ test('invalid appearance preferences fall back to readable defaults', async ({ p
  await openSettings(page);
  await expect(page.getByLabel('颜色模式')).toHaveValue('system');
  await expect(page.getByLabel('字体大小')).toHaveValue('16');
+ await expect(page.getByRole('slider', { name: '正文最大宽度' })).toHaveValue('960');
+ await expect(page.getByRole('switch', { name: '铺满编辑区' })).toHaveAttribute('aria-checked', 'false');
+});
+
+test('editor width adjusts live, persists, fits small windows and applies to historical previews', async ({ page }) => {
+ await page.setViewportSize({ width: 2000, height: 1000 });
+ await page.goto('/');
+ await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+ await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
+ await expect(page.locator('.wysiwyg-content')).toBeVisible();
+ const originalText = await page.locator('.wysiwyg-content').textContent();
+ const width = () => page.locator('.wysiwyg-content').evaluate(element => element.getBoundingClientRect().width);
+ await expect.poll(width).toBe(960);
+ await page.getByRole('button', { name: '调整正文宽度' }).click();
+ const slider = page.getByRole('slider', { name: '正文最大宽度' });
+ await slider.focus(); await page.keyboard.press('Home');
+ await expect(slider).toHaveValue('600');
+ await expect.poll(width).toBe(600);
+ await page.keyboard.press('ArrowRight');
+ await expect.poll(width).toBe(620);
+ await page.keyboard.press('Escape');
+ await expect(slider).toHaveCount(0);
+ await expect(page.getByRole('button', { name: '调整正文宽度' })).toBeFocused();
+ await page.reload();
+ await expect.poll(width).toBe(620);
+ await page.getByRole('button', { name: '调整正文宽度' }).click();
+ await page.getByRole('switch', { name: '铺满编辑区' }).click();
+ await expect(slider).toBeDisabled();
+ await expect.poll(width).toBeGreaterThan(1200);
+ await page.reload();
+ await expect.poll(width).toBeGreaterThan(1200);
+ await openSettings(page);
+ await expect(page.getByRole('switch', { name: '铺满编辑区' })).toHaveAttribute('aria-checked', 'true');
+ await page.getByRole('switch', { name: '铺满编辑区' }).click();
+ await expect.poll(width).toBe(620);
+ await page.getByRole('button', { name: '恢复默认', exact: true }).click();
+ await expect.poll(width).toBe(960);
+ await page.getByRole('button', { name: '取消', exact: true }).click();
+ await page.getByRole('button', { name: '历史', exact: true }).click();
+ await page.getByRole('button', { name: /创建笔记，记录最初的想法/ }).click();
+ await page.getByRole('button', { name: '预览此版本', exact: true }).click();
+ await page.getByRole('button', { name: '调整正文宽度' }).click();
+ await slider.focus(); await page.keyboard.press('Home');
+ await expect.poll(() => page.locator('.revision-document .prose').evaluate(element => element.getBoundingClientRect().width)).toBe(600);
+ await page.keyboard.press('Escape');
+ await page.getByRole('button', { name: '返回当前版本', exact: true }).click();
+ await expect(page.locator('.wysiwyg-content')).toHaveText(originalText!);
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await expect.poll(() => page.locator('.document .prose').evaluate(element => element.getBoundingClientRect().width)).toBe(600);
+ await page.getByTitle('编辑模式 · ⌘ E', { exact: true }).click();
+ await page.getByRole('button', { name: '调整正文宽度' }).click();
+ await page.getByRole('switch', { name: '铺满编辑区' }).click();
+ await page.setViewportSize({ width: 780, height: 800 });
+ await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+ await expect(page.getByRole('slider', { name: '正文最大宽度' })).toBeInViewport();
+ await page.keyboard.press('Escape');
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await expect(page.locator('.cm-content')).toBeVisible();
+ expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 for (const theme of ['light', 'dark']) {

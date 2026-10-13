@@ -19,7 +19,7 @@ seeds.forEach(([title, category, content], i) => {
 });
 let state: State;
 try { state = JSON.parse(localStorage.getItem(key) || 'null') || initial; } catch { state = initial; }
-state.filenames = { ...state.filenames, ...Object.fromEntries([...initial.manifest.notes, ...state.manifest.notes].map(note => [note.id, note.filename])) };
+state.filenames = { ...state.filenames, ...Object.fromEntries([...initial.manifest.notes, ...state.manifest.notes, ...(state.manifest.trash || [])].map(note => [note.id, note.filename])) };
 const workingFiles = (): Record<string, string> => ({
  'fever.json': JSON.stringify(state.manifest, null, 2),
  ...Object.fromEntries(Object.entries(state.contents).filter(([id]) => state.filenames![id]).map(([id, content]) => [`notes/${state.filenames![id]}`, content])),
@@ -45,13 +45,14 @@ const dirty = (file: string) => { if (!state.dirty.includes(file)) state.dirty.p
 const snapshot = () => ({ path: '浏览器演示 / 我的知识库', name: '我的知识库', manifest: structuredClone(state.manifest), lfs: true });
 export const demo: Api = {
  desktop: false, current: async () => snapshot(), open: async () => snapshot(),
- read: async id => state.contents[id] || '',
+ read: async id => { if (!state.manifest.notes.some(note => note.id === id)) throw new Error('笔记不存在'); return state.contents[id] || ''; },
  search: async query => { const needle = query.toLowerCase(); return query.trim() ? state.manifest.notes.filter(note => note.title.toLowerCase().includes(needle) || note.category.toLowerCase().includes(needle) || (state.contents[note.id] || '').toLowerCase().includes(needle)).map(note => note.id) : []; },
  cancelSearch: async () => {},
- save: async (id, content) => { state.contents[id] = content; const note = state.manifest.notes.find(n => n.id === id); if (note) { note.updatedAt = new Date().toISOString(); dirty(`notes/${note.filename}`); return { updatedAt: note.updatedAt }; } },
+ save: async (id, content) => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.contents[id] = content; note.updatedAt = new Date().toISOString(); dirty(`notes/${note.filename}`); return { updatedAt: note.updatedAt }; },
  create: async (title, category, format = 'markdown') => { const id = crypto.randomUUID(), now = new Date().toISOString(); const note = { id, title, category, filename: `${id}.${format === 'excalidraw' ? 'excalidraw' : 'md'}`, createdAt: now, updatedAt: now }; state.manifest.notes.push(note); state.filenames![id] = note.filename; state.contents[id] = format === 'excalidraw' ? JSON.stringify({ type: 'excalidraw', version: 2, source: 'Fever', elements: [], appState: { viewBackgroundColor: '#ffffff' }, files: {} }, null, 2) : `# ${title}\n\n`; if (!state.manifest.categories.includes(category)) state.manifest.categories.push(category); dirty('fever.json'); dirty(`notes/${note.filename}`); return note; },
  update: async (id, title, category) => { const note = state.manifest.notes.find(n => n.id === id)!; Object.assign(note, { title, category }); if (!state.manifest.categories.includes(category)) state.manifest.categories.push(category); dirty('fever.json'); return { ...note }; },
- remove: async id => { const note = state.manifest.notes.find(n => n.id === id)!; state.manifest.notes = state.manifest.notes.filter(n => n.id !== id); delete state.contents[id]; dirty(`notes/${note.filename}`); dirty('fever.json'); },
+ remove: async id => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.manifest.notes = state.manifest.notes.filter(n => n.id !== id); (state.manifest.trash ||= []).push(note); dirty('fever.json'); },
+ restoreTrash: async id => { const note = state.manifest.trash?.find(n => n.id === id); if (!note) throw new Error('回收站中找不到这篇笔记'); if (!Object.hasOwn(state.contents, id)) throw new Error('笔记正文文件不存在'); state.manifest.trash = state.manifest.trash!.filter(n => n.id !== id); state.manifest.notes.push(note); if (note.category && !state.manifest.categories.includes(note.category)) state.manifest.categories.push(note.category); dirty('fever.json'); return { ...note }; },
  category: async path => { if (!state.manifest.categories.includes(path)) state.manifest.categories.push(path); dirty('fever.json'); },
  importNotes: async () => [],
  localizeImages: async () => { throw new Error('请在桌面版中转换外部图片'); },
@@ -95,9 +96,11 @@ export const demo: Api = {
   if (id) return demo.save(id, content);
   if (path !== 'fever.json') throw new Error('文件不存在或不支持文本编辑');
   const manifest = JSON.parse(content) as Manifest;
-  if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.notes) || !Array.isArray(manifest.categories) || !manifest.categories.every(category => typeof category === 'string') || manifest.notes.some(note => !note || typeof note.id !== 'string' || typeof note.title !== 'string' || typeof note.category !== 'string' || !/^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/.test(note.filename))) throw new Error('笔记清单无效');
+  if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.notes) || !Array.isArray(manifest.categories) || (manifest.trash != null && !Array.isArray(manifest.trash))) throw new Error('笔记清单无效');
+  const notes = [...manifest.notes, ...(manifest.trash || [])];
+  if (!manifest.categories.every(category => typeof category === 'string') || notes.some(note => !note || typeof note.id !== 'string' || typeof note.title !== 'string' || typeof note.category !== 'string' || !/^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/.test(note.filename)) || new Set(notes.map(note => note.id)).size !== notes.length || new Set(notes.map(note => note.filename)).size !== notes.length) throw new Error('笔记清单无效');
   state.manifest = manifest;
-  state.filenames = { ...state.filenames, ...Object.fromEntries(manifest.notes.map(note => [note.id, note.filename])) };
+  state.filenames = { ...state.filenames, ...Object.fromEntries(notes.map(note => [note.id, note.filename])) };
   dirty(path);
  },
  commit: async (message, stagedOnly = false) => {
@@ -116,6 +119,12 @@ export const demo: Api = {
  push: async () => { throw new Error('浏览器演示不连接远程仓库，请使用 Electron 桌面应用'); },
  history: async id => id ? (state.versions[id] || []).map(v => v.commit) : Array.from(new Map(Object.values(state.versions).flat().map(v => [v.commit.hash, v.commit])).values()),
  revision: async (id, hash) => state.versions[id]?.find(v => v.commit.hash === hash)?.content || '',
+ revisionComparison: async (id, hash) => {
+  const versions = state.versions[id] || [], index = versions.findIndex(version => version.commit.hash === hash);
+  if (index < 0) throw new Error('这个版本中找不到笔记文件');
+  const previous = versions[index + 1];
+  return { content: versions[index].content, previousContent: previous?.content ?? '', previousHash: previous?.commit.hash };
+ },
  restore: async (id, hash) => { const content = await demo.revision(id, hash); await demo.save(id, content); return content; },
  settings: async () => ({ ...state.settings }), configure: async settings => { state.settings = settings; persist(); },
 };

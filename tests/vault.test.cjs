@@ -38,12 +38,15 @@ test('real Git commits, per-note history, exact revision and non-destructive res
  const history = await store.history(a.id);
  assert.deepEqual(history.map(c => c.message), ['update A', 'initial']);
  assert.equal(await store.revision(a.id, history[1].hash), '# A\n\n版本一');
+ assert.deepEqual(await store.revisionComparison(a.id, history[0].hash), { content: '# A\n\n版本二', previousContent: '# A\n\n版本一', previousHash: history[1].hash });
+ assert.deepEqual(await store.revisionComparison(a.id, history[1].hash), { content: '# A\n\n版本一', previousContent: '', previousHash: undefined });
  await store.restore(a.id, history[1].hash);
  assert.equal(await store.read(a.id), '# A\n\n版本一');
  assert.equal((await store.history(a.id)).length, 2);
  assert.ok((await store.status()).changes.some(c => c.path === `notes/${a.filename}`));
  await store.commit('restore A'); assert.equal((await store.history(a.id)).length, 3);
  await assert.rejects(store.revision(a.id, '--help'), /无效/);
+ await assert.rejects(store.revisionComparison(a.id, '--help'), /无效/);
 });
 test('Git LFS stores the committed image as a pointer', async t => {
  const { store, dir } = await fixture(t);
@@ -71,7 +74,64 @@ test('reopening an intentionally empty vault does not recreate deleted welcome n
  for (const note of store.snapshot().manifest.notes) await store.remove(note.id);
  const reopened = new VaultStore();
  assert.equal((await reopened.open(dir)).manifest.notes.length, 0);
- assert.equal((await fs.readdir(path.join(dir, 'notes'))).length, 0);
+ assert.equal(reopened.snapshot().manifest.trash.length, 1);
+ assert.equal((await fs.readdir(path.join(dir, 'notes'))).length, 1);
+});
+test('trash retains uncommitted content, attachments, identity and category across reopen and Git commits', async t => {
+ const { store, dir } = await fixture(t);
+ const note = await store.create('可恢复的笔记', '项目/回收站');
+ await fs.mkdir(path.join(dir, 'images', note.id));
+ await fs.writeFile(path.join(dir, 'images', note.id, 'attachment.png'), 'attachment retained');
+ await store.save(note.id, '# 最新内容\n\n尚未提交的正文');
+ const before = structuredClone(store.note(note.id));
+ await store.remove(note.id);
+ assert.deepEqual(store.snapshot().manifest.trash, [before]);
+ assert.equal(await fs.readFile(path.join(dir, 'notes', note.filename), 'utf8'), '# 最新内容\n\n尚未提交的正文');
+ assert.equal(await fs.readFile(path.join(dir, 'images', note.id, 'attachment.png'), 'utf8'), 'attachment retained');
+ assert.deepEqual(await store.search('尚未提交'), []);
+ await assert.rejects(store.read(note.id), /不存在/);
+ await assert.rejects(store.save(note.id, 'overwrite trash'), /不存在/);
+ await assert.rejects(store.remove(note.id), /不存在/);
+ // A backup includes the retained note body even when the note was never committed before deletion.
+ await store.git(['add', '--', 'fever.json', 'notes']);
+ await store.commit('backup trash', true);
+ assert.equal(await store.git(['show', `HEAD:notes/${note.filename}`]), '# 最新内容\n\n尚未提交的正文');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.deepEqual(reopened.snapshot().manifest.trash, [before]);
+ assert.deepEqual(await reopened.restoreTrash(note.id), before);
+ assert.deepEqual(reopened.snapshot().manifest.trash, []);
+ assert.deepEqual(reopened.note(note.id), before);
+ assert.deepEqual(await reopened.search('尚未提交'), [note.id]);
+ await assert.rejects(reopened.restoreTrash(note.id), /找不到/);
+ const again = new VaultStore(); await again.open(dir);
+ assert.equal(await again.read(note.id), '# 最新内容\n\n尚未提交的正文');
+ assert.deepEqual(again.snapshot().manifest.trash, []);
+});
+test('failed trash persistence and missing restore files leave library records intact', async t => {
+ const { store, dir } = await fixture(t);
+ const note = await store.create('保护数据', '测试');
+ const persist = store.persist;
+ store.persist = async () => { throw new Error('write failed'); };
+ await assert.rejects(store.remove(note.id), /write failed/);
+ assert.equal(store.note(note.id).id, note.id);
+ assert.equal(store.snapshot().manifest.trash, undefined);
+ store.persist = persist; await store.remove(note.id);
+ store.persist = async () => { throw new Error('write failed'); };
+ await assert.rejects(store.restoreTrash(note.id), /write failed/);
+ assert.equal(store.snapshot().manifest.trash[0].id, note.id);
+ await assert.rejects(store.read(note.id), /不存在/);
+ store.persist = persist;
+ await fs.unlink(path.join(dir, 'notes', note.filename));
+ await assert.rejects(store.restoreTrash(note.id), { code: 'ENOENT' });
+ assert.equal(store.snapshot().manifest.trash[0].id, note.id);
+});
+test('trash manifests reject escaping paths and duplicate active records', async t => {
+ const { store, dir } = await fixture(t);
+ const manifest = store.snapshot().manifest, note = manifest.notes[0];
+ for (const trash of ['invalid', [{ ...note, filename: '../../escape.md' }], [note]]) {
+  await fs.writeFile(path.join(dir, 'fever.json'), JSON.stringify({ ...manifest, trash }));
+  await assert.rejects(new VaultStore().open(dir), /无效/);
+ }
 });
 test('malformed manifests and symlink escapes are rejected without overwriting files', async t => {
  const { dir, store } = await fixture(t);

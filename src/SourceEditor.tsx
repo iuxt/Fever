@@ -60,7 +60,7 @@ export default memo(function SourceEditor({ content, dark, onChange, onError, fi
   contextMenu.open({ x: keyboard ? coords.left : event.clientX, y: keyboard ? coords.bottom : event.clientY, label: '源码编辑器菜单', items, returnFocus: view.contentDOM });
  }
  return <>
-  <CodeMirror ref={ref} value={content} extensions={fileExtensions} theme={dark ? 'dark' : 'light'} basicSetup={basicSetup} onChange={onChange} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} height="100%" placeholder="让一个想法，从这里开始…" />
+  <CodeMirror className="source-codemirror" ref={ref} value={content} extensions={fileExtensions} theme={dark ? 'dark' : 'light'} basicSetup={basicSetup} onChange={onChange} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} height="100%" placeholder="让一个想法，从这里开始…" />
   <ContextMenu menu={contextMenu.menu} onClose={contextMenu.close} onError={onError} />
  </>;
 });

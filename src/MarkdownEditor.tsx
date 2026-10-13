@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useImperativeHandle, useRef, useState, type MouseEvent, type ReactNode, type Ref } from 'react';
+import { createContext, isValidElement, memo, useContext, useEffect, useImperativeHandle, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type Ref } from 'react';
 import { EditorContent, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, useEditorState, type NodeViewProps } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
@@ -11,23 +11,139 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { ArrowDownToLine, Bold, Code2, Heading2, ImagePlus, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Shapes, Table2, Undo2 } from 'lucide-react';
 import type { Editor } from '@tiptap/core';
 import { NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
+import { closeHistory } from '@tiptap/pm/history';
 import type { EditorView } from '@tiptap/pm/view';
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
 import { readClipboard, writeClipboard } from './clipboard';
 import { InteractiveTable } from './InteractiveTable';
 import { lowlight } from './codeHighlight';
 import CodeLanguageSelect from './CodeLanguageSelect';
+import { imageAltWithWidth, parseImageAlt } from './imageSize';
 
 export type MarkdownEditorHandle = { insertMarkdown: (markdown: string) => boolean };
-type Media = { image: (src: string, alt: string) => ReactNode; drawing: (content: string) => ReactNode };
-const MediaContext = createContext<Media | null>(null);
+type Media = { image: (src: string, alt: string, width?: number) => ReactNode; drawing: (content: string) => ReactNode };
+const MediaContext = createContext<(Media & { onError: (message: string) => void }) | null>(null);
 
-function ImageView({ node, selected }: NodeViewProps) {
+function ImageView({ node, selected, editor, getPos, updateAttributes }: NodeViewProps) {
  const media = useContext(MediaContext)!;
- return <NodeViewWrapper as="span" className={`editor-image${selected ? ' selected' : ''}`} contentEditable={false}>{media.image(node.attrs.src, node.attrs.alt || '')}</NodeViewWrapper>;
+ const parsed = parseImageAlt(node.attrs.alt || '');
+ const [previewWidth, setPreviewWidth] = useState<number | null>(null);
+ const [source, setSource] = useState<string | null>(null);
+ const sourceSession = useRef<{ initial: string; draft: string } | null>(null);
+ const wrapperRef = useRef<HTMLSpanElement>(null), sourceRef = useRef<HTMLTextAreaElement>(null);
+ const drag = useRef<{ pointer: number; x: number; y: number; width: number; ratio: number; max: number; current: number } | null>(null);
+ const width = previewWidth ?? node.attrs.width ?? parsed.width;
+ const image = media.image(node.attrs.src, parsed.alt, width);
+ const resizable = editor.isEditable && isValidElement(image) && image.type === 'img';
+ const editingSource = source !== null;
+ function openSource() {
+  const markdown = editor.markdown?.serialize(node.toJSON());
+  if (markdown === undefined) return;
+  sourceSession.current = { initial: markdown, draft: markdown };
+  setSource(markdown);
+ }
+ function finishSource(commit: boolean) {
+  const session = sourceSession.current;
+  if (!session) return;
+  sourceSession.current = null;
+  setSource(null);
+  if (!commit || session.draft === session.initial || editor.isDestroyed) return;
+  try {
+   const document = editor.markdown?.parse(session.draft.trim());
+   const paragraph = document?.content?.[0];
+   const imageNode = paragraph?.content?.[0];
+   if (document?.content?.length !== 1 || paragraph?.type !== 'paragraph' || paragraph.content?.length !== 1 || !imageNode || !['image', 'wikiImage'].includes(imageNode.type || '')) {
+    media.onError('图片 Markdown 格式无效，已保留原图片');
+    return;
+   }
+   const position = getPos();
+   if (typeof position !== 'number') return;
+   const current = editor.state.doc.nodeAt(position);
+   if (!current || current.type !== node.type) return;
+   const replacement = editor.schema.nodeFromJSON(imageNode);
+   if (current.eq(replacement)) return;
+   // Keep this edit separate from adjacent prose typing in the undo history.
+   editor.view.dispatch(closeHistory(editor.state.tr).replaceWith(position, position + current.nodeSize, replacement));
+   editor.view.dispatch(closeHistory(editor.state.tr));
+  } catch {
+   media.onError('图片 Markdown 格式无效，已保留原图片');
+  }
+ }
+ const finishSourceRef = useRef(finishSource);
+ finishSourceRef.current = finishSource;
+ useEffect(() => {
+  if (!editingSource) return;
+  sourceRef.current?.focus({ preventScroll: true });
+  sourceRef.current?.select();
+  const outside = (event: Event) => {
+   if (!wrapperRef.current?.contains(event.target as globalThis.Node)) finishSourceRef.current(true);
+  };
+  window.addEventListener('pointerdown', outside, true);
+  return () => window.removeEventListener('pointerdown', outside, true);
+ }, [editingSource]);
+ function startResize(event: PointerEvent<HTMLButtonElement>) {
+  if (event.button !== 0) return;
+  const wrapper = event.currentTarget.closest('.editor-image')!;
+  const img = wrapper.querySelector('img');
+  if (!img) return;
+  event.preventDefault(); event.stopPropagation();
+  const position = getPos();
+  if (typeof position !== 'number') return;
+  editor.commands.setNodeSelection(position);
+  const bounds = img.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+  const container = wrapper.closest('p, h1, h2, h3, h4, h5, h6, td, th') || editor.view.dom;
+  const max = Math.max(32, container.getBoundingClientRect().right - bounds.left);
+  drag.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, width: bounds.width, ratio: bounds.width / bounds.height, max, current: bounds.width };
+  setPreviewWidth(bounds.width);
+  event.currentTarget.setPointerCapture(event.pointerId);
+ }
+ function moveResize(event: PointerEvent<HTMLButtonElement>) {
+  const start = drag.current;
+  if (!start || start.pointer !== event.pointerId) return;
+  event.preventDefault(); event.stopPropagation();
+  const dx = event.clientX - start.x, dy = (event.clientY - start.y) * start.ratio;
+  start.current = Math.round(Math.max(32, Math.min(start.max, start.width + (Math.abs(dx) >= Math.abs(dy) ? dx : dy))));
+  setPreviewWidth(start.current);
+ }
+ function finishResize(event: PointerEvent<HTMLButtonElement>, commit: boolean) {
+  const start = drag.current;
+  if (!start || start.pointer !== event.pointerId) return;
+  event.preventDefault(); event.stopPropagation();
+  if (commit) moveResize(event);
+  drag.current = null;
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  setPreviewWidth(null);
+  if (commit && Math.abs(start.current - start.width) >= 1) updateAttributes({ alt: parsed.alt, width: start.current, height: null });
+ }
+ return <NodeViewWrapper ref={wrapperRef} as="span" className={`editor-image${selected ? ' selected' : ''}${previewWidth !== null ? ' resizing' : ''}${editingSource ? ' editing-source' : ''}`} contentEditable={false} style={!editingSource && resizable && width ? { width } : undefined}>
+  {editingSource ? <textarea ref={sourceRef} className="image-markdown-source" aria-label="图片 Markdown" value={source} rows={2} spellCheck={false} onChange={event => {
+   if (sourceSession.current) sourceSession.current.draft = event.target.value;
+   setSource(event.target.value);
+  }} onBlur={() => finishSource(true)} onPaste={event => event.stopPropagation()} onDrop={event => event.stopPropagation()} onContextMenu={event => event.stopPropagation()} onKeyDown={event => {
+   event.stopPropagation();
+   if (event.nativeEvent.isComposing) return;
+   if (event.key === 'Escape' || event.key === 'Enter') {
+    event.preventDefault(); finishSource(event.key === 'Enter'); editor.view.focus();
+   }
+  }} /> : image}
+  {resizable && selected && !editingSource && <button type="button" className="image-source-toggle" aria-label="编辑图片 Markdown" title="编辑图片 Markdown" onMouseDown={event => event.preventDefault()} onClick={event => { event.preventDefault(); event.stopPropagation(); openSource(); }}><Code2 size={15} /></button>}
+  {resizable && !editingSource && <button type="button" className="image-resize-handle" aria-label="拖动调整图片大小" title="拖动调整图片大小" onPointerDown={startResize} onPointerMove={moveResize} onPointerUp={event => finishResize(event, true)} onPointerCancel={event => finishResize(event, false)} onLostPointerCapture={() => { drag.current = null; setPreviewWidth(null); }} onClick={event => { event.preventDefault(); event.stopPropagation(); }} />}
+ </NodeViewWrapper>;
 }
 
-const EditorImage = Image.extend({ addNodeView() { return ReactNodeViewRenderer(ImageView); } }).configure({ inline: true });
+const EditorImage = Image.extend({
+ addNodeView() { return ReactNodeViewRenderer(ImageView); },
+ parseMarkdown(token, helpers) {
+  const { alt, width } = parseImageAlt(token.text || '');
+  return helpers.createNode('image', { src: token.href, title: token.title, alt, width });
+ },
+ renderMarkdown(node, helpers, context) {
+  const alt = imageAltWithWidth(node.attrs?.alt || '', node.attrs?.width);
+  // Let the image extension retain its standard URL and title serialization.
+  return this.parent?.({ ...node, attrs: { ...node.attrs, alt } }, helpers, context) || '';
+ },
+}).configure({ inline: true });
 // Keep Obsidian references intact when surrounding prose is edited.
 const WikiImage = EditorImage.extend({
  name: 'wikiImage',
@@ -42,10 +158,16 @@ const WikiImage = EditorImage.extend({
   },
  },
  parseMarkdown(token, helpers) {
-  const [src, alt] = (token.text || '').split('|');
-  return helpers.createNode('wikiImage', { src, alt: alt || src, source: token.raw });
+  const [src, ...label] = (token.text || '').split('|');
+  const parsed = parseImageAlt(`|${label.join('|')}`);
+  return helpers.createNode('wikiImage', { src, alt: parsed.alt.slice(1) || src, width: parsed.width, source: token.raw });
  },
- renderMarkdown: node => node.attrs?.source || `![[${node.attrs?.src}]]`,
+ renderMarkdown(node) {
+  const source = node.attrs?.source || `![[${node.attrs?.src}]]`;
+  if (!node.attrs?.width) return source;
+  const parsed = parseImageAlt(source.slice(3, -2));
+  return parsed.width === node.attrs.width ? source : `![[${imageAltWithWidth(parsed.alt, node.attrs.width)}]]`;
+ },
 });
 
 function CodeView({ node, editor, getPos, updateAttributes }: NodeViewProps) {
@@ -254,7 +376,7 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
  }
  const button = (label: string, icon: ReactNode, action: () => void, active = false, disabled = false) =>
   <button type="button" title={label} aria-label={label} aria-pressed={active} disabled={disabled} onMouseDown={event => event.preventDefault()} onClick={action} className={active ? 'active' : ''}>{icon}</button>;
- return <MediaContext.Provider value={media}>
+ return <MediaContext.Provider value={{ ...media, onError }}>
   <div className="wysiwyg-toolbar" role="toolbar" aria-label="正文格式">
    {button('加粗 · ⌘ B', <Bold size={15} />, () => { editor.chain().focus().toggleBold().run(); }, state?.bold)}
    {button('斜体 · ⌘ I', <Italic size={15} />, () => { editor.chain().focus().toggleItalic().run(); }, state?.italic)}

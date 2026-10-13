@@ -11,8 +11,9 @@ const MANIFEST = 'fever.json';
 const UUID_FILE = /^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/;
 function validateManifest(manifest) {
   if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.notes) || !Array.isArray(manifest.categories)) throw new Error('不支持的笔记清单格式');
+  if (manifest.trash != null && !Array.isArray(manifest.trash)) throw new Error('回收站格式无效');
   const ids = new Set(), files = new Set();
-  for (const n of manifest.notes) {
+  for (const n of [...manifest.notes, ...(manifest.trash || [])]) {
     if (!n || typeof n.id !== 'string' || !UUID_FILE.test(n.filename) || typeof n.title !== 'string' || typeof n.category !== 'string' || ids.has(n.id) || files.has(n.filename)) throw new Error('笔记清单含有无效或重复的文件记录');
     ids.add(n.id); files.add(n.filename);
   }
@@ -100,15 +101,18 @@ class VaultStore {
       const view = metadataView(metadata), categories = new Map(view.notes.map(note => [note.id, note.category]));
       this.manifest.categories = view.categories;
       for (const note of this.manifest.notes) note.category = categories.get(note.id);
+      const previousTrash = new Map((this.manifest.trash || []).map(note => [note.id, note]));
+      this.manifest.trash = view.trash.map(note => ({ ...note, ...previousTrash.get(note.id), category: note.category }));
     }
   }
   async loadMetadata(text) {
     const metadata = JSON.parse(text), manifest = metadataView(metadata);
     // FSNotes stores timestamps on the note files, rather than in its snapshot.
     let cursor = 0;
-    await Promise.all(Array.from({ length: Math.min(4, manifest.notes.length) }, async () => {
-      while (cursor < manifest.notes.length) {
-        const note = manifest.notes[cursor++], file = await this.safe(`notes/${note.filename}`);
+    const notes = [...manifest.notes, ...manifest.trash];
+    await Promise.all(Array.from({ length: Math.min(4, notes.length) }, async () => {
+      while (cursor < notes.length) {
+        const note = notes[cursor++], file = await this.safe(`notes/${note.filename}`);
         try {
           const stat = await fs.stat(file);
           note.createdAt = stat.birthtime.toISOString(); note.updatedAt = stat.mtime.toISOString();
@@ -212,7 +216,29 @@ class VaultStore {
     if (category && !this.manifest.categories.includes(category)) this.manifest.categories.push(category);
     await this.persist(); return structuredClone(note);
   }); }
-  remove(id) { return this.mutate(async () => { const note = this.note(id); if (!this.metadata) await fs.unlink(await this.safe(`notes/${note.filename}`)); this.manifest.notes = this.manifest.notes.filter(n => n.id !== id); await this.persist(); }); }
+  remove(id) { return this.mutate(async () => {
+    const note = this.note(id);
+    await this.safe(`notes/${note.filename}`);
+    const previous = structuredClone(this.manifest);
+    this.manifest.notes = this.manifest.notes.filter(n => n.id !== id);
+    (this.manifest.trash ||= []).push(note);
+    try { await this.persist(); }
+    catch (e) { this.manifest = previous; throw e; }
+    this.cancelSearch();
+  }); }
+  restoreTrash(id) { return this.mutate(async () => {
+    const note = this.manifest.trash?.find(n => n.id === id);
+    if (!note) throw new Error('回收站中找不到这篇笔记');
+    const file = await this.safe(`notes/${note.filename}`);
+    if (!(await fs.stat(file)).isFile()) throw new Error('笔记正文文件不存在');
+    const previous = structuredClone(this.manifest);
+    this.manifest.trash = this.manifest.trash.filter(n => n.id !== id);
+    this.manifest.notes.push(note);
+    if (note.category && !this.manifest.categories.includes(note.category)) this.manifest.categories.push(note.category);
+    try { await this.persist(); }
+    catch (e) { this.manifest = previous; throw e; }
+    return structuredClone(note);
+  }); }
   category(category) { return this.mutate(async () => { if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效'); if (!this.manifest.categories.includes(category.trim())) this.manifest.categories.push(category.trim()); await this.persist(); }); }
   importFile(file) { return this.mutate(async () => {
     const content = await fs.readFile(file, 'utf8');
@@ -357,7 +383,7 @@ class VaultStore {
       // Validate the restored snapshot before changing either the index or the file.
       const restored = JSON.parse(await this.git(['show', `HEAD:${relative}`]));
       if (this.metadata) metadataView(restored);
-      else if (restored.version !== 1 || !Array.isArray(restored.notes) || !Array.isArray(restored.categories) || restored.notes.some(n => !UUID_FILE.test(n.filename))) throw new Error('历史笔记清单无效');
+      else validateManifest(restored);
     }
     if (tracked.length) await this.git(['restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked.map(p => `:(literal)${p}`)]);
     for (const file of added) {
@@ -392,7 +418,7 @@ class VaultStore {
     this.cancelSearch();
     const text = await fs.readFile(await this.safe(this.manifestFile), 'utf8');
     const manifest = this.metadata ? await this.loadMetadata(text) : JSON.parse(text);
-    if (manifest.version !== 1 || !Array.isArray(manifest.notes) || !Array.isArray(manifest.categories) || manifest.notes.some(n => !UUID_FILE.test(n.filename))) throw new Error('远程笔记清单无效');
+    validateManifest(manifest);
     this.manifest = manifest;
   }); }
   push() { return this.queued(async () => { const s = await this.status(); if (!s.remote) throw new Error('请先在设置中配置远程仓库'); if (s.branch === 'HEAD') throw new Error('请先切换到分支再推送'); await this.git(['push', '--set-upstream', 'origin', s.branch]); }); }
@@ -402,19 +428,33 @@ class VaultStore {
     const raw = await this.git(args, true);
     return raw.trim().split('\n').filter(Boolean).map(line => { const [hash, author, date, message] = line.split('\0'); return { hash, author, date, message }; });
   }
-  async revision(id, hash) {
+  async revisionPath(id, hash) {
     if (!/^[0-9a-f]{40,64}$/.test(hash)) throw new Error('提交标识无效');
     const currentPath = `notes/${this.note(id).filename}`;
     const exists = await this.git(['ls-tree', '--name-only', hash, '--', currentPath]);
-    if (exists.trim()) return this.git(['show', `${hash}:${currentPath}`]);
+    if (exists.trim()) return currentPath;
     // A migrated note keeps its Git lineage even though its original filename changed.
     const lineage = await this.git(['-c', 'core.quotepath=false', 'log', '--follow', '--format=%H', '--name-only', '--', currentPath]);
     let commit;
     for (const line of lineage.split('\n').filter(Boolean)) {
       if (/^[0-9a-f]{40,64}$/.test(line)) commit = line;
-      else if (commit === hash && /\.(md|markdown|txt|fountain|excalidraw)$/i.test(line)) return this.git(['show', `${hash}:${line}`]);
+      else if (commit === hash && /\.(md|markdown|txt|fountain|excalidraw)$/i.test(line)) return line;
     }
     throw new Error('这个版本中找不到笔记文件');
+  }
+  async revision(id, hash) {
+    const file = await this.revisionPath(id, hash);
+    return this.git(['show', `${hash}:${file}`]);
+  }
+  async revisionComparison(id, hash) {
+    const file = await this.revisionPath(id, hash);
+    const commits = await this.git(['log', '--follow', '-2', '--format=%H', hash, '--', file]);
+    const previousHash = commits.trim().split('\n')[1];
+    const [content, previousContent] = await Promise.all([
+      this.git(['show', `${hash}:${file}`]),
+      previousHash ? this.revision(id, previousHash) : Promise.resolve(''),
+    ]);
+    return { content, previousContent, previousHash };
   }
   async restore(id, hash) { const content = await this.revision(id, hash); await this.save(id, content); return content; }
   async settings() { return { ...defaults, author: (await this.git(['config', 'user.name'], true)).trim(), email: (await this.git(['config', 'user.email'], true)).trim(), remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim() }; }

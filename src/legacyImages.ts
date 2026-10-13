@@ -1,5 +1,6 @@
 import { visit, SKIP } from 'unist-util-visit';
 import type { Root, Image, Text } from 'mdast';
+import { imageAltWithWidth, parseImageAlt } from './imageSize.ts';
 
 export function resolveAsset(source: string, assets: Record<string, string> = {}) {
  if (assets[source]) return assets[source];
@@ -19,11 +20,14 @@ export default function remarkLegacyImages(assets: Record<string, string> = {}) 
    const replacements: (Text | Image)[] = [];
    let cursor = 0;
    for (const match of node.value.matchAll(/!\[\[([^\]\n]+)\]\]/g)) {
-    const [source, alias] = match[1].split('|');
+    const [source, ...label] = match[1].split('|');
+    const alias = label.join('|');
+    const parsed = parseImageAlt(`|${alias}`);
     const resolved = resolveAsset(source, assets);
     if (resolved === source) continue;
     if (match.index > cursor) replacements.push({ type: 'text', value: node.value.slice(cursor, match.index) });
-    replacements.push({ type: 'image', url: resolved, alt: alias && !/^\d+(x\d+)?$/.test(alias) ? alias : source.split('/').at(-1) || '', title: null });
+    const alt = parsed.alt.slice(1);
+    replacements.push({ type: 'image', url: resolved, alt: imageAltWithWidth(alt && !/^\d+x\d+$/.test(alt) ? alt : source.split('/').at(-1) || '', parsed.width), title: null });
     cursor = match.index + match[0].length;
    }
    if (!replacements.length) return;
