@@ -4,6 +4,7 @@ import type { Change, FileDiff, GitStatus, Note } from './types';
 type Props = {
  status: GitStatus | null;
  notes: Note[];
+ trash?: Note[];
  busy: boolean;
  onDiff: (change: Change, staged: boolean) => void;
  onStage: (change: Change) => void;
@@ -12,7 +13,7 @@ type Props = {
  onOpen: (change: Change) => void;
 };
 
-export default function GitChanges({ status, notes, busy, onDiff, onStage, onUnstage, onDiscard, onOpen }: Props) {
+export default function GitChanges({ status, notes, trash = [], busy, onDiff, onStage, onUnstage, onDiscard, onOpen }: Props) {
  const changes = status?.changes || [];
  const groups = [
   { title: '已暂存变更', staged: true, changes: changes.filter(c => c.staged) },
@@ -22,11 +23,12 @@ export default function GitChanges({ status, notes, busy, onDiff, onStage, onUns
   <div className="changes-title"><span className="changes-heading">{group.title}</span><span className="changes-count">{group.changes.length}</span></div>
   <div className="changes-list">{group.changes.map(change => {
    const name = notes.find(n => `notes/${n.filename}` === change.path)?.title || change.path;
+   const trashed = trash.some(note => [change.path, change.originalPath].includes(`notes/${note.filename}`));
    return <div className="change" key={change.path}>
     <button className="change-file" title={change.path} aria-label={`查看${group.staged ? '已暂存' : '工作区'}差异：${name}`} disabled={busy} onClick={() => onDiff(change, group.staged)}><FileText size={13} /><span>{name}</span><code>{change.status === '??' ? 'U' : change.status}</code></button>
     <div className="change-actions">
      <button className="icon-button change-secondary-action" title={`打开文件：${change.path}`} disabled={busy || change.status === 'D' || change.status === 'AD'} onClick={() => onOpen(change)}><FilePenLine size={13} /></button>
-     <button className="icon-button change-secondary-action" title={`撤销变更：${change.path}`} disabled={busy} onClick={() => onDiscard(change)}><RotateCcw size={13} /></button>
+     <button className="icon-button change-secondary-action" title={`撤销变更：${change.path}`} disabled={busy || trashed} onClick={() => onDiscard(change)}><RotateCcw size={13} /></button>
      {group.staged ? <button className="icon-button" title={`取消暂存：${change.path}`} disabled={busy} onClick={() => onUnstage(change)}><Minus size={15} /></button> : <button className="icon-button" title={`暂存变更：${change.path}`} disabled={busy} onClick={() => onStage(change)}><Plus size={15} /></button>}
     </div>
    </div>;

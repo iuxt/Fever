@@ -61,14 +61,15 @@ class VaultStore {
     }
     return target;
   }
-  note(id) { const note = this.manifest?.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); return note; }
+  note(id, includeTrash = false) { const note = this.manifest?.notes.find(n => n.id === id) || (includeTrash && this.manifest?.trash?.find(n => n.id === id)); if (!note) throw new Error('笔记不存在'); return note; }
   cancelSearch() { this.searchController?.abort(); this.searchController = null; }
-  async search(query) {
+  async search(query, scope) {
+    if (scope !== undefined && scope !== 'trash') throw new Error('搜索范围无效');
     this.cancelSearch();
     if (typeof query !== 'string') throw new Error('搜索内容无效');
     if (!query.trim() || !this.manifest) return [];
     const controller = new AbortController(); this.searchController = controller;
-    const { signal } = controller, needle = query.toLowerCase(), notes = this.manifest.notes;
+    const { signal } = controller, needle = query.toLowerCase(), notes = scope === 'trash' ? (this.manifest.trash || []) : this.manifest.notes;
     const matches = new Set(); let cursor = 0;
     // Keep full Unicode case folding, but hold at most four note bodies in the main
     // process. Only IDs cross IPC; aborted queries stop scheduling file reads.
@@ -89,9 +90,9 @@ class VaultStore {
       return signal.aborted ? [] : notes.filter(note => matches.has(note.id)).map(note => note.id);
     } finally { if (this.searchController === controller) this.searchController = null; }
   }
-  async persist() {
+  async persist(removedCategory) {
     await this.assertMetadataUnchanged();
-    const metadata = this.metadata ? updateMetadata(this.metadata, this.manifest) : null;
+    const metadata = this.metadata ? updateMetadata(this.metadata, this.manifest, removedCategory) : null;
     const text = JSON.stringify(metadata || this.manifest, null, 2) + '\n';
     const temp = await this.safe(`.fever-${randomUUID()}.tmp`);
     await fs.writeFile(temp, text);
@@ -195,7 +196,12 @@ class VaultStore {
     await this.persist(); return structuredClone(note);
   }
   create(title, category, format) { return this.mutate(() => this.createInternal(title, category, undefined, format)); }
-  async read(id) { return fs.readFile(await this.safe(`notes/${this.note(id).filename}`), 'utf8'); }
+  async read(id, scope) {
+    if (scope !== undefined && scope !== 'trash') throw new Error('读取范围无效');
+    const note = scope === 'trash' ? this.manifest?.trash?.find(n => n.id === id) : this.note(id);
+    if (!note) throw new Error('回收站中找不到这篇笔记');
+    return fs.readFile(await this.safe(`notes/${note.filename}`), 'utf8');
+  }
   save(id, content) {
     const manifest = this.manifest;
     return this.mutate(async () => {
@@ -240,6 +246,21 @@ class VaultStore {
     return structuredClone(note);
   }); }
   category(category) { return this.mutate(async () => { if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效'); if (!this.manifest.categories.includes(category.trim())) this.manifest.categories.push(category.trim()); await this.persist(); }); }
+  removeCategory(category) { return this.mutate(async () => {
+    if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效');
+    category = category.trim();
+    const contains = value => value === category || value.startsWith(`${category}/`);
+    if (!this.manifest.categories.some(contains) && !this.manifest.notes.some(note => contains(note.category))) throw new Error('分类不存在');
+    const removed = this.manifest.notes.filter(note => contains(note.category));
+    for (const note of removed) await this.safe(`notes/${note.filename}`);
+    const previous = structuredClone(this.manifest);
+    this.manifest.categories = this.manifest.categories.filter(value => !contains(value));
+    this.manifest.notes = this.manifest.notes.filter(note => !contains(note.category));
+    if (removed.length) (this.manifest.trash ||= []).push(...removed);
+    try { await this.persist(category); }
+    catch (e) { this.manifest = previous; throw e; }
+    this.cancelSearch();
+  }); }
   importFile(file) { return this.mutate(async () => {
     const content = await fs.readFile(file, 'utf8');
     if (Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('导入文件最大为 10 MB');
@@ -303,6 +324,7 @@ class VaultStore {
     const note = this.manifest?.notes.find(n => `notes/${n.filename}` === relative);
     if (note) return this.save(note.id, content);
     return this.mutate(async () => {
+      this.assertNotTrashedFile(relative);
       const file = await this.changeFile(relative);
       if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');
       const bytes = await fs.readFile(file);
@@ -319,6 +341,9 @@ class VaultStore {
       finally { await fs.rm(temp, { force: true }); }
       if (relative === this.manifestFile) this.manifest = this.metadata ? await this.loadMetadata(content) : manifest;
     });
+  }
+  assertNotTrashedFile(relative) {
+    if (this.manifest?.trash?.some(note => `notes/${note.filename}` === relative)) throw new Error('回收站中的笔记为只读，请先还原到原位置');
   }
   async validateChange(change) {
     await this.changeFile(change.path);
@@ -372,6 +397,7 @@ class VaultStore {
   discard(relative) { return this.mutate(async () => {
     const change = await this.change(relative), hasHead = Boolean((await this.git(['rev-parse', '--verify', 'HEAD'], true)).trim());
     const paths = [relative, ...(change.originalPath ? [change.originalPath] : [])];
+    paths.forEach(file => this.assertNotTrashedFile(file));
     const tracked = [], added = [];
     for (const file of paths) {
       if (hasHead && (await this.git(['ls-tree', '--name-only', 'HEAD', '--', `:(literal)${file}`])).trim()) tracked.push(file);
@@ -424,13 +450,13 @@ class VaultStore {
   push() { return this.queued(async () => { const s = await this.status(); if (!s.remote) throw new Error('请先在设置中配置远程仓库'); if (s.branch === 'HEAD') throw new Error('请先切换到分支再推送'); await this.git(['push', '--set-upstream', 'origin', s.branch]); }); }
   async history(id) {
     const args = ['log', '-80', '--format=%H%x00%an%x00%aI%x00%s'];
-    if (id) args.push('--follow', '--', `notes/${this.note(id).filename}`);
+    if (id) args.push('--follow', '--', `notes/${this.note(id, true).filename}`);
     const raw = await this.git(args, true);
     return raw.trim().split('\n').filter(Boolean).map(line => { const [hash, author, date, message] = line.split('\0'); return { hash, author, date, message }; });
   }
   async revisionPath(id, hash) {
     if (!/^[0-9a-f]{40,64}$/.test(hash)) throw new Error('提交标识无效');
-    const currentPath = `notes/${this.note(id).filename}`;
+    const currentPath = `notes/${this.note(id, true).filename}`;
     const exists = await this.git(['ls-tree', '--name-only', hash, '--', currentPath]);
     if (exists.trim()) return currentPath;
     // A migrated note keeps its Git lineage even though its original filename changed.

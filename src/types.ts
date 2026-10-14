@@ -16,8 +16,8 @@ export type Api = {
   writeClipboard?: (content: { text: string; html?: string }) => Promise<void>;
   current(): Promise<Vault | null>;
   open(): Promise<Vault | null>;
-  read(id: string): Promise<string>;
-  search(query: string): Promise<string[]>;
+  read(id: string, scope?: 'trash'): Promise<string>;
+  search(query: string, scope?: 'trash'): Promise<string[]>;
   cancelSearch(): Promise<void>;
   save(id: string, content: string): Promise<SaveResult | void>;
   create(title: string, category: string, format?: 'markdown' | 'excalidraw'): Promise<Note>;
@@ -25,6 +25,7 @@ export type Api = {
   remove(id: string): Promise<void>;
   restoreTrash(id: string): Promise<Note>;
   category(path: string): Promise<void>;
+  removeCategory(path: string): Promise<void>;
   importNotes(): Promise<Note[]>;
   image(bytes: Uint8Array | number[], name: string): Promise<string>;
   localizeImages(urls: string[]): Promise<{ replacements: Record<string, string>; failed: { url: string; message: string }[] }>;

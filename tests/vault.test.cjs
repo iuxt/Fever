@@ -13,6 +13,44 @@ async function fixture(t) {
  await store.configure({ author: 'Fever Test', email: 'test@example.com', remote: '' });
  return { dir, store };
 }
+test('trash can be read, searched and inspected through Git history without allowing edits or repeated deletion', async t => {
+ const { dir, store } = await fixture(t);
+ const note = await store.create('Archived title', '原位置/分类');
+ await store.save(note.id, '# v1'); await store.commit('first version');
+ await store.save(note.id, '# v2\n\nbody needle'); await store.commit('second version');
+ await store.save(note.id, '# uncommitted\n\nbody needle');
+ await store.removeCategory('原位置');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.equal(await reopened.read(note.id, 'trash'), '# uncommitted\n\nbody needle');
+ assert.deepEqual(await reopened.search('body needle'), []);
+ for (const query of ['archived TITLE', '原位置/分类', 'BODY needle']) {
+  assert.deepEqual(await reopened.search(query, 'trash'), [note.id]);
+ }
+ const history = await reopened.history(note.id);
+ assert.deepEqual(history.map(c => c.message), ['second version', 'first version']);
+ assert.deepEqual(await reopened.revisionComparison(note.id, history[0].hash), { content: '# v2\n\nbody needle', previousContent: '# v1', previousHash: history[1].hash });
+ await assert.rejects(reopened.read(note.id), /不存在/);
+ await assert.rejects(reopened.save(note.id, 'overwrite'), /不存在/);
+ await assert.rejects(reopened.update(note.id, 'rename', ''), /不存在/);
+ await assert.rejects(reopened.remove(note.id), /不存在/);
+ await assert.rejects(reopened.restore(note.id, history[1].hash), /不存在/);
+ await assert.rejects(reopened.saveFile(`notes/${note.filename}`, 'overwrite from Git'), /回收站.*只读/);
+ await assert.rejects(reopened.discard(`notes/${note.filename}`), /回收站.*只读/);
+ assert.equal(await reopened.read(note.id, 'trash'), '# uncommitted\n\nbody needle');
+ await reopened.restoreTrash(note.id);
+ assert.equal(await reopened.read(note.id), '# uncommitted\n\nbody needle');
+ assert.equal(reopened.note(note.id).category, '原位置/分类');
+ await assert.rejects(reopened.read(note.id, 'trash'), /找不到/);
+ assert.deepEqual(await reopened.search('body needle', 'trash'), []);
+});
+test('Git discard cannot permanently delete an uncommitted trashed note', async t => {
+ const { store, dir } = await fixture(t);
+ const note = await store.create('新笔记', '');
+ await store.remove(note.id);
+ await assert.rejects(store.discard(`notes/${note.filename}`), /回收站.*只读/);
+ assert.equal(await store.read(note.id, 'trash'), '# 新笔记\n\n');
+ await fs.access(path.join(dir, 'notes', note.filename));
+});
 test('UUID files, nested categories, stable filenames and persisted manifest', async t => {
  const { dir, store } = await fixture(t);
  const note = await store.create('第一篇', '项目/Fever');
@@ -132,6 +170,46 @@ test('trash manifests reject escaping paths and duplicate active records', async
   await fs.writeFile(path.join(dir, 'fever.json'), JSON.stringify({ ...manifest, trash }));
   await assert.rejects(new VaultStore().open(dir), /无效/);
  }
+});
+test('deleting a category trashes its subtree, preserves similarly named siblings and restores original paths', async t => {
+ const { store, dir } = await fixture(t);
+ const parent = await store.create('父分类笔记', '项目'), child = await store.create('子分类笔记', '项目/Fever');
+ const sibling = await store.create('相似分类', '项目备份');
+ await store.category('项目/空分类/子分类');
+ await store.save(child.id, '尚未提交的正文');
+ await fs.writeFile(path.join(dir, 'images', 'retained.png'), 'attachment');
+ const notes = [structuredClone(store.note(parent.id)), structuredClone(store.note(child.id))];
+ await store.removeCategory('项目');
+ assert.ok(!store.manifest.categories.some(category => category === '项目' || category.startsWith('项目/')));
+ assert.deepEqual(store.manifest.trash, notes);
+ assert.equal(store.note(sibling.id).category, '项目备份');
+ assert.equal(await fs.readFile(path.join(dir, 'notes', child.filename), 'utf8'), '尚未提交的正文');
+ assert.equal(await fs.readFile(path.join(dir, 'images', 'retained.png'), 'utf8'), 'attachment');
+ assert.deepEqual(await store.search('尚未提交'), []);
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.deepEqual(reopened.manifest.trash, notes);
+ assert.deepEqual(await reopened.restoreTrash(child.id), notes[1]);
+ assert.ok(reopened.manifest.categories.includes('项目/Fever'));
+ assert.equal(await reopened.read(child.id), '尚未提交的正文');
+});
+test('empty and implicit parent categories can be deleted and invalid targets leave the manifest intact', async t => {
+ const { store, dir } = await fixture(t);
+ await store.category('空分类'); await store.removeCategory('空分类');
+ await store.category('隐式父分类/子分类'); await store.removeCategory('隐式父分类');
+ const before = store.snapshot().manifest;
+ for (const category of ['', '/', '项目//子分类', '不存在', null]) await assert.rejects(store.removeCategory(category), /分类/);
+ assert.deepEqual(store.snapshot().manifest, before);
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.deepEqual(reopened.snapshot().manifest, before);
+});
+test('category deletion rolls back every record when persistence fails', async t => {
+ const { store, dir } = await fixture(t);
+ const note = await store.create('保护数据', '项目/子分类');
+ const before = store.snapshot().manifest;
+ store.persist = async () => { throw new Error('write failed'); };
+ await assert.rejects(store.removeCategory('项目'), /write failed/);
+ assert.deepEqual(store.snapshot().manifest, before);
+ assert.equal(await fs.readFile(path.join(dir, 'notes', note.filename), 'utf8'), '# 保护数据\n\n');
 });
 test('malformed manifests and symlink escapes are rejected without overwriting files', async t => {
  const { dir, store } = await fixture(t);

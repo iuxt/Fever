@@ -45,8 +45,8 @@ const dirty = (file: string) => { if (!state.dirty.includes(file)) state.dirty.p
 const snapshot = () => ({ path: '浏览器演示 / 我的知识库', name: '我的知识库', manifest: structuredClone(state.manifest), lfs: true });
 export const demo: Api = {
  desktop: false, current: async () => snapshot(), open: async () => snapshot(),
- read: async id => { if (!state.manifest.notes.some(note => note.id === id)) throw new Error('笔记不存在'); return state.contents[id] || ''; },
- search: async query => { const needle = query.toLowerCase(); return query.trim() ? state.manifest.notes.filter(note => note.title.toLowerCase().includes(needle) || note.category.toLowerCase().includes(needle) || (state.contents[note.id] || '').toLowerCase().includes(needle)).map(note => note.id) : []; },
+ read: async (id, scope) => { if (!(scope === 'trash' ? state.manifest.trash || [] : state.manifest.notes).some(note => note.id === id)) throw new Error('笔记不存在'); return state.contents[id] || ''; },
+ search: async (query, scope) => { const needle = query.toLowerCase(); return query.trim() ? (scope === 'trash' ? state.manifest.trash || [] : state.manifest.notes).filter(note => note.title.toLowerCase().includes(needle) || note.category.toLowerCase().includes(needle) || (state.contents[note.id] || '').toLowerCase().includes(needle)).map(note => note.id) : []; },
  cancelSearch: async () => {},
  save: async (id, content) => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.contents[id] = content; note.updatedAt = new Date().toISOString(); dirty(`notes/${note.filename}`); return { updatedAt: note.updatedAt }; },
  create: async (title, category, format = 'markdown') => { const id = crypto.randomUUID(), now = new Date().toISOString(); const note = { id, title, category, filename: `${id}.${format === 'excalidraw' ? 'excalidraw' : 'md'}`, createdAt: now, updatedAt: now }; state.manifest.notes.push(note); state.filenames![id] = note.filename; state.contents[id] = format === 'excalidraw' ? JSON.stringify({ type: 'excalidraw', version: 2, source: 'Fever', elements: [], appState: { viewBackgroundColor: '#ffffff' }, files: {} }, null, 2) : `# ${title}\n\n`; if (!state.manifest.categories.includes(category)) state.manifest.categories.push(category); dirty('fever.json'); dirty(`notes/${note.filename}`); return note; },
@@ -54,6 +54,17 @@ export const demo: Api = {
  remove: async id => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.manifest.notes = state.manifest.notes.filter(n => n.id !== id); (state.manifest.trash ||= []).push(note); dirty('fever.json'); },
  restoreTrash: async id => { const note = state.manifest.trash?.find(n => n.id === id); if (!note) throw new Error('回收站中找不到这篇笔记'); if (!Object.hasOwn(state.contents, id)) throw new Error('笔记正文文件不存在'); state.manifest.trash = state.manifest.trash!.filter(n => n.id !== id); state.manifest.notes.push(note); if (note.category && !state.manifest.categories.includes(note.category)) state.manifest.categories.push(note.category); dirty('fever.json'); return { ...note }; },
  category: async path => { if (!state.manifest.categories.includes(path)) state.manifest.categories.push(path); dirty('fever.json'); },
+ removeCategory: async path => {
+  if (typeof path !== 'string' || !path.trim() || path.length > 200 || path.split('/').some(part => !part.trim())) throw new Error('分类无效');
+  path = path.trim();
+  const contains = (category: string) => category === path || category.startsWith(`${path}/`);
+  if (!state.manifest.categories.some(contains) && !state.manifest.notes.some(note => contains(note.category))) throw new Error('分类不存在');
+  const removed = state.manifest.notes.filter(note => contains(note.category));
+  state.manifest.categories = state.manifest.categories.filter(category => !contains(category));
+  state.manifest.notes = state.manifest.notes.filter(note => !contains(note.category));
+  if (removed.length) (state.manifest.trash ||= []).push(...removed);
+  dirty('fever.json');
+ },
  importNotes: async () => [],
  localizeImages: async () => { throw new Error('请在桌面版中转换外部图片'); },
  image: async (bytes, name) => { const file = `../images/${crypto.randomUUID()}.${name.split('.').pop()}`; const blob = new Blob([new Uint8Array(bytes)]); state.images[file] = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.readAsDataURL(blob); }); dirty(file.slice(3)); return file; },
@@ -76,6 +87,7 @@ export const demo: Api = {
  },
  unstageAll: async () => { state.stagedFiles = {}; persist(); },
  discard: async path => {
+  if (state.manifest.trash?.some(note => `notes/${note.filename}` === path)) throw new Error('回收站中的笔记为只读，请先还原到原位置');
   const before = state.baseFiles![path], id = noteIdFor(path);
   if (path === 'fever.json') state.manifest = JSON.parse(before);
   else if (id) {

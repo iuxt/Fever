@@ -38,6 +38,25 @@ async function fixture(t) {
   return { dir, store, metadata, body, load: async () => JSON.parse(await fs.readFile(path.join(dir, 'metadata.json'), 'utf8')) };
 }
 
+test('FSNotes trash supports read-only content and history inspection', async t => {
+ const { store, dir, body } = await fixture(t);
+ await store.configure({ author: 'Fever Test', email: 'test@example.com', remote: '' });
+ await store.commit('FSNotes snapshot');
+ await store.removeCategory('项目');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.equal(await reopened.read(noteID, 'trash'), body);
+ assert.equal(await reopened.read(trashID, 'trash'), 'trash retained');
+ assert.deepEqual(await reopened.search('正文标题', 'trash'), [noteID]);
+ assert.deepEqual(await reopened.search('正文标题'), []);
+ const history = await reopened.history(noteID);
+ assert.equal(history[0].message, 'FSNotes snapshot');
+ assert.equal(await reopened.revision(noteID, history[0].hash), body);
+ await assert.rejects(reopened.remove(noteID), /不存在/);
+ await reopened.restoreTrash(noteID);
+ assert.equal(reopened.note(noteID).category, '项目/Fever');
+ assert.equal(await reopened.read(noteID), body);
+});
+
 test('FSNotes opens without rewriting its snapshot or creating Fever files', async t => {
   const { dir, store, metadata, body } = await fixture(t);
   assert.equal(await fs.readFile(path.join(dir, 'metadata.json'), 'utf8'), JSON.stringify(metadata, null, 2) + '\n');
@@ -108,6 +127,48 @@ test('external metadata edits are retained and external trash prevents overwriti
   for (const action of [() => store.save(noteID, 'overwritten'), () => store.update(noteID, 'stale', ''), () => store.remove(noteID)]) await assert.rejects(action(), /不存在/);
   assert.equal(await fs.readFile(path.join(dir, 'notes', `${noteID}.md`), 'utf8'), 'latest body');
   assert.equal(await fs.readFile(path.join(dir, 'metadata.json'), 'utf8'), text);
+});
+test('FSNotes folder deletion preserves trash paths across reopen and rebuilds ancestry on restore', async t => {
+ const { dir, store, metadata, body, load } = await fixture(t);
+ // Include a previously trashed note that also references the deleted folder.
+ metadata.notes.find(note => note.id === trashID).folderID = childID;
+ await fs.writeFile(path.join(dir, 'metadata.json'), JSON.stringify(metadata));
+ await store.removeCategory('项目');
+ const next = await load();
+ assert.deepEqual(next.folders, []);
+ assert.deepEqual(next.extra, metadata.extra);
+ for (const id of [noteID, trashID]) {
+  const note = next.notes.find(note => note.id === id);
+  assert.equal(note.trashed, true); assert.equal(note.folderID, undefined);
+  assert.equal(note.feverTrashCategory, '项目/Fever');
+ }
+ assert.deepEqual(next.notes.find(note => note.id === noteID).custom, { kept: true });
+ assert.deepEqual(next.notes.find(note => note.id === rootID), metadata.notes.find(note => note.id === rootID));
+ assert.equal(await fs.readFile(path.join(dir, 'images', noteID, 'pixel.png'), 'utf8'), 'image retained');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.deepEqual(reopened.manifest.categories, []);
+ assert.equal(reopened.manifest.trash.find(note => note.id === noteID).category, '项目/Fever');
+ const restored = await reopened.restoreTrash(noteID);
+ assert.equal(restored.category, '项目/Fever');
+ assert.equal(await reopened.read(noteID), body);
+ const restoredMetadata = JSON.parse(await fs.readFile(path.join(dir, 'metadata.json'), 'utf8'));
+ assert.equal(restoredMetadata.notes.find(note => note.id === noteID).feverTrashCategory, undefined);
+ assert.deepEqual(metadataView(restoredMetadata).categories, ['项目', '项目/Fever']);
+ assert.equal(metadataView(restoredMetadata).trash.find(note => note.id === trashID).category, '项目/Fever');
+});
+test('FSNotes deletes empty folders and keeps unrelated folder metadata', async t => {
+ const { store, metadata, load } = await fixture(t);
+ await store.category('空分类/子分类');
+ await store.removeCategory('空分类');
+ assert.deepEqual((await load()).folders, metadata.folders);
+ const before = store.snapshot().manifest;
+ const persist = store.persist;
+ store.persist = async () => { throw new Error('write failed'); };
+ await assert.rejects(store.removeCategory('项目'), /write failed/);
+ assert.deepEqual(store.snapshot().manifest, before);
+ store.persist = persist;
+ await store.removeCategory('项目/Fever');
+ assert.deepEqual((await load()).folders, [metadata.folders[0]]);
 });
 
 test('FSNotes Git commits and revisions track the original files and metadata', async t => {

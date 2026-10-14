@@ -140,6 +140,16 @@ try {
  await page.reload();
  await page.getByRole('button', { name: /^回收站/ }).click();
  await expect(page.locator('.trash-item')).toContainText('桌面集成测试');
+ await page.locator('.trash-note').filter({ hasText: '桌面集成测试' }).click();
+ await expect(page.getByLabel('回收站笔记（只读）')).toContainText('真实文件保存成功。');
+ await expect(page.locator('.wysiwyg-content, .cm-content')).toHaveCount(0);
+ await page.getByTitle('笔记历史', { exact: true }).click();
+ await page.locator('.history-item').first().click();
+ await expect(page.getByLabel('历史版本（只读）')).toBeVisible();
+ await expect(page.getByRole('button', { name: '恢复这个版本', exact: true })).toHaveCount(0);
+ await page.getByRole('button', { name: '返回当前版本', exact: true }).click();
+ await page.getByPlaceholder('搜索回收站…').fill('真实文件保存成功');
+ await expect(page.locator('.trash-item')).toHaveCount(1);
  await page.getByRole('button', { name: '恢复：桌面集成测试', exact: true }).click();
  await expect(page.locator('.note-row.selected')).toHaveText('桌面集成测试');
  await expect(page.locator('.wysiwyg-content')).toContainText('真实文件保存成功。');

@@ -35,7 +35,7 @@ function metadataView(metadata) {
   const paths = folderPaths(metadata);
   const viewNote = note => ({
     id: note.id, filename: `${note.id}.${note.fileExtension}`, title: note.name,
-    category: note.folderID == null ? '' : paths.get(note.folderID), createdAt: '', updatedAt: '',
+    category: note.folderID == null ? (note.trashed && typeof note.feverTrashCategory === 'string' ? note.feverTrashCategory : '') : paths.get(note.folderID), createdAt: '', updatedAt: '',
     ...(note.legacyPath ? { sourcePath: note.legacyPath } : {}),
   });
   return {
@@ -46,7 +46,7 @@ function metadataView(metadata) {
   };
 }
 
-function updateMetadata(metadata, manifest) {
+function updateMetadata(metadata, manifest, removedCategory) {
   const next = structuredClone(metadata), paths = folderPaths(next);
   const folders = new Map([...paths].map(([id, category]) => [category.toLowerCase(), id]));
   function ensureFolder(category) {
@@ -84,6 +84,17 @@ function updateMetadata(metadata, manifest) {
     if (folderID) entry.folderID = folderID;
     else delete entry.folderID;
     entry.trashed = false;
+    delete entry.feverTrashCategory;
+  }
+  if (removedCategory) {
+    const removed = new Set([...paths].filter(([, category]) => category === removedCategory || category.startsWith(`${removedCategory}/`)).map(([id]) => id));
+    for (const entry of next.notes) {
+      if (!removed.has(entry.folderID)) continue;
+      // Keep the restore path without leaving FSNotes references to deleted folders.
+      entry.feverTrashCategory = paths.get(entry.folderID);
+      delete entry.folderID;
+    }
+    next.folders = next.folders.filter(folder => !removed.has(folder.id));
   }
   folderPaths(next);
   return next;
