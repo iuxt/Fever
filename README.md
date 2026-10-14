@@ -23,7 +23,7 @@ npm run dev
 
 笔记之间的 Markdown 链接（如 `[相关笔记](UUID.md)` 或 `[相关笔记](../notes/UUID.md)`）会在应用内打开目标笔记。预览中直接点击，所见即所得编辑器中按住 ⌘ / Ctrl 点击；普通点击仍可编辑链接文字。
 
-桌面版编辑栏中的「外部图片转为本地文件」按钮会批量下载当前笔记的 HTTP / HTTPS 外链图片，保存到 `images/` 并替换为本地引用。支持 PNG/JPEG/GIF/WebP/AVIF，每张最大 20 MB，需要 Git LFS。重复链接只下载一次；下载失败的图片保留原链接，普通网站链接和代码中的示例不会转换。源码模式的编辑栏也提供此按钮。
+桌面版右上角「更多笔记操作」（三个点）菜单中的「外部图片转为本地文件」会批量下载当前笔记的 HTTP / HTTPS 外链图片，保存到 `images/` 并替换为本地引用。支持 PNG/JPEG/GIF/WebP/AVIF，每张最大 20 MB，需要 Git LFS。重复链接只下载一次；下载失败的图片保留原链接，普通网站链接和代码中的示例不会转换。编辑模式和源码模式均可通过此菜单使用。
 
 在「设置 → 外观」中选择亮色、暗色或跟随系统；跟随系统会随系统外观变化自动切换。字体大小支持 12–24 px（默认 16 px），同时调整正文、源码、历史预览与界面文字。外观调整立即生效，并保存在当前设备上。
 
@@ -154,7 +154,28 @@ macOS 本地构建并安装到「应用程序」文件夹：
 
 脚本先停止正在运行的 Fever，构建当前 Node.js 架构对应的 `Fever.app`，覆盖安装到 `/Applications/Fever.app`，然后自动启动。缺少构建依赖时会执行 `npm ci`，打包前会显式准备 Electron 运行时（Electron 44 起，`npm ci` 不会自动下载二进制）；首次下载需要联网，之后复用本地运行时。应用程序目录需要管理员权限时会提示输入密码。构建失败时保留原应用，临时构建目录会自动清理。
 
-已安装 Chrome 时，也可以通过 `PLAYWRIGHT_CHANNEL=chrome npm run test:ui` 运行界面测试。产物位于 `release/`。建议分别在各自的操作系统构建；`.github/workflows/build.yml` 提供三平台构建任务，可手动运行或通过 `v*` 标签触发，默认仅上传构建产物，不发布 Release。
+已安装 Chrome 时，也可以通过 `PLAYWRIGHT_CHANNEL=chrome npm run test:ui` 运行界面测试。产物位于 `release/`。建议分别在各自的操作系统构建。
+
+### 自动发布 GitHub Release
+
+`.github/workflows/build.yml` 在推送版本标签时自动测试、构建并发布 GitHub Release：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+请先提交并推送包含工作流的代码，再推送标签。标签使用 SemVer，例如 `v0.1.0`、`0.1.0` 或 `v0.2.0-beta.1`；安装包版本自动取自标签，不需要提前修改 `package.json`。带预发布后缀的标签会发布为 GitHub Pre-release；不符合 SemVer 的标签会构建失败。
+
+| 平台 | 架构 | Release 附件 |
+| --- | --- | --- |
+| Windows | x64 | NSIS 安装程序 `.exe` |
+| macOS | Apple Silicon arm64、Intel x64 | 各自的 `.dmg` 和 `.zip` |
+| Linux | x64 | `.AppImage` 和 `.deb` |
+
+所有平台构建成功后统一上传安装包和 `SHA256SUMS.txt`，自动生成发布说明，再公开 Release；任一构建失败都不会触发发布。使用仓库自带的 `GITHUB_TOKEN`，工作流已为发布任务声明 `contents: write`，无需配置个人访问令牌。发布任务上传失败时，新 Release 保持草稿，可重新运行失败任务继续上传。
+
+也可以在 Actions 页面手动运行工作流：选择分支时仅构建并上传 Actions 附件；选择版本标签时会发布对应 Release。当前安装包未配置 macOS 签名 / 公证或 Windows 签名。
 
 内存压测默认生成 2,000 篇约 64 KiB 的笔记，测试全文搜索、取消查询、编辑器反复挂载、8 MiB 图片导入和绘图切换。记录各进程 RSS、渲染器 JS 堆和 DOM 节点，并检查回归上限；结果保存到 `test-results/memory.json`。可通过 `FEVER_STRESS_NOTES`、`FEVER_STRESS_NOTE_KIB`、`FEVER_STRESS_CYCLES`、`FEVER_STRESS_DRAWING_CYCLES` 和 `FEVER_MEMORY_REPORT` 调整规模和输出路径。优化前后的记录见 [内存压测报告](docs/performance/README.md)。
 

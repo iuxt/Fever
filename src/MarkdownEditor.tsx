@@ -8,7 +8,7 @@ import Paragraph from '@tiptap/extension-paragraph';
 import { TableKit } from '@tiptap/extension-table';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import Placeholder from '@tiptap/extension-placeholder';
-import { ArrowDownToLine, Bold, Code2, Heading2, ImagePlus, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Shapes, Table2, Undo2 } from 'lucide-react';
+import { Bold, Code2, Heading2, ImagePlus, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Shapes, Table2, Undo2 } from 'lucide-react';
 import type { Editor } from '@tiptap/core';
 import { NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
@@ -235,10 +235,9 @@ function focusEndParagraph(view: EditorView) {
  view.focus();
 }
 
-export default memo(function MarkdownEditor({ content, onChange, media, ref, onError, onInsertImage, onInsertDrawing, onLocalizeImages, busy, onNavigate }: {
+export default memo(function MarkdownEditor({ content, onChange, media, ref, onError, onInsertImage, onInsertDrawing, onNavigate }: {
  content: string; onChange: (value: string) => void; media: Media; ref?: Ref<MarkdownEditorHandle>; onError: (message: string) => void;
  onInsertImage: () => void; onInsertDrawing: () => void;
- onLocalizeImages: () => void; busy: boolean;
  onNavigate?: (href: string) => boolean;
 }) {
  const contextMenu = useContextMenu();
@@ -389,7 +388,6 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
    {button('代码块', <Code2 size={16} />, () => { editor.chain().focus().toggleCodeBlock().run(); }, state?.code)}
    {button('插入表格', <Table2 size={16} />, () => { editor.chain().focus().insertTable({ rows: 3, cols: 2, withHeaderRow: true }).run(); }, false, state?.table)}
    {button('插入图片', <ImagePlus size={16} />, onInsertImage)}
-   {button('外部图片转为本地文件', <ArrowDownToLine size={16} />, onLocalizeImages, false, busy)}
    {button('插入 Excalidraw', <Shapes size={16} />, onInsertDrawing)}
    <span className="format-divider" />
    {button('撤销', <Undo2 size={15} />, () => { editor.chain().focus().undo().run(); }, false, !state?.undo)}

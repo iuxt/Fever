@@ -2,6 +2,7 @@
   "name": "fever-notes",
   "version": "0.1.0",
   "description": "Local-first Markdown notes with Git history",
+  "homepage": "https://github.com/iuxt/Fever",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -87,6 +88,7 @@
     ],
     "mac": {
       "icon": "assets/icons/fever.icns",
+      "artifactName": "Fever-${version}-macOS-${arch}.${ext}",
       "category": "public.app-category.productivity",
       "target": [
         "dmg",
@@ -102,6 +104,8 @@
     },
     "linux": {
       "icon": "assets/icons/png",
+      "artifactName": "Fever-${version}-Linux-${arch}.${ext}",
+      "maintainer": "Fever <iuxt@users.noreply.github.com>",
       "target": [
         "AppImage",
         "deb"

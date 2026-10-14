@@ -26,11 +26,14 @@ async function fixture(page: Page, content: string, hold = false) {
 }
 
 for (const mode of ['rich', 'source']) {
- test(`${mode} toolbar localizes only images and keeps failed URLs`, async ({ page }) => {
+ test(`${mode} note menu localizes only images and keeps failed URLs`, async ({ page }) => {
   const content = '![图](https://example.com/image.png)\n\n![失败](https://example.com/broken.png)\n\n[网站](https://example.com/image.png)\n\n`![代码](https://example.com/code.png)`\n';
   await fixture(page, content);
   if (mode === 'source') await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+  await expect(page.getByTitle('外部图片转为本地文件', { exact: true })).toHaveCount(0);
+  await page.getByTitle('更多笔记操作', { exact: true }).click();
   await page.getByTitle('外部图片转为本地文件', { exact: true }).click();
+  await expect(page.locator('.dropdown')).not.toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as any).imageControls.contents.a)).toBe(content.replace('![图](https://example.com/image.png)', '![图](../images/local.png)'));
   expect(await page.evaluate(() => (window as any).imageControls.urls)).toEqual(['https://example.com/image.png', 'https://example.com/broken.png']);
   await expect(page.locator('.toast')).toContainText('1 张失败，原链接已保留');
@@ -40,8 +43,11 @@ for (const mode of ['rich', 'source']) {
 test('edits made during download are retained', async ({ page }) => {
  await fixture(page, '![图](https://example.com/image.png)\n\n正文\n', true);
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await page.getByTitle('更多笔记操作', { exact: true }).click();
  const button = page.getByTitle('外部图片转为本地文件', { exact: true });
  await button.click();
+ await expect(page.locator('.dropdown')).not.toBeVisible();
+ await page.getByTitle('更多笔记操作', { exact: true }).click();
  await expect(button).toBeDisabled();
  await expect.poll(() => page.evaluate(() => (window as any).imageControls.waiting)).toBe(true);
  const source = page.locator('.cm-content');
@@ -54,6 +60,7 @@ test('edits made during download are retained', async ({ page }) => {
 
 test('switching notes during download applies conversion to the original note', async ({ page }) => {
  await fixture(page, '![图](https://example.com/image.png)\n', true);
+ await page.getByTitle('更多笔记操作', { exact: true }).click();
  await page.getByTitle('外部图片转为本地文件', { exact: true }).click();
  await expect.poll(() => page.evaluate(() => (window as any).imageControls.waiting)).toBe(true);
  await page.locator('.note-row').filter({ hasText: 'Note b' }).click();
@@ -66,6 +73,7 @@ test('switching notes during download applies conversion to the original note', 
 
 test('notes without external images do not start a download', async ({ page }) => {
  await fixture(page, '[外部网站](https://example.com/page)\n\n![本地图片](../images/local.png)\n');
+ await page.getByTitle('更多笔记操作', { exact: true }).click();
  await page.getByTitle('外部图片转为本地文件', { exact: true }).click();
  await expect(page.locator('.toast')).toContainText('当前笔记没有外部图片');
  expect(await page.evaluate(() => (window as any).imageControls.urls)).toEqual([]);
