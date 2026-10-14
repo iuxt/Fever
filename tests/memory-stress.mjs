@@ -65,6 +65,10 @@ try {
  app = await electron.launch({ args: [bootstrap, `--fever-data=${data}`], env });
  page = await app.firstWindow(); page.setDefaultTimeout(60000);
  page.on('pageerror', error => errors.push(error.message));
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await page.locator('.folder-row').filter({ hasText: '压测' }).click();
+ await page.locator('.folder-row').filter({ hasText: /^分类0/ }).click();
+ await page.locator('.note-row').filter({ hasText: title(0) }).click();
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('压测首页');
  await expect(page.locator('.sidebar-foot')).toContainText(`${count + 1} 篇笔记`);
  report.initial = await memory(true);

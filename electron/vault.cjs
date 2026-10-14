@@ -14,10 +14,11 @@ function validateManifest(manifest) {
   if (manifest.trash != null && !Array.isArray(manifest.trash)) throw new Error('回收站格式无效');
   const ids = new Set(), files = new Set();
   for (const n of [...manifest.notes, ...(manifest.trash || [])]) {
-    if (!n || typeof n.id !== 'string' || !UUID_FILE.test(n.filename) || typeof n.title !== 'string' || typeof n.category !== 'string' || ids.has(n.id) || files.has(n.filename)) throw new Error('笔记清单含有无效或重复的文件记录');
+    if (!n || typeof n.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(n.id) || typeof n.filename !== 'string' || !UUID_FILE.test(n.filename) || typeof n.title !== 'string' || typeof n.category !== 'string' || (n.sourcePath != null && typeof n.sourcePath !== 'string') || ids.has(n.id) || files.has(n.filename)) throw new Error('笔记清单含有无效或重复的文件记录');
     ids.add(n.id); files.add(n.filename);
   }
   if (!manifest.categories.every(c => typeof c === 'string')) throw new Error('分类格式无效');
+  if (manifest.assets != null && (typeof manifest.assets !== 'object' || Array.isArray(manifest.assets) || !Object.values(manifest.assets).every(value => typeof value === 'string'))) throw new Error('图片映射格式无效');
 }
 function validateDrawing(content) {
   let scene;
@@ -95,8 +96,10 @@ class VaultStore {
     const metadata = this.metadata ? updateMetadata(this.metadata, this.manifest, removedCategory) : null;
     const text = JSON.stringify(metadata || this.manifest, null, 2) + '\n';
     const temp = await this.safe(`.fever-${randomUUID()}.tmp`);
-    await fs.writeFile(temp, text);
-    await fs.rename(temp, await this.safe(this.manifestFile));
+    try {
+      await fs.writeFile(temp, text);
+      await fs.rename(temp, await this.safe(this.manifestFile));
+    } finally { await fs.rm(temp, { force: true }); }
     if (metadata) {
       this.metadata = metadata; this.metadataText = text;
       const view = metadataView(metadata), categories = new Map(view.notes.map(note => [note.id, note.category]));
@@ -190,10 +193,13 @@ class VaultStore {
         note.sourcePath = `${id}.excalidraw.md`;
       }
     }
-    await fs.writeFile(await this.safe(`notes/${note.filename}`), content, { flag: 'wx' });
+    const file = await this.safe(`notes/${note.filename}`), previous = structuredClone(this.manifest);
+    await fs.writeFile(file, content, { flag: 'wx' });
     this.manifest.notes.push(note);
     if (category && !this.manifest.categories.includes(category)) this.manifest.categories.push(category);
-    await this.persist(); return structuredClone(note);
+    try { await this.persist(); }
+    catch (e) { this.manifest = previous; await fs.rm(file, { force: true }); throw e; }
+    return structuredClone(note);
   }
   create(title, category, format) { return this.mutate(() => this.createInternal(title, category, undefined, format)); }
   async read(id, scope) {
@@ -209,8 +215,12 @@ class VaultStore {
       const note = this.note(id), file = await this.safe(`notes/${note.filename}`);
       if (note.filename.endsWith('.excalidraw')) validateDrawing(content);
       const temp = await this.safe(`notes/.${randomUUID()}.tmp`);
-      await fs.writeFile(temp, content); await fs.rename(temp, file);
-      note.updatedAt = new Date().toISOString(); await this.persist();
+      try { await fs.writeFile(temp, content); await fs.rename(temp, file); }
+      finally { await fs.rm(temp, { force: true }); }
+      const updatedAt = note.updatedAt;
+      note.updatedAt = new Date().toISOString();
+      try { await this.persist(); }
+      catch (e) { note.updatedAt = updatedAt; throw e; }
       // Include a snapshot only when mutate loaded metadata changed by another app.
       return { updatedAt: note.updatedAt, ...(manifest !== this.manifest ? { vault: this.snapshot() } : {}) };
     });
@@ -218,9 +228,13 @@ class VaultStore {
   update(id, title, category) { return this.mutate(async () => {
     if (typeof title !== 'string' || !title.trim() || title.length > 200 || typeof category !== 'string' || category.length > 200) throw new Error('标题或分类无效');
     if (this.metadata && category && category.split('/').some(c => !c.trim())) throw new Error('分类无效');
-    const note = this.note(id); Object.assign(note, { title: title.trim(), category: category.trim(), updatedAt: new Date().toISOString() });
+    const previous = structuredClone(this.manifest);
+    category = category.trim();
+    const note = this.note(id); Object.assign(note, { title: title.trim(), category, updatedAt: new Date().toISOString() });
     if (category && !this.manifest.categories.includes(category)) this.manifest.categories.push(category);
-    await this.persist(); return structuredClone(note);
+    try { await this.persist(); }
+    catch (e) { this.manifest = previous; throw e; }
+    return structuredClone(note);
   }); }
   remove(id) { return this.mutate(async () => {
     const note = this.note(id);
@@ -245,7 +259,13 @@ class VaultStore {
     catch (e) { this.manifest = previous; throw e; }
     return structuredClone(note);
   }); }
-  category(category) { return this.mutate(async () => { if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效'); if (!this.manifest.categories.includes(category.trim())) this.manifest.categories.push(category.trim()); await this.persist(); }); }
+  category(category) { return this.mutate(async () => {
+    if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效');
+    const previous = structuredClone(this.manifest);
+    if (!this.manifest.categories.includes(category.trim())) this.manifest.categories.push(category.trim());
+    try { await this.persist(); }
+    catch (e) { this.manifest = previous; throw e; }
+  }); }
   removeCategory(category) { return this.mutate(async () => {
     if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效');
     category = category.trim();
@@ -307,7 +327,7 @@ class VaultStore {
     return { branch: (await this.git(['branch', '--show-current'])).trim() || 'HEAD', changes, ahead: Number(counts[0]) || 0, behind: Number(counts[1]) || 0, remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim(), lfs: this.lfs };
   }
   async changeFile(relative) {
-    if (typeof relative !== 'string' || !relative || relative.includes('\0') || relative.split(/[\\/]/).some(part => /^\.git$/i.test(part) || part === '..') || path.isAbsolute(relative)) throw new Error('文件路径无效');
+    if (typeof relative !== 'string' || !relative || relative.includes('\0') || relative.includes('\\') || relative.split('/').some(part => !part || /^\.git$/i.test(part) || part === '.' || part === '..') || path.isAbsolute(relative)) throw new Error('文件路径无效');
     return this.safe(relative);
   }
   openFile(relative) { return this.queued(async () => {

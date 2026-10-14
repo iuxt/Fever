@@ -239,3 +239,54 @@ test('HTTP and HTTPS external images load under the actual page CSP', async ({ p
  await expect(page.locator('.prose img')).toHaveCount(2);
  await expect.poll(loadedImages).toBe(true);
 });
+
+test('overlapping saves wait for the latest edit without submitting duplicate writes', async ({ page }) => {
+ await desktopFixture(page);
+ await page.evaluate(() => {
+  const save = window.fever!.save;
+  let calls = 0;
+  (window as any).saveCalls = () => calls;
+  window.fever!.save = async (id, value) => {
+   calls++;
+   if (calls === 1) await new Promise<void>(resolve => {
+    window.reviewControls.waiting = true;
+    window.reviewControls.release = () => { window.reviewControls.waiting = false; resolve(); };
+   });
+   return save(id, value);
+  };
+ });
+ const editor = page.locator('.wysiwyg-content');
+ await editor.fill('First edit');
+ await editor.press('ControlOrMeta+s');
+ await expect.poll(() => page.evaluate(() => window.reviewControls.waiting)).toBe(true);
+ await editor.fill('Latest edit');
+ await editor.press('ControlOrMeta+s');
+ expect(await page.evaluate(() => (window as any).saveCalls())).toBe(1);
+ await page.evaluate(() => window.reviewControls.release());
+ await expect.poll(() => page.evaluate(() => window.reviewControls.contents.a)).toContain('Latest edit');
+ await expect(page.getByText('所有更改已保存')).toBeVisible();
+ expect(await page.evaluate(() => (window as any).saveCalls())).toBe(2);
+});
+
+test('pull prevents editing the old document while remote files are being replaced', async ({ page }) => {
+ await desktopFixture(page);
+ await page.evaluate(() => {
+  window.fever!.pull = async () => {
+   await new Promise<void>(resolve => {
+    window.reviewControls.waiting = true;
+    window.reviewControls.release = resolve;
+   });
+   window.reviewControls.contents.a = '# Remote update\n\nNew remote content';
+  };
+ });
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await page.getByRole('button', { name: '拉取', exact: true }).click();
+ await expect.poll(() => page.evaluate(() => window.reviewControls.waiting)).toBe(true);
+ await page.locator('.wysiwyg-content').evaluate(el => (el as HTMLElement).focus());
+ await page.keyboard.insertText('Stale edit during pull');
+ await page.evaluate(() => window.reviewControls.release());
+ await expect(page.locator('.wysiwyg-content')).toContainText('New remote content');
+ await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
+ await page.locator('.wysiwyg-content').press('ControlOrMeta+s');
+ expect(await page.evaluate(() => window.reviewControls.contents.a)).toContain('New remote content');
+});

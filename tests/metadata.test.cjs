@@ -226,6 +226,9 @@ test('malformed metadata, cycles and symlinked notes are rejected without rewrit
   const { dir, store, metadata } = await fixture(t);
   const cases = [
     { ...metadata, version: 2 },
+    { ...metadata, notes: [{ ...metadata.notes[0], id: [noteID] }] },
+    { ...metadata, notes: [{ ...metadata.notes[0], legacyPath: {} }] },
+    { ...metadata, folders: [{ ...metadata.folders[0], id: [folderID] }] },
     { ...metadata, notes: [...metadata.notes, metadata.notes[0]] },
     { ...metadata, folders: metadata.folders.map(f => ({ ...f, parentID: childID })) },
     { ...metadata, notes: [{ ...metadata.notes[0], fileExtension: '../escape' }] },

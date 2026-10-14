@@ -125,3 +125,28 @@ test('migrated vault retains Git lineage, resolves old revisions, and commits im
  assert.equal((await store.git(['remote'])).trim(), '');
  await assert.rejects(migrateNotebook(source, destination), /already exists/);
 });
+
+test('migration bounds streamed downloads and validates image bytes before creating a vault', async t => {
+ const root = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-migration-download-'));
+ t.after(() => fs.rm(root, { recursive: true, force: true }));
+ const source = path.join(root, 'old'), destination = path.join(root, 'new');
+ await fs.mkdir(source);
+ const git = async args => (await exec('git', args, { cwd: source })).stdout;
+ await git(['init', '-b', 'main']); await git(['config', 'user.name', 'Test']); await git(['config', 'user.email', 'test@example.com']);
+ await fs.writeFile(path.join(source, 'A.md'), '![image](https://example.test/image)');
+ await git(['add', '.']); await git(['commit', '-m', 'remote image']);
+ const { migrateNotebook } = await import('../scripts/notebook-migration.mjs');
+ let reads = 0, cancelled = false;
+ t.mock.method(globalThis, 'fetch', async () => new Response(new ReadableStream({
+  pull(controller) { reads++; controller.enqueue(new Uint8Array(1024 * 1024)); if (reads === 30) controller.close(); },
+  cancel() { cancelled = true; },
+ }), { headers: { 'Content-Type': 'image/png' } }));
+ await assert.rejects(migrateNotebook(source, destination), /unavailable remote images: 1/);
+ assert.ok(reads < 30, 'must stop reading an oversized stream');
+ assert.equal(cancelled, true);
+ globalThis.fetch.mock.restore();
+ t.mock.method(globalThis, 'fetch', async () => new Response('<html>Not an image</html>', { headers: { 'Content-Type': 'image/png' } }));
+ await assert.rejects(migrateNotebook(source, destination), /unavailable remote images: 1/);
+ await assert.rejects(fs.access(destination), { code: 'ENOENT' });
+ assert.equal(await git(['status', '--porcelain']), '');
+});

@@ -9,7 +9,7 @@ function folderPaths(metadata) {
   if (!metadata || metadata.version !== 1 || !Array.isArray(metadata.notes) || !Array.isArray(metadata.folders)) invalid();
   const folders = new Map(), paths = new Map(), visiting = new Set(), siblings = new Set();
   for (const folder of metadata.folders) {
-    if (!folder || !UUID.test(folder.id) || typeof folder.name !== 'string' || !folder.name || folder.name.includes('/') || folders.has(folder.id) || (folder.parentID != null && typeof folder.parentID !== 'string')) invalid();
+    if (!folder || typeof folder.id !== 'string' || !UUID.test(folder.id) || typeof folder.name !== 'string' || !folder.name || folder.name.includes('/') || folders.has(folder.id) || (folder.parentID != null && typeof folder.parentID !== 'string')) invalid();
     const sibling = JSON.stringify([folder.parentID ?? null, folder.name.toLowerCase()]);
     if (siblings.has(sibling)) invalid();
     siblings.add(sibling); folders.set(folder.id, folder);
@@ -25,7 +25,7 @@ function folderPaths(metadata) {
   for (const id of folders.keys()) resolve(id);
   const ids = new Set();
   for (const note of metadata.notes) {
-    if (!note || !UUID.test(note.id) || ids.has(note.id) || typeof note.name !== 'string' || !note.name.trim() || !EXTENSIONS.has(note.fileExtension) || (note.folderID != null && !folders.has(note.folderID)) || (note.trashed != null && typeof note.trashed !== 'boolean') || (note.aliases != null && (!Array.isArray(note.aliases) || !note.aliases.every(a => typeof a === 'string')))) invalid();
+    if (!note || typeof note.id !== 'string' || !UUID.test(note.id) || ids.has(note.id) || typeof note.name !== 'string' || !note.name.trim() || !EXTENSIONS.has(note.fileExtension) || (note.legacyPath != null && typeof note.legacyPath !== 'string') || (note.folderID != null && !folders.has(note.folderID)) || (note.trashed != null && typeof note.trashed !== 'boolean') || (note.aliases != null && (!Array.isArray(note.aliases) || !note.aliases.every(a => typeof a === 'string')))) invalid();
     ids.add(note.id);
   }
   return paths;

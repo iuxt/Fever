@@ -9,6 +9,7 @@ import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import { visit } from 'unist-util-visit';
 import { parse, preprocess, postprocess } from 'micromark';
+import { downloadImage } from '../electron/remote-images.cjs';
 
 const exec = promisify(execFile);
 const parser = unified().use(remarkParse).use(remarkGfm);
@@ -148,13 +149,8 @@ export async function migrateNotebook(source, destination) {
  const remoteBytes = new Map();
  for (const url of urls) {
   try {
-   const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
-   const mime = response.headers.get('content-type')?.split(';')[0];
-   const extensions = { 'image/jpeg': '.jpeg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp', 'image/avif': '.avif' };
-   if (!response.ok || !extensions[mime]) throw new Error('Image unavailable');
-   const bytes = Buffer.from(await response.arrayBuffer());
-   if (!bytes.length || bytes.length > 20 * 1024 * 1024) throw new Error('Invalid image size');
-   const filename = stableId(`remote:${url}`) + extensions[mime];
+   const { bytes, extension } = await downloadImage(url);
+   const filename = stableId(`remote:${url}`) + extension;
    remoteBytes.set(filename, bytes); mapping.external.set(url, `../images/${filename}`);
    manifest.assets[url] = `../images/${filename}`;
    report.images.push({ externalUrl: url, filename, sha256: sha256(bytes), bytes: bytes.length });

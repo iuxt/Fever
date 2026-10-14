@@ -273,3 +273,45 @@ test('Excalidraw imports preserve images and reject invalid files without adding
  assert.equal(store.snapshot().manifest.notes.length, count);
  await assert.rejects(store.create('Bad', '', '../../outside'), /格式/);
 });
+
+test('failed creation, rename and category writes do not leak into later saves', async t => {
+ const { store, dir } = await fixture(t);
+ const before = store.snapshot().manifest, files = await fs.readdir(path.join(dir, 'notes'));
+ const persist = store.persist;
+ store.persist = async () => { throw new Error('write failed'); };
+ await assert.rejects(store.create('Failed note', 'Failed/category'), /write failed/);
+ assert.deepEqual(store.snapshot().manifest, before);
+ assert.deepEqual(await fs.readdir(path.join(dir, 'notes')), files);
+ await assert.rejects(store.update(before.notes[0].id, 'Failed rename', 'Failed/move'), /write failed/);
+ assert.deepEqual(store.snapshot().manifest, before);
+ await assert.rejects(store.category('Failed/folder'), /write failed/);
+ assert.deepEqual(store.snapshot().manifest, before);
+ store.persist = persist;
+ await store.save(before.notes[0].id, 'Successful later save');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.equal(reopened.manifest.notes.length, before.notes.length);
+ assert.equal(reopened.note(before.notes[0].id).title, before.notes[0].title);
+ assert.deepEqual(reopened.manifest.categories, before.categories);
+});
+
+test('equivalent file paths cannot bypass manifest validation or trash protection', async t => {
+ const { store, dir } = await fixture(t);
+ const note = store.manifest.notes[0]; await store.remove(note.id);
+ const original = await store.read(note.id, 'trash');
+ for (const alias of [`./notes/${note.filename}`, `notes//${note.filename}`, `notes/./${note.filename}`]) {
+  await assert.rejects(store.saveFile(alias, 'overwrite'), /无效|只读/);
+ }
+ for (const alias of ['./fever.json', './/fever.json']) await assert.rejects(store.saveFile(alias, '{}'), /无效|格式/);
+ assert.equal(await store.read(note.id, 'trash'), original);
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), store.manifest);
+});
+
+test('manifest fields reject coercible filenames, reserved IDs and invalid asset metadata', async t => {
+ const { store, dir } = await fixture(t), before = store.snapshot().manifest;
+ for (const fields of [{ filename: [before.notes[0].filename] }, { id: 'file:fever.json' }, { id: '' }, { sourcePath: {} }]) {
+  const content = JSON.stringify({ ...before, notes: [{ ...before.notes[0], ...fields }] });
+  await assert.rejects(store.saveFile('fever.json', content), /无效/);
+ }
+ for (const assets of [[], 'invalid', { image: 123 }]) await assert.rejects(store.saveFile('fever.json', JSON.stringify({ ...before, assets })), /无效/);
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), before);
+});
