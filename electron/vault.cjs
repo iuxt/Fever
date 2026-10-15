@@ -27,7 +27,7 @@ function validateDrawing(content) {
   try { scene = JSON.parse(content); } catch { throw new Error('Excalidraw 文件不是有效的 JSON'); }
   if (!scene || scene.type !== 'excalidraw' || !Array.isArray(scene.elements) || scene.elements.some(e => !e || typeof e.id !== 'string' || typeof e.type !== 'string' || !Number.isFinite(e.x) || !Number.isFinite(e.y)) || (scene.appState != null && (typeof scene.appState !== 'object' || Array.isArray(scene.appState))) || (scene.files != null && (typeof scene.files !== 'object' || Array.isArray(scene.files)))) throw new Error('Excalidraw 绘图格式无效');
 }
-const defaults = { autoCommit: false, interval: 10, author: '', email: '', remote: '', excalidrawCategory: '' };
+const defaults = { autoCommit: false, interval: 10, author: '', email: '', remote: '' };
 
 class VaultStore {
   constructor() {
@@ -511,17 +511,15 @@ class VaultStore {
     return { content, previousContent, previousHash };
   }
   async restore(id, hash) { const content = await this.revision(id, hash); await this.save(id, content); return content; }
-  async settings() { return { ...defaults, author: (await this.git(['config', 'user.name'], true)).trim(), email: (await this.git(['config', 'user.email'], true)).trim(), remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim(), excalidrawCategory: (await this.git(['config', '--local', '--get', 'fever.excalidrawCategory'], true)).trim() }; }
+  async settings() { return { ...defaults, author: (await this.git(['config', 'user.name'], true)).trim(), email: (await this.git(['config', 'user.email'], true)).trim(), remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim() }; }
   configure(settings) { return this.queued(async () => {
     if (typeof settings.author !== 'string' || typeof settings.email !== 'string' || typeof settings.remote !== 'string') throw new Error('设置无效');
-    if (settings.excalidrawCategory !== undefined && (typeof settings.excalidrawCategory !== 'string' || settings.excalidrawCategory.trim().length > 200 || /[\x00-\x1f]/.test(settings.excalidrawCategory) || (settings.excalidrawCategory.trim() && settings.excalidrawCategory.trim().split('/').some(c => !c.trim())))) throw new Error('Excalidraw 默认分类无效（最多 200 字，可用 / 分隔子分类）');
     if (settings.remote && !/^(https?:\/\/|ssh:\/\/|git@)[^\s]+$/.test(settings.remote)) throw new Error('请使用 HTTPS 或 SSH 远程仓库地址');
     await this.git(['config', '--local', 'user.name', settings.author.trim()]);
     await this.git(['config', '--local', 'user.email', settings.email.trim()]);
     const existing = (await this.git(['remote'], true)).trim().split('\n').includes('origin');
     if (settings.remote) await this.git(['remote', existing ? 'set-url' : 'add', 'origin', settings.remote]);
     else if (existing) await this.git(['remote', 'remove', 'origin']);
-    if (settings.excalidrawCategory !== undefined) await this.git(['config', '--local', 'fever.excalidrawCategory', settings.excalidrawCategory.trim()]);
   }); }
 }
 module.exports = { VaultStore, defaults };

@@ -112,6 +112,70 @@ for (const block of terminalBlocks) {
  });
 }
 
+for (const line of [
+ { name: 'first', index: 0 },
+ { name: 'middle', index: 1 },
+ { name: 'empty', index: 2 },
+ { name: 'last', index: 3 },
+]) {
+ test(`selects only the ${line.name} code line on triple click`, async ({ page }) => {
+  const lines = ['const first = 1;', '  const middle = "中文";', '', 'const last = 4;'];
+  const original = `正文\n\n\`\`\`js\n${lines.join('\n')}\n\`\`\`\n\n尾段\n`;
+  await seed(page, original);
+  const code = page.locator('.editor-code-block pre code');
+  const point = await code.evaluate((element, index) => {
+   // Use the first glyph's geometry so highlighted spans and empty lines share the same coordinates.
+   const text = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()!;
+   const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 1);
+   const rect = range.getBoundingClientRect();
+   const lineHeight = parseFloat(getComputedStyle(element.parentElement!).lineHeight);
+   return { x: rect.x + 4, y: rect.y + rect.height / 2 + index * lineHeight };
+  }, line.index);
+  await page.mouse.click(point.x, point.y, { clickCount: 3 });
+  const selected = lines[line.index] + (line.index < lines.length - 1 ? '\n' : '');
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(selected);
+  expect(await saved(page)).toBe(original);
+  await page.keyboard.insertText('replacement');
+  const start = lines.slice(0, line.index).reduce((offset, text) => offset + text.length + 1, 0);
+  const text = lines.join('\n');
+  const edited = text.slice(0, start) + 'replacement' + text.slice(start + selected.length);
+  await expect(code).toHaveText(edited);
+  await expect.poll(() => saved(page)).toContain(`\`\`\`js\n${edited}\n\`\`\``);
+ });
+}
+
+for (const clickCount of [2, 3]) {
+ test(`ignores ${clickCount} clicks in the blank space outside code blocks`, async ({ page }) => {
+  const original = '前面的正文\n\n```js\nconst first = 1;\nconst last = 2;\n```\n\n后面的正文\n';
+  await seed(page, original);
+  const editor = page.locator('.wysiwyg-content');
+  const block = page.locator('.editor-code-block');
+  const bounds = (await block.boundingBox())!;
+  const code = (await block.locator('pre code').boundingBox())!;
+  for (const point of [
+   { x: bounds.x - 4, y: code.y + 5 },
+   { x: bounds.x + bounds.width + 4, y: code.y + 5 },
+   { x: bounds.x + bounds.width / 2, y: bounds.y - 4 },
+   { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height + 4 },
+  ]) {
+   await editor.locator(':scope > p').first().click();
+   await page.mouse.click(point.x, point.y, { clickCount });
+   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('');
+   expect(await saved(page)).toBe(original);
+  }
+ });
+}
+
+test('preserves double clicks inside code and triple clicks inside prose', async ({ page }) => {
+ const original = 'before paragraph\n\n```js\nconst value = 42;\n```\n';
+ await seed(page, original);
+ await page.locator('.editor-code-block .hljs-number').dblclick();
+ await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('42');
+ await page.locator('.wysiwyg-content > p').first().click({ clickCount: 3 });
+ await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('before paragraph');
+ expect(await saved(page)).toBe(original);
+});
+
 test('keeps code newlines and composition while allowing Enter to leave the final block', async ({ page }) => {
  await seed(page, '```text\nfirst\nlast\n```\n');
  const code = page.locator('.editor-code-block pre code');

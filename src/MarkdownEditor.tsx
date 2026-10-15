@@ -9,8 +9,9 @@ import { TableKit } from '@tiptap/extension-table';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Bold, Code2, Heading2, ImagePlus, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Shapes, Table2, Undo2 } from 'lucide-react';
-import type { Editor } from '@tiptap/core';
-import { NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
+import { Extension, type Editor } from '@tiptap/core';
+import { formattingShortcuts, shortcutLabel, type FormattingAction } from './editorShortcuts';
+import { AllSelection, NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
 import type { EditorView } from '@tiptap/pm/view';
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
@@ -209,7 +210,34 @@ const EditorParagraph = Paragraph.extend({
   return this.parent?.(token, helpers) || helpers.createNode('paragraph', undefined, helpers.parseInline(token.tokens || []));
  },
 });
+function applyFormat(editor: Editor, action: FormattingAction) {
+ if (editor.state.selection instanceof AllSelection) {
+  const doc = editor.state.doc;
+  editor.commands.setTextSelection({ from: Selection.atStart(doc).from, to: Selection.atEnd(doc).to });
+ }
+ const commands = editor.commands;
+ switch (action) {
+  case 'bold': return commands.toggleBold();
+  case 'italic': return commands.toggleItalic();
+  case 'strike': return commands.toggleStrike();
+  case 'code': return commands.toggleCode();
+  case 'codeBlock': return commands.toggleCodeBlock();
+  case 'blockquote': return commands.toggleBlockquote();
+  case 'bulletList': return commands.toggleBulletList();
+  case 'orderedList': return commands.toggleOrderedList();
+  case 'taskList': return commands.toggleTaskList();
+  case 'paragraph': return commands.setParagraph();
+  default: return commands.toggleHeading({ level: Number(action.slice(-1)) as 1 | 2 | 3 | 4 | 5 | 6 });
+ }
+}
+const FormattingShortcuts = Extension.create({
+ name: 'formattingShortcuts', priority: 1000,
+ addKeyboardShortcuts() {
+  return Object.fromEntries(formattingShortcuts.map(({ key, action }) => [key, () => { applyFormat(this.editor, action); return true; }]));
+ },
+});
 const extensions = [
+ FormattingShortcuts,
  StarterKit.configure({ paragraph: false, codeBlock: false, underline: false, trailingNode: false, link: { openOnClick: false } }),
  EditorParagraph, EditorCodeBlock, EditorImage, WikiImage,
  TableKit.configure({ table: false }), InteractiveTable,
@@ -257,6 +285,20 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
     event.preventDefault();
     return true;
    },
+   handleTripleClick(view, position, event) {
+    if (event.button !== 0) return false;
+    const $position = view.state.doc.resolve(position);
+    if ($position.parent.type.name !== 'codeBlock') return false;
+    // ProseMirror selects the whole textblock by default; code uses newline-delimited lines.
+    const text = $position.parent.textContent, offset = $position.parentOffset;
+    const start = text.slice(0, offset).lastIndexOf('\n') + 1;
+    const newline = text.indexOf('\n', offset);
+    const end = newline < 0 ? text.length : newline + 1;
+    const selection = TextSelection.create(view.state.doc, $position.start() + start, $position.start() + end);
+    view.focus();
+    view.dispatch(view.state.tr.setSelection(selection).setMeta('pointer', true));
+    return true;
+   },
    handleKeyDown(view, event) {
     if (event.key !== 'Enter' || event.isComposing || view.composing || event.ctrlKey || event.metaKey || event.altKey) return false;
     const { doc, selection } = view.state;
@@ -302,12 +344,19 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   undo: editor.can().undo(), redo: editor.can().redo(),
  } : null });
  if (!editor) return null;
- function clickAfterContent(event: MouseEvent<HTMLElement>) {
+ function clickDocumentSurface(event: MouseEvent<HTMLElement>) {
   if (!editor || event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
   const view = editor.view;
   // Only the document's blank surface should create a line, never node controls.
   const tableBottom = event.target instanceof Element && event.target.classList.contains('table-hover-edge') && event.target.classList.contains('bottom');
   if (event.target !== event.currentTarget && event.target !== view.dom && event.target !== view.dom.parentElement && !tableBottom) return;
+  // Native multi-click selection and ProseMirror's coordinate lookup can reach
+  // neighboring code even when the pointer is on the document's blank surface.
+  if (event.detail > 1) {
+   event.preventDefault();
+   event.stopPropagation();
+   return;
+  }
   const last = view.state.doc.lastChild;
   const lastDOM = last && view.nodeDOM(view.state.doc.content.size - last.nodeSize);
   if (!(lastDOM instanceof HTMLElement) || event.clientY < lastDOM.getBoundingClientRect().bottom) return;
@@ -358,11 +407,11 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
    { separator: true },
    { label: '加粗', checked: editor.isActive('bold'), shortcut: `${modifier}B`, action: () => editor.chain().focus().toggleBold().run() },
    { label: '斜体', checked: editor.isActive('italic'), shortcut: `${modifier}I`, action: () => editor.chain().focus().toggleItalic().run() },
-   { label: '二级标题', checked: editor.isActive('heading', { level: 2 }), action: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
-   { label: '无序列表', checked: editor.isActive('bulletList'), action: () => editor.chain().focus().toggleBulletList().run() },
-   { label: '任务列表', checked: editor.isActive('taskList'), action: () => editor.chain().focus().toggleTaskList().run() },
-   { label: '引用', checked: editor.isActive('blockquote'), action: () => editor.chain().focus().toggleBlockquote().run() },
-   { label: '代码块', checked: editor.isActive('codeBlock'), action: () => editor.chain().focus().toggleCodeBlock().run() },
+   { label: '二级标题', shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === 'heading2')!.key, modifier), checked: editor.isActive('heading', { level: 2 }), action: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
+   { label: '无序列表', shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === 'bulletList')!.key, modifier), checked: editor.isActive('bulletList'), action: () => editor.chain().focus().toggleBulletList().run() },
+   { label: '任务列表', shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === 'taskList')!.key, modifier), checked: editor.isActive('taskList'), action: () => editor.chain().focus().toggleTaskList().run() },
+   { label: '引用', shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === 'blockquote')!.key, modifier), checked: editor.isActive('blockquote'), action: () => editor.chain().focus().toggleBlockquote().run() },
+   { label: '代码块', shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === 'codeBlock')!.key, modifier), checked: editor.isActive('codeBlock'), action: () => editor.chain().focus().toggleCodeBlock().run() },
   ];
   if (editor.isActive('table')) items.push({ separator: true },
    { label: '添加行', action: () => editor.chain().focus().addRowAfter().run() },
@@ -373,8 +422,11 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   const coords = editor.view.coordsAtPos(selection.from);
   contextMenu.open({ x: keyboard ? coords.left : event.clientX, y: keyboard ? coords.bottom : event.clientY, label: '编辑器菜单', items, returnFocus: editor.view.dom });
  }
- const button = (label: string, icon: ReactNode, action: () => void, active = false, disabled = false) =>
-  <button type="button" title={label} aria-label={label} aria-pressed={active} disabled={disabled} onMouseDown={event => event.preventDefault()} onClick={action} className={active ? 'active' : ''}>{icon}</button>;
+ const button = (label: string, icon: ReactNode, action: () => void, active = false, disabled = false) => {
+  const shortcut = formattingShortcuts.find(item => item.label === label || (label === '二级标题' && item.action === 'heading2'));
+  const title = shortcut ? `${label} · ${shortcutLabel(shortcut.key, modifier)}` : label;
+  return <button type="button" title={title} aria-label={label} aria-pressed={active} disabled={disabled} onMouseDown={event => event.preventDefault()} onClick={action} className={active ? 'active' : ''}>{icon}</button>;
+ };
  return <MediaContext.Provider value={{ ...media, onError }}>
   <div className="wysiwyg-toolbar" role="toolbar" aria-label="正文格式">
    {button('加粗 · ⌘ B', <Bold size={15} />, () => { editor.chain().focus().toggleBold().run(); }, state?.bold)}
@@ -400,7 +452,7 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
     <button onMouseDown={e => e.preventDefault()} onClick={() => editor.chain().focus().deleteTable().run()}>删除表格</button>
    </div>}
   </div>
-  <article className="document wysiwyg-document" onMouseDownCapture={clickAfterContent}>
+  <article className="document wysiwyg-document" onMouseDownCapture={clickDocumentSurface}>
    {prefix.current && <details className="editor-frontmatter"><summary>文档属性 · 在源码中编辑</summary><pre>{prefix.current}</pre></details>}
    <EditorContent editor={editor} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} />
   </article>

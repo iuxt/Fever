@@ -8,7 +8,7 @@ export type VaultFile = { path: string; content: string; binary: boolean; image?
 export type GitStatus = { branch: string; head?: string; changes: Change[]; ahead: number; behind: number; remote: string; lfs: boolean };
 export type Commit = { hash: string; author: string; date: string; message: string };
 export type RevisionComparison = { content: string; previousContent: string; previousHash?: string };
-export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string; excalidrawCategory: string };
+export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string };
 export type Api = {
   desktop: boolean;
   onCloseTab?: (callback: () => void) => () => void;

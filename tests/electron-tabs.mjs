@@ -18,12 +18,12 @@ try {
   return { accelerator: item.accelerator, label: item.label };
  });
  expect(closeMenu).toEqual({ accelerator: 'CommandOrControl+W', label: '关闭标签页' });
- const shortcut = () => app.evaluate(({ BrowserWindow }) => {
+ const shortcut = (key = 'W', shift = false) => app.evaluate(({ BrowserWindow }, { key, shift }) => {
   const window = BrowserWindow.getAllWindows()[0]; window.focus();
-  const modifiers = [process.platform === 'darwin' ? 'meta' : 'control'];
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'W', modifiers });
-  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'W', modifiers });
- });
+  const modifiers = [process.platform === 'darwin' ? 'meta' : 'control', ...(shift ? ['shift'] : [])];
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: key, modifiers });
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: key, modifiers });
+ }, { key, shift });
  await shortcut();
  expect(page.isClosed()).toBe(false);
  await app.evaluate(({ dialog }, vaultPath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [vaultPath] }); }, folder);
@@ -39,6 +39,18 @@ try {
  await expect(page.locator('.tab')).toHaveCount(2);
  await page.getByTitle('Markdown 源码与预览').click();
  await page.locator('.cm-content').fill('# 快捷键关闭前的修改');
+ await shortcut(',');
+ await expect(page.getByRole('heading', { name: '笔记库设置' })).toBeVisible();
+ await page.getByLabel('用户名').fill('未保存的名字');
+ await shortcut(',');
+ await expect(page.getByLabel('用户名')).toHaveValue('未保存的名字');
+ await page.getByRole('button', { name: '取消', exact: true }).click();
+ await page.locator('.cm-content').click();
+ await shortcut('A');
+ await shortcut('L', true);
+ await expect(page.locator('.cm-content')).toContainText('```');
+ await shortcut('L', true);
+ await expect(page.locator('.cm-content')).not.toContainText('```');
  await shortcut();
  await expect(page.locator('.tab')).toHaveCount(1);
  await expect(page.locator('.tab.current')).toContainText('欢迎使用 Fever');
@@ -58,5 +70,5 @@ try {
  await expect(page.locator('.tab')).toHaveCount(0);
  expect(page.isClosed()).toBe(false);
  expect(errors).toEqual([]);
- console.log('PASS: native close-tab accelerator/menu, save before close, last tab and empty workspace');
+ console.log('PASS: native settings/format shortcuts, close-tab accelerator/menu, save before close, last tab and empty workspace');
 } finally { await app?.close(); await rm(scratch, { recursive: true, force: true }); }

@@ -13,25 +13,6 @@ async function fixture(t) {
  await store.configure({ author: 'Fever Test', email: 'test@example.com', remote: '' });
  return { dir, store };
 }
-test('Excalidraw default category persists per vault and rejects invalid settings', async t => {
- const { dir, store } = await fixture(t);
- const settings = await store.settings();
- assert.equal(settings.excalidrawCategory, '');
- await store.configure({ ...settings, excalidrawCategory: '  绘图/架构  ' });
- const reopened = new VaultStore(); await reopened.open(dir);
- assert.equal((await reopened.settings()).excalidrawCategory, '绘图/架构');
- for (const value of ['绘图//架构', '/绘图', '绘图/', '绘图\n架构', '图'.repeat(201), 123]) {
-  await assert.rejects(reopened.configure({ ...settings, excalidrawCategory: value }), /默认分类无效/);
- }
- assert.equal((await reopened.settings()).excalidrawCategory, '绘图/架构');
- const other = await fixture(t);
- await reopened.open(other.dir);
- assert.equal((await reopened.settings()).excalidrawCategory, '');
- await reopened.open(dir);
- assert.equal((await reopened.settings()).excalidrawCategory, '绘图/架构');
- await reopened.configure({ ...settings, excalidrawCategory: '' });
- assert.equal((await reopened.settings()).excalidrawCategory, '');
-});
 test('trash can be read, searched and inspected through Git history without allowing edits or repeated deletion', async t => {
  const { dir, store } = await fixture(t);
  const note = await store.create('Archived title', '原位置/分类');

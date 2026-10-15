@@ -6,9 +6,10 @@ import { languages } from '@codemirror/language-data';
 import { redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/commands';
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
 import { readClipboard, writeClipboard } from './clipboard';
+import { sourceFormatting } from './sourceFormatting';
 
 // Reuse the language extension across edits and background status refreshes.
-const extensions = [markdown({ codeLanguages: languages })];
+const extensions = [markdown({ codeLanguages: languages }), sourceFormatting];
 const basicSetup = { lineNumbers: true, foldGutter: false, highlightActiveLine: true };
 export default memo(function SourceEditor({ content, dark, onChange, onError, filename }: { content: string; dark: boolean; onChange: (value: string) => void; onError: (message: string) => void; filename?: string }) {
  const ref = useRef<ReactCodeMirrorRef>(null), contextMenu = useContextMenu();
@@ -18,7 +19,7 @@ export default memo(function SourceEditor({ content, dark, onChange, onError, fi
   let cancelled = false;
   setFileExtensions([]);
   const language = languages.find(language => language.extensions.includes(filename.split('.').pop()?.toLowerCase() || ''));
-  language?.load().then(extension => { if (!cancelled) setFileExtensions([extension]); }).catch(() => {});
+  language?.load().then(extension => { if (!cancelled) setFileExtensions(/\.(md|markdown)$/i.test(filename) ? [extension, sourceFormatting] : [extension]); }).catch(() => {});
   return () => { cancelled = true; };
  }, [filename]);
  function showContextMenu(event: MouseEvent<HTMLElement>) {

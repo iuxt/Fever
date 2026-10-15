@@ -13,11 +13,13 @@ type Props = {
  onStage: (change: Change) => void;
  onUnstage: (change: Change) => void;
  onDiscard: (change: Change) => void;
+ onStageAll: () => void;
+ onDiscardAll: () => void;
  onOpen: (change: Change) => void;
 };
 const emptyChanges: Change[] = [];
 
-export default function GitChanges({ status, notes, trash = [], busy, onDiff, onStage, onUnstage, onDiscard, onOpen }: Props) {
+export default function GitChanges({ status, notes, trash = [], busy, onDiff, onStage, onUnstage, onDiscard, onStageAll, onDiscardAll, onOpen }: Props) {
  const container = useRef<HTMLDivElement>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
  const titles = useMemo(() => new Map(notes.map(note => [notePath(note), note.title])), [notes]);
@@ -41,7 +43,10 @@ export default function GitChanges({ status, notes, trash = [], busy, onDiff, on
   const start = Math.max(0, Math.floor((viewport.top - rowTop) / 34) - 6);
   const end = Math.max(0, Math.min(group.changes.length, Math.ceil((viewport.top + viewport.height - rowTop) / 34) + 6));
   return <section className="changes-group" key={group.title} aria-label={group.title}>
-  <div className="changes-title"><span className="changes-heading">{group.title}</span><span className="changes-count">{group.changes.length}</span></div>
+  <div className="changes-title"><span className="changes-heading">{group.title}</span>{!group.staged && <div className="changes-group-actions">
+   <button className="icon-button" title="全部还原" aria-label="全部还原" disabled={busy || !group.changes.length} onClick={onDiscardAll}><RotateCcw size={14} /></button>
+   <button className="icon-button" title="全部暂存" aria-label="全部暂存" disabled={busy || !group.changes.length} onClick={onStageAll}><Plus size={16} /></button>
+  </div>}<span className="changes-count">{group.changes.length}</span></div>
   <div className="changes-list virtual-changes-list" style={{ height: group.changes.length * 34 }}>{group.changes.slice(start, end).map((change, index) => {
    const name = titles.get(change.path) || change.path;
    const trashed = trashedPaths.has(change.path) || Boolean(change.originalPath && trashedPaths.has(change.originalPath));

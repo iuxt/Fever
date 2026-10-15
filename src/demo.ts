@@ -13,7 +13,7 @@ const seeds = [
 ];
 const key = 'fever-demo-v1';
 type State = { manifest: Manifest; contents: Record<string, string>; versions: Record<string, { commit: Commit; content: string }[]>; settings: Settings; dirty: string[]; images: Record<string, string>; baseFiles?: Record<string, string>; stagedFiles?: Record<string, string | null>; filenames?: Record<string, string>; paths?: Record<string, string> };
-const initial: State = { manifest: { version: 1, categories: ['开始使用', '知识管理', '项目/Fever', '日记/2026', '阅读'], notes: [] }, contents: {}, versions: {}, settings: { autoCommit: false, interval: 10, author: 'Fever', email: 'hello@example.com', remote: '', excalidrawCategory: '' }, dirty: [], images: {} };
+const initial: State = { manifest: { version: 1, categories: ['开始使用', '知识管理', '项目/Fever', '日记/2026', '阅读'], notes: [] }, contents: {}, versions: {}, settings: { autoCommit: false, interval: 10, author: 'Fever', email: 'hello@example.com', remote: '' }, dirty: [], images: {} };
 seeds.forEach(([title, category, content], i) => {
  const id = `demo-${i + 1}`; initial.manifest.notes.push({ id, title, category, filename: `${id}.md`, createdAt: '2026-10-06T08:00:00Z', updatedAt: '2026-10-06T10:24:00Z' }); initial.contents[id] = content;
  initial.versions[id] = [{ commit: { hash: 'a83c2d4' + '0'.repeat(33), author: 'Fever', date: '2026-10-06T10:24:00Z', message: '完善笔记内容与目录结构' }, content }, { commit: { hash: '7f6b91e' + '0'.repeat(33), author: 'Fever', date: '2026-10-05T08:30:00Z', message: '创建笔记，记录最初的想法' }, content: `# ${title}\n\n从一个想法开始。\n` }];
@@ -164,8 +164,6 @@ export const demo: Api = {
  },
  restore: async (id, hash) => { const content = await demo.revision(id, hash); await demo.save(id, content); return content; },
  settings: async () => ({ ...state.settings }), configure: async settings => {
-  const category = settings.excalidrawCategory ?? '';
-  if (typeof category !== 'string' || category.trim().length > 200 || /[\x00-\x1f]/.test(category) || (category.trim() && category.trim().split('/').some(c => !c.trim()))) throw new Error('Excalidraw 默认分类无效（最多 200 字，可用 / 分隔子分类）');
-  state.settings = { ...settings, excalidrawCategory: category.trim() }; persist();
+  state.settings = { ...settings }; persist();
  },
 };

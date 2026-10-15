@@ -91,6 +91,7 @@ test('Excalidraw canvas saves, embeds in Markdown, reloads and exports', async (
  expect((await downloadEvent).suggestedFilename()).toBe('架构图.excalidraw');
  await page.getByRole('button', { name: '新建笔记', exact: true }).first().click();
  await page.getByLabel('笔记标题').fill('绘图文档');
+ await page.getByLabel('所属分类').fill('开始使用');
  await page.getByRole('button', { name: '创建笔记', exact: true }).click();
  await page.getByRole('button', { name: '插入 Excalidraw', exact: true }).click();
  await page.getByRole('button', { name: '插入绘图', exact: true }).click();
