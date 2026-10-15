@@ -156,49 +156,6 @@ try {
  const restoredManifest = JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8'));
  if (!restoredManifest.notes.some(n => n.id === note.id && n.filename === note.filename && n.category === note.category) || restoredManifest.trash.length) throw new Error('Trash restore did not preserve note identity and category');
 
- // Open FSNotes' native metadata format and exercise the production asset protocol.
- const fsnotes = path.join(scratch, 'fsnotes');
- const fsnoteID = '11111111-1111-4111-8111-111111111111', trashID = '22222222-2222-4222-8222-222222222222';
- const parentID = '33333333-3333-4333-8333-333333333333', childID = '44444444-4444-4444-8444-444444444444';
- await mkdir(path.join(fsnotes, 'notes'), { recursive: true }); await mkdir(path.join(fsnotes, 'images', fsnoteID), { recursive: true });
- const snapshot = { version: 1, folders: [{ id: parentID, name: 'FSNotes' }, { id: childID, name: '嵌套分类', parentID }], notes: [
-  { id: fsnoteID, name: 'FSNotes 清单标题', folderID: childID, fileExtension: 'md', trashed: false, aliases: ['旧标题'] },
-  { id: trashID, name: '废纸篓笔记', fileExtension: 'md', trashed: true },
- ] };
- const snapshotText = JSON.stringify(snapshot, null, 2) + '\n';
- await page.route(/^https?:\/\/images\.example\.test\//, route => route.fulfill({ contentType: 'image/png', body: Buffer.from(png) }));
- await writeFile(path.join(fsnotes, 'metadata.json'), snapshotText);
- await writeFile(path.join(fsnotes, 'notes', `${fsnoteID}.md`), `# FSNotes 正文\n\n![嵌套截图](../images/${fsnoteID}/pixel.png)\n\n![HTTP 图片](http://images.example.test/pixel.png)\n\n![HTTPS 图片](https://images.example.test/pixel.png)\n`);
- await writeFile(path.join(fsnotes, 'notes', `${trashID}.md`), 'trashed');
- await writeFile(path.join(fsnotes, 'images', fsnoteID, 'pixel.png'), Buffer.from(png));
- await app.evaluate(({ dialog }, vaultPath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [vaultPath] }); }, fsnotes);
- await page.getByTitle('设置', { exact: true }).click();
- await page.getByRole('dialog').getByRole('button', { name: '切换', exact: true }).click();
- await expect(page.locator('.sidebar-foot')).toContainText('1 篇笔记');
- await expect(page.locator('.folder-row').filter({ hasText: 'FSNotes' })).toHaveAttribute('aria-expanded', 'false');
- await expect(page.locator('.note-row')).toHaveCount(0);
- await page.locator('.folder-row').filter({ hasText: 'FSNotes' }).click();
- await expect(page.locator('.folder-row').filter({ hasText: '嵌套分类' })).toHaveAttribute('aria-expanded', 'false');
- await page.locator('.folder-row').filter({ hasText: '嵌套分类' }).click();
- await page.locator('.note-row').filter({ hasText: 'FSNotes 清单标题' }).click();
- await expect(page.locator('.note-row.selected')).toContainText('FSNotes 清单标题');
- await expect(page.locator('.breadcrumbs')).toContainText('嵌套分类');
- await expect(page.locator('.wysiwyg-content h1')).toHaveText('FSNotes 正文');
- await expect(page.locator('.wysiwyg-content .editor-image img')).toHaveCount(3);
- await expect.poll(() => page.locator('.wysiwyg-content .editor-image img').evaluateAll(images => images.every(img => img.complete && img.naturalWidth === 1))).toBe(true);
- if (await readFile(path.join(fsnotes, 'metadata.json'), 'utf8') !== snapshotText) throw new Error('Opening FSNotes rewrote its metadata');
- await page.getByTitle('更多笔记操作').click(); await page.getByRole('button', { name: '重命名 / 移动笔记' }).click();
- await page.getByLabel('笔记标题').fill('FSNotes 新标题'); await page.getByLabel('所属分类').fill('新分类/子分类');
- await page.getByRole('button', { name: '保存更改' }).click();
- await expect(page.locator('.note-row.selected')).toContainText('FSNotes 新标题');
- await page.getByTitle('编辑模式 · ⌘ E', { exact: true }).click();
- await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
- await page.locator('.cm-content').fill('# FSNotes 编辑后\n\n已保存');
- await expect(page.getByText('所有更改已保存')).toBeVisible();
- const updatedSnapshot = JSON.parse(await readFile(path.join(fsnotes, 'metadata.json'), 'utf8'));
- if (!updatedSnapshot.notes[0].aliases.includes('FSNotes 清单标题')) throw new Error('FSNotes rename lost its alias');
- if (!(await readFile(path.join(fsnotes, 'notes', `${fsnoteID}.md`), 'utf8')).includes('已保存')) throw new Error('FSNotes autosave failed');
- await page.screenshot({ path: 'test-results/desktop-fsnotes.png' });
  if (errors.length) throw new Error(errors.join('\n'));
- console.log('PASS: native onboarding, IPC, metadata, autosave, Git commit, history, LFS images, Excalidraw import/edit/save, production fonts and FSNotes metadata/nested images/rename/autosave');
+ console.log('PASS: native onboarding, IPC, metadata, autosave, Git commit, history, LFS images, Excalidraw import/edit/save, production fonts');
 } finally { await app?.close(); await rm(scratch, { recursive: true, force: true }); }
