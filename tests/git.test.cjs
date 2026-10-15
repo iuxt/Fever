@@ -178,15 +178,17 @@ test(`bulk discard restores working changes and renames while retaining staged-o
  const addedPath = `notes/${added.filename}`;
  await store.stage(addedPath); await store.save(added.id, 'modified after staging\n');
  const drawing = await store.create('new drawing', 'temporary', 'excalidraw');
- const special = 'notes/换行\n:(glob)* [1].txt';
- await fs.writeFile(path.join(dir, special), 'new file\n');
+ const specialPaths = ['notes/中文 (glob) [1].txt'];
+ // Windows forbids control characters, colons and asterisks in filenames.
+ if (process.platform !== 'win32') specialPaths.push('notes/换行\n:(glob)* [1].txt');
+ for (const name of specialPaths) await fs.writeFile(path.join(dir, name), 'new file\n');
  await fs.writeFile(path.join(dir, 'images/new.png'), Buffer.from([0, 1, 2]));
  const paths = await store.discardAll();
  assert.ok(paths.includes(file)); assert.ok(paths.includes(oldPath)); assert.ok(paths.includes(newPath));
  assert.ok(!paths.includes(kept));
  assert.equal(await store.read(note.id), autocrlf ? original.replace(/\n/g, '\r\n') : original);
  for (const name of [oldPath, deleted]) assert.equal(await fs.readFile(path.join(dir, name), 'utf8'), autocrlf ? 'original\r\n' : 'original\n');
- for (const name of [newPath, addedPath, `drawings/${drawing.filename}`, special, 'images/new.png']) await assert.rejects(fs.access(path.join(dir, name)), { code: 'ENOENT' });
+ for (const name of [newPath, addedPath, `drawings/${drawing.filename}`, ...specialPaths, 'images/new.png']) await assert.rejects(fs.access(path.join(dir, name)), { code: 'ENOENT' });
  assert.deepEqual(store.manifest, originalManifest);
  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), originalManifest);
  assert.equal(await fs.readFile(path.join(dir, kept), 'utf8'), 'staged only\n');
