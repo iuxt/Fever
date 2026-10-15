@@ -43,6 +43,7 @@ const noteIdFor = (path: string) => Object.keys(state.filenames!).find(id => `no
 const persist = () => localStorage.setItem(key, JSON.stringify(state));
 const dirty = (file: string) => { if (!state.dirty.includes(file)) state.dirty.push(file); persist(); };
 const snapshot = () => ({ path: '浏览器演示 / 我的知识库', name: '我的知识库', manifest: structuredClone(state.manifest), lfs: true });
+const imageImports = new Map<string, string[]>();
 export const demo: Api = {
  desktop: false, current: async () => snapshot(), open: async () => snapshot(),
  read: async (id, scope) => { if (!(scope === 'trash' ? state.manifest.trash || [] : state.manifest.notes).some(note => note.id === id)) throw new Error('笔记不存在'); return state.contents[id] || ''; },
@@ -67,9 +68,29 @@ export const demo: Api = {
  },
  importNotes: async () => [],
  localizeImages: async () => { throw new Error('请在桌面版中转换外部图片'); },
- image: async (bytes, name) => { const file = `../images/${crypto.randomUUID()}.${name.split('.').pop()}`; const blob = new Blob([new Uint8Array(bytes)]); state.images[file] = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.readAsDataURL(blob); }); dirty(file.slice(3)); return file; },
+ image: async (bytes, name, noteId, importId) => {
+  if (!state.manifest.notes.some(note => note.id === noteId)) throw new Error('笔记不存在');
+  const ext = name.match(/\.[^.]+$/)?.[0] || '';
+  if (!/^\.(png|jpe?g|gif|webp|avif)$/i.test(ext) || !bytes.length || bytes.length > 20 * 1024 * 1024) throw new Error('支持 PNG/JPEG/GIF/WebP/AVIF 图片，最大 20 MB');
+  const blob = new Blob([new Uint8Array(bytes)]);
+  const data = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.readAsDataURL(blob); });
+  const now = new Date(), pad = (value: number, width = 2) => String(value).padStart(width, '0');
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${pad(now.getMilliseconds(), 3)}`;
+  let file = `../images/${noteId}/${date}${ext}`;
+  for (let suffix = 1; Object.hasOwn(state.images, file); suffix++) file = `../images/${noteId}/${date}-${suffix}${ext}`;
+  state.images[file] = data; dirty(file.slice(3));
+  if (importId) imageImports.set(importId, [...(imageImports.get(importId) || []), file]);
+  return file;
+ },
+ completeImageImport: async (importId, keep) => {
+  if (!keep) for (const src of imageImports.get(importId) || []) {
+   if (Object.values(state.contents).some(content => content.includes(src))) continue;
+   delete state.images[src]; state.dirty = state.dirty.filter(file => file !== src.slice(3));
+  }
+  imageImports.delete(importId); persist();
+ },
  asset: src => state.images[src] || '',
- status: async () => ({ branch: 'main', changes: fileChanges(), ahead: 0, behind: 0, remote: state.settings.remote, lfs: true }),
+ status: async () => ({ branch: 'main', head: Object.values(state.versions).flat().reduce((latest, version) => !latest || version.commit.date >= latest.date ? version.commit : latest, null as Commit | null)?.hash || '', changes: fileChanges(), ahead: 0, behind: 0, remote: state.settings.remote, lfs: true }),
  diff: async (path, staged = false) => {
   const before = (staged ? state.baseFiles![path] : Object.hasOwn(state.stagedFiles!, path) ? state.stagedFiles![path] : state.baseFiles![path]) ?? '';
   const after = (staged ? state.stagedFiles![path] : workingFiles()[path]) ?? '';

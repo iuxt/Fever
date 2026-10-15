@@ -7,6 +7,7 @@ const { promisify } = require('node:util');
 const exec = promisify(execFile);
 const { metadataView, updateMetadata } = require('./metadata.cjs');
 const { downloadImage } = require('./remote-images.cjs');
+const { readBounded } = require('./files.cjs');
 const MANIFEST = 'fever.json';
 const UUID_FILE = /^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/;
 function validateManifest(manifest) {
@@ -31,11 +32,13 @@ class VaultStore {
   constructor() {
     this.root = null; this.manifest = null; this.lfs = false; this.tail = Promise.resolve();
     this.manifestFile = MANIFEST; this.metadata = null; this.metadataText = null;
+    this.searchCache = null; this.statusTask = null; this.operationVersion = 0;
+    this.imageImports = new Map();
     this.environment = { ...process.env };
     // Finder-launched macOS apps do not inherit an interactive shell's Homebrew PATH.
     if (process.platform === 'darwin') this.environment.PATH = [...new Set([...(process.env.PATH || '').split(path.delimiter), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])].join(path.delimiter);
   }
-  queued(fn) { const next = this.tail.then(fn); this.tail = next.catch(() => {}); return next; }
+  queued(fn) { const next = this.tail.then(() => { ++this.operationVersion; return fn(); }); this.tail = next.catch(() => {}); return next; }
   mutate(fn) { return this.queued(async () => {
     if (this.metadata) {
       const text = await fs.readFile(await this.safe(this.manifestFile), 'utf8');
@@ -71,6 +74,9 @@ class VaultStore {
     if (!query.trim() || !this.manifest) return [];
     const controller = new AbortController(); this.searchController = controller;
     const { signal } = controller, needle = query.toLowerCase(), notes = scope === 'trash' ? (this.manifest.trash || []) : this.manifest.notes;
+    // Cache only match booleans for the current query, never whole note bodies.
+    if (this.searchCache?.root !== this.root || this.searchCache.query !== needle || this.searchCache.scope !== scope) this.searchCache = { root: this.root, query: needle, scope, files: new Map() };
+    const cache = this.searchCache.files;
     const matches = new Set(); let cursor = 0;
     // Keep full Unicode case folding, but hold at most four note bodies in the main
     // process. Only IDs cross IPC; aborted queries stop scheduling file reads.
@@ -81,13 +87,22 @@ class VaultStore {
         try {
           const file = await this.safe(`notes/${note.filename}`);
           if (signal.aborted) return;
-          const content = await fs.readFile(file, { encoding: 'utf8', signal });
-          if (content.toLowerCase().includes(needle)) matches.add(note.id);
+          const stat = await fs.stat(file);
+          const version = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`;
+          let result = cache.get(note.filename);
+          if (!result || result.version !== version) {
+            const content = (await readBounded(file, { signal })).toString('utf8');
+            if (signal.aborted) return;
+            result = { version, matches: content.toLowerCase().includes(needle) };
+            cache.set(note.filename, result);
+          }
+          if (result.matches) matches.add(note.id);
         } catch { /* Missing/unreadable notes do not prevent searching the vault. */ }
       }
     };
     try {
       await Promise.all(Array.from({ length: Math.min(4, notes.length) }, worker));
+      if (!signal.aborted) { const files = new Set(notes.map(note => note.filename)); for (const file of cache.keys()) if (!files.has(file)) cache.delete(file); }
       return signal.aborted ? [] : notes.filter(note => matches.has(note.id)).map(note => note.id);
     } finally { if (this.searchController === controller) this.searchController = null; }
   }
@@ -138,6 +153,7 @@ class VaultStore {
   async open(folder) {
     return this.queued(async () => {
       this.cancelSearch();
+      this.searchCache = null;
       const root = await fs.realpath(folder);
       const previous = { root: this.root, manifest: this.manifest, lfs: this.lfs, manifestFile: this.manifestFile, metadata: this.metadata, metadataText: this.metadataText };
       this.root = root;
@@ -206,7 +222,7 @@ class VaultStore {
     if (scope !== undefined && scope !== 'trash') throw new Error('读取范围无效');
     const note = scope === 'trash' ? this.manifest?.trash?.find(n => n.id === id) : this.note(id);
     if (!note) throw new Error('回收站中找不到这篇笔记');
-    return fs.readFile(await this.safe(`notes/${note.filename}`), 'utf8');
+    return (await readBounded(await this.safe(`notes/${note.filename}`))).toString('utf8');
   }
   save(id, content) {
     const manifest = this.manifest;
@@ -219,7 +235,7 @@ class VaultStore {
       finally { await fs.rm(temp, { force: true }); }
       const updatedAt = note.updatedAt;
       note.updatedAt = new Date().toISOString();
-      try { await this.persist(); }
+      try { if (this.metadata) await this.assertMetadataUnchanged(); else await this.persist(); }
       catch (e) { note.updatedAt = updatedAt; throw e; }
       // Include a snapshot only when mutate loaded metadata changed by another app.
       return { updatedAt: note.updatedAt, ...(manifest !== this.manifest ? { vault: this.snapshot() } : {}) };
@@ -282,26 +298,64 @@ class VaultStore {
     this.cancelSearch();
   }); }
   importFile(file) { return this.mutate(async () => {
-    const content = await fs.readFile(file, 'utf8');
+    const content = (await readBounded(file, { message: '导入文件最大为 10 MB' })).toString('utf8');
     if (Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('导入文件最大为 10 MB');
     const drawing = /\.excalidraw$/i.test(file);
     const title = (!drawing && content.match(/^#\s+(.+)$/m)?.[1]) || path.basename(file, path.extname(file));
     return this.createInternal(title.slice(0, 200), '收件箱', content, drawing ? 'excalidraw' : 'markdown', path.basename(file));
   }); }
-  image(bytes, name) { return this.queued(() => this.writeImage(bytes, name)); }
-  async writeImage(bytes, name) {
+  image(bytes, name, noteId, importId) { return this.queued(async () => {
+    if (importId !== undefined && (typeof importId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(importId))) throw new Error('图片导入标识无效');
+    let batch = importId && this.imageImports.get(importId);
+    if (batch && (batch.root !== this.root || batch.noteId !== noteId)) throw new Error('笔记库或笔记已变化');
+    const src = await this.writeImage(bytes, name, noteId);
+    if (importId) {
+      if (!batch) { batch = { root: this.root, noteId, sources: [] }; this.imageImports.set(importId, batch); }
+      batch.sources.push(src);
+    }
+    return src;
+  }); }
+  completeImageImport(importId, keep) { return this.queued(async () => {
+    const batch = this.imageImports.get(importId);
+    if (!batch) return;
+    if (!keep) {
+      if (this.root !== batch.root) throw new Error('笔记库已变化，无法清理图片');
+      // If a save reached disk before reporting failure, preserve its references.
+      const note = this.manifest.notes.find(note => note.id === batch.noteId) || this.manifest.trash?.find(note => note.id === batch.noteId);
+      const content = note ? (await readBounded(await this.safe(`notes/${note.filename}`))).toString('utf8') : '';
+      for (const src of batch.sources) if (!content.includes(src)) await fs.rm(await this.safe(src.slice(3)), { force: true });
+    }
+    this.imageImports.delete(importId);
+  }); }
+  async writeImage(bytes, name, noteId) {
     if (!this.lfs) throw new Error('请先安装 Git LFS 后重新打开笔记库，确保图片通过 LFS 管理');
-    const ext = typeof name === 'string' ? path.extname(name).toLowerCase() : '';
+    const note = this.note(noteId);
+    const ext = typeof name === 'string' ? path.extname(name) : '';
     const size = ArrayBuffer.isView(bytes) ? bytes.byteLength : Array.isArray(bytes) ? bytes.length : 0;
-    if (!['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif'].includes(ext) || size > 20 * 1024 * 1024 || !size) throw new Error('支持 PNG/JPEG/GIF/WebP/AVIF 图片，最大 20 MB');
+    if (!['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif'].includes(ext.toLowerCase()) || size > 20 * 1024 * 1024 || !size) throw new Error('支持 PNG/JPEG/GIF/WebP/AVIF 图片，最大 20 MB');
     const buffer = ArrayBuffer.isView(bytes) ? Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength) : Buffer.from(bytes);
-    const filename = randomUUID() + ext;
-    await fs.writeFile(await this.safe(`images/${filename}`), buffer, { flag: 'wx' }); return `../images/${filename}`;
+    const now = new Date(), pad = (value, width = 2) => String(value).padStart(width, '0');
+    const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${pad(now.getMilliseconds(), 3)}`;
+    await fs.mkdir(await this.safe(`images/${note.id}`), { recursive: true });
+    for (let suffix = 0; ; suffix++) {
+      const relative = `images/${note.id}/${date}${suffix ? `-${suffix}` : ''}${ext}`;
+      const file = await this.safe(relative);
+      let handle;
+      try {
+        handle = await fs.open(file, 'wx');
+        await handle.writeFile(buffer); await handle.close(); handle = null;
+        return `../${relative}`;
+      } catch (e) {
+        if (handle) { await handle.close(); await fs.rm(file, { force: true }); }
+        if (e.code !== 'EEXIST') throw e;
+      }
+    }
   }
-  async localizeImages(urls) {
+  async localizeImages(urls, noteId) {
     if (!this.root) throw new Error('请先打开笔记库');
     if (!this.lfs) throw new Error('请先安装 Git LFS 后重新打开笔记库，确保图片通过 LFS 管理');
     if (!Array.isArray(urls) || urls.length > 500 || urls.some(url => typeof url !== 'string' || !/^https?:\/\//i.test(url))) throw new Error('外部图片链接无效，一次最多转换 500 张图片');
+    this.note(noteId);
     const root = this.root, replacements = {}, failed = [];
     for (const url of new Set(urls)) {
       try {
@@ -309,22 +363,36 @@ class VaultStore {
         // Network requests must not hold up autosaves or note navigation.
         replacements[url] = await this.queued(() => {
           if (this.root !== root) throw new Error('笔记库已变化，请重新转换');
-          return this.writeImage(bytes, `image${extension}`);
+          return this.writeImage(bytes, `image${extension}`, noteId);
         });
       } catch (e) { failed.push({ url, message: e.name === 'TimeoutError' ? '下载超时' : e.message }); }
     }
     return { replacements, failed };
   }
-  async status() {
-    const raw = await this.git(['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+  status() {
+    const root = this.root, version = this.operationVersion;
+    if (this.statusTask?.root === root && this.statusTask.version === version) return this.statusTask.promise;
+    const task = { root, version };
+    task.promise = this.readStatus().then(status => { if (this.root !== root) throw new Error('笔记库已变化'); return status; }).finally(() => { if (this.statusTask === task) this.statusTask = null; });
+    this.statusTask = task; return task.promise;
+  }
+  async readStatus() {
+    const raw = await this.git(['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all']);
     const fields = raw.split('\0').filter(Boolean), changes = [];
+    let branch = 'HEAD', head = '', ahead = 0, behind = 0;
     for (let i = 0; i < fields.length; i++) {
-      const code = fields[i].slice(0, 2), file = fields[i].slice(3);
-      const originalPath = /[RC]/.test(code) ? fields[++i] : undefined;
+      const field = fields[i];
+      if (field.startsWith('# branch.head ')) { branch = field.slice(14); if (branch === '(detached)') branch = 'HEAD'; continue; }
+      if (field.startsWith('# branch.oid ')) { head = field.slice(13); continue; }
+      if (field.startsWith('# branch.ab ')) { const counts = field.slice(12).split(' '); ahead = Number(counts[0]) || 0; behind = -(Number(counts[1]) || 0); continue; }
+      if (field.startsWith('# ')) continue;
+      const parts = field.split(' '), kind = parts[0];
+      const code = kind === '?' ? '??' : parts[1].replaceAll('.', ' ');
+      const file = kind === '?' ? field.slice(2) : parts.slice(kind === '2' ? 9 : kind === 'u' ? 10 : 8).join(' ');
+      const originalPath = kind === '2' ? fields[++i] : undefined;
       changes.push({ status: code.trim(), path: file, staged: code !== '??' && code[0] !== ' ', unstaged: code === '??' || code[1] !== ' ', ...(originalPath ? { originalPath } : {}) });
     }
-    const counts = (await this.git(['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], true)).trim().split(/\s+/);
-    return { branch: (await this.git(['branch', '--show-current'])).trim() || 'HEAD', changes, ahead: Number(counts[0]) || 0, behind: Number(counts[1]) || 0, remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim(), lfs: this.lfs };
+    return { branch, head, changes, ahead, behind, remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim(), lfs: this.lfs };
   }
   async changeFile(relative) {
     if (typeof relative !== 'string' || !relative || relative.includes('\0') || relative.includes('\\') || relative.split('/').some(part => !part || /^\.git$/i.test(part) || part === '.' || part === '..') || path.isAbsolute(relative)) throw new Error('文件路径无效');
@@ -334,7 +402,7 @@ class VaultStore {
     const file = await this.changeFile(relative), stat = await fs.stat(file);
     if (!stat.isFile()) throw new Error('请选择文件');
     if (stat.size > 20 * 1024 * 1024) throw new Error('文件最大为 20 MB');
-    const bytes = await fs.readFile(file), ext = path.extname(relative).toLowerCase();
+    const bytes = await readBounded(file, { limit: 20 * 1024 * 1024, message: '文件最大为 20 MB' }), ext = path.extname(relative).toLowerCase();
     const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif' }[ext];
     const binary = Boolean(mime) || bytes.includes(0) || !isUtf8(bytes);
     if (!binary && bytes.length > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');
@@ -347,7 +415,7 @@ class VaultStore {
       this.assertNotTrashedFile(relative);
       const file = await this.changeFile(relative);
       if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');
-      const bytes = await fs.readFile(file);
+      const bytes = await readBounded(file);
       if (bytes.includes(0) || !isUtf8(bytes) || /\.(png|jpe?g|gif|webp|avif)$/i.test(relative)) throw new Error('二进制文件不能作为文本保存');
       let manifest;
       if (relative === this.manifestFile) {
@@ -382,7 +450,7 @@ class VaultStore {
     if (change.status === '??') {
       const file = await this.changeFile(relative), stat = await fs.stat(file);
       if (stat.size > 10 * 1024 * 1024) return { path: relative, patch: '文件过大，请打开文件查看内容。' };
-      const bytes = await fs.readFile(file);
+      const bytes = await readBounded(file);
       if (bytes.includes(0) || relative.startsWith('images/')) return { path: relative, patch: '二进制文件已新增，无法显示文本差异。' };
       const text = bytes.toString('utf8'), lines = text ? text.replace(/\n$/, '').split('\n') : [];
       return { path: relative, patch: `--- /dev/null\n+++ b/${relative}\n@@ -0,0 +1,${lines.length} @@\n${lines.map(line => '+' + line).join('\n')}${text && !text.endsWith('\n') ? '\n\\ No newline at end of file' : ''}\n` };

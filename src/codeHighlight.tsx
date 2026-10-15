@@ -4,6 +4,11 @@ import type { RootContent } from 'hast';
 
 // Rich editing and Markdown previews share grammars, aliases and token classes.
 export const lowlight = createLowlight(common);
+export const editorLowlight = {
+ ...lowlight,
+ highlight: (language: string, text: string) => lowlight.highlight(lowlight.registered(language) && text.length <= 32 * 1024 ? language : 'plaintext', text),
+ highlightAuto: (text: string) => lowlight.highlight('plaintext', text),
+};
 export const codeLanguages = [...new Set([...lowlight.listLanguages(), 'html', 'js', 'jsx', 'ts', 'tsx', 'sh', 'py', 'text', 'excalidraw'])].sort();
 
 function renderTokens(nodes: RootContent[]): ReactNode[] {
@@ -16,6 +21,8 @@ function renderTokens(nodes: RootContent[]): ReactNode[] {
 }
 
 export const HighlightedCode = memo(function HighlightedCode({ text, language, className }: { text: string; language?: string; className?: string }) {
- const tokens = language && lowlight.registered(language) ? lowlight.highlight(language, text) : lowlight.highlightAuto(text);
+ // Unknown languages and large blocks remain readable without expensive guessing.
+ if (!language || !lowlight.registered(language) || text.length > 32 * 1024) return <code className={className}>{text}</code>;
+ const tokens = lowlight.highlight(language, text);
  return <code className={className}>{renderTokens(tokens.children)}</code>;
 });

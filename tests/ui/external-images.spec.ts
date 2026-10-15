@@ -3,15 +3,15 @@ import { test, expect, type Page } from '@playwright/test';
 async function fixture(page: Page, content: string, hold = false) {
  await page.addInitScript(({ content, hold }) => {
   const note = (id: string) => ({ id, title: `Note ${id}`, filename: `${id}.md`, category: '', createdAt: '2026-10-13T00:00:00Z', updatedAt: '2026-10-13T00:00:00Z' });
-  const controls = { contents: { a: content, b: '# Note B' } as Record<string, string>, urls: [] as string[], waiting: false, release: () => {} };
+  const controls = { contents: { a: content, b: '# Note B' } as Record<string, string>, urls: [] as string[], noteId: '', waiting: false, release: () => {} };
   (window as any).imageControls = controls;
   window.fever = {
    desktop: true,
    current: async () => ({ path: '/test/images', name: 'images', lfs: true, manifest: { version: 1, categories: [], notes: [note('a'), note('b')] } }),
    read: async id => controls.contents[id],
    save: async (id, value) => { controls.contents[id] = value; },
-   localizeImages: async urls => {
-    controls.urls = urls;
+   localizeImages: async (urls, noteId) => {
+    controls.urls = urls; controls.noteId = noteId;
     if (hold) await new Promise<void>(resolve => { controls.waiting = true; controls.release = () => { controls.waiting = false; resolve(); }; });
     return { replacements: { 'https://example.com/image.png': '../images/local.png' }, failed: urls.includes('https://example.com/broken.png') ? [{ url: 'https://example.com/broken.png', message: '下载失败（HTTP 404）' }] : [] };
    },
@@ -35,6 +35,7 @@ for (const mode of ['rich', 'source']) {
   await page.getByTitle('外部图片转为本地文件', { exact: true }).click();
   await expect(page.locator('.dropdown')).not.toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as any).imageControls.contents.a)).toBe(content.replace('![图](https://example.com/image.png)', '![图](../images/local.png)'));
+  expect(await page.evaluate(() => (window as any).imageControls.noteId)).toBe('a');
   expect(await page.evaluate(() => (window as any).imageControls.urls)).toEqual(['https://example.com/image.png', 'https://example.com/broken.png']);
   await expect(page.locator('.toast')).toContainText('1 张失败，原链接已保留');
  });

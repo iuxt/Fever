@@ -57,7 +57,7 @@ async function boot() {
     if (selection.canceled) return null;
     const vault = await store.open(selection.filePaths[0]); preferences.vault = vault.path; await persistPrefs(); return vault;
   });
-  for (const method of ['read', 'search', 'cancelSearch', 'save', 'create', 'update', 'remove', 'restoreTrash', 'category', 'removeCategory', 'image', 'localizeImages', 'status', 'diff', 'stage', 'unstage', 'stageAll', 'unstageAll', 'discard', 'openFile', 'saveFile', 'commit', 'pull', 'push', 'history', 'revision', 'revisionComparison', 'restore']) {
+  for (const method of ['read', 'search', 'cancelSearch', 'save', 'create', 'update', 'remove', 'restoreTrash', 'category', 'removeCategory', 'image', 'completeImageImport', 'localizeImages', 'status', 'diff', 'stage', 'unstage', 'stageAll', 'unstageAll', 'discard', 'openFile', 'saveFile', 'commit', 'pull', 'push', 'history', 'revision', 'revisionComparison', 'restore']) {
     ipcMain.handle(`fever:${method}`, (_event, ...args) => store[method](...args));
   }
   ipcMain.handle('fever:importNotes', async () => {

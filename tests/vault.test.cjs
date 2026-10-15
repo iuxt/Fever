@@ -90,14 +90,35 @@ test('Git LFS stores the committed image as a pointer', async t => {
  const { store, dir } = await fixture(t);
  if (!store.lfs) { t.skip('Git LFS not installed'); return; }
  const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64');
- const relative = await store.image([...image], 'pixel.png');
- assert.match(relative, /^\.\.\/images\/[0-9a-f-]+\.png$/);
+ const note = store.snapshot().manifest.notes[0];
+ const relative = await store.image([...image], 'pixel.png', note.id);
+ assert.equal(path.posix.dirname(relative), `../images/${note.id}`);
+ assert.match(path.posix.basename(relative), /^\d{4}-\d{2}-\d{2}-\d{6}-\d{3}\.png$/);
  await store.commit('image');
  const pointer = (await exec('git', ['show', `HEAD:${relative.slice(3)}`], { cwd: dir })).stdout;
  assert.match(pointer, /version https:\/\/git-lfs.github.com\/spec\/v1/);
  assert.match(pointer, /oid sha256:/);
  assert.deepEqual(await fs.readFile(path.join(dir, relative.slice(3))), image);
- await assert.rejects(store.image([...image], 'bad.svg'), /支持/);
+ await assert.rejects(store.image([...image], 'bad.svg', note.id), /支持/);
+});
+test('images use note directories and local dates, preserve formats, and avoid overwriting collisions', async t => {
+ const { store, dir } = await fixture(t);
+ store.lfs = true;
+ const a = await store.create('A', ''), b = await store.create('B', '');
+ t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 9, 15, 14, 30, 25, 123).getTime() });
+ const first = await store.image([1, 2, 3], 'original.JPEG', a.id);
+ const second = await store.image([4, 5, 6], 'other.JPEG', a.id);
+ const otherNote = await store.image([7, 8, 9], 'original.JPEG', b.id);
+ assert.equal(first, `../images/${a.id}/2026-10-15-143025-123.JPEG`);
+ assert.equal(second, `../images/${a.id}/2026-10-15-143025-123-1.JPEG`);
+ assert.equal(otherNote, `../images/${b.id}/2026-10-15-143025-123.JPEG`);
+ for (const [relative, bytes] of [[first, [1, 2, 3]], [second, [4, 5, 6]], [otherNote, [7, 8, 9]]]) {
+  assert.deepEqual(await fs.readFile(path.join(dir, relative.slice(3))), Buffer.from(bytes));
+ }
+ await assert.rejects(store.image([1], 'image.png', '../escape'), /不存在/);
+ await assert.rejects(store.image([1], 'image.png'), /不存在/);
+ await store.remove(a.id);
+ await assert.rejects(store.image([1], 'image.png', a.id), /不存在/);
 });
 test('serialized autosaves retain the latest version without corrupting the manifest', async t => {
  const { store, dir } = await fixture(t);

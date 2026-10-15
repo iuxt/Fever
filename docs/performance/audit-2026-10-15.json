@@ -1,0 +1,1302 @@
+{
+  "date": "2026-10-15",
+  "environment": {
+    "chip": "Apple M1 Pro",
+    "memoryGiB": 16,
+    "platform": "macOS 27.0.1",
+    "arch": "arm64",
+    "node": "v24.21.0",
+    "electron": "44.5.1"
+  },
+  "validation": {
+    "nodeTests": {
+      "passed": 50,
+      "failed": 0
+    },
+    "productionBuild": "passed",
+    "originalMemoryScript": "failed at obsolete image path regex",
+    "temporaryCorrectedMemoryScript": "passed",
+    "resourceAudit": "passed"
+  },
+  "memory": {
+    "timestamp": "2026-10-15T04:45:20.728Z",
+    "platform": "darwin",
+    "workload": {
+      "count": 2000,
+      "bytes": 65536,
+      "cycles": 20,
+      "drawingCycles": 8,
+      "imageBytes": 8388608
+    },
+    "stages": [
+      {
+        "name": "full-text-search",
+        "durationMs": 3027,
+        "before": {
+          "rendererHeapMiB": 7.777767181396484,
+          "mainHeapMiB": 6.245513916015625,
+          "totalRssMiB": 524.796875,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 226.78125
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 92.5
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 47.03125
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 158.484375
+            }
+          ],
+          "dom": {
+            "documents": 1,
+            "jsEventListeners": 264,
+            "nodes": 590
+          }
+        },
+        "peak": {
+          "rendererHeapMiB": 8.931621551513672,
+          "mainHeapMiB": 34.93052673339844,
+          "totalRssMiB": 557.671875
+        },
+        "after": {
+          "rendererHeapMiB": 8.11257553100586,
+          "mainHeapMiB": 27.23470687866211,
+          "totalRssMiB": 548.578125,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 261.1875
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 88.640625
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.65625
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 157.09375
+            }
+          ],
+          "dom": {
+            "documents": 1,
+            "jsEventListeners": 264,
+            "nodes": 587
+          }
+        }
+      },
+      {
+        "name": "cancelled-searches",
+        "durationMs": 2933,
+        "before": {
+          "rendererHeapMiB": 8.11257553100586,
+          "mainHeapMiB": 27.258655548095703,
+          "totalRssMiB": 548.609375,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 261.1875
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 88.625
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.65625
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 157.140625
+            }
+          ],
+          "dom": {
+            "documents": 1,
+            "jsEventListeners": 264,
+            "nodes": 587
+          }
+        },
+        "peak": {
+          "rendererHeapMiB": 9.848381042480469,
+          "mainHeapMiB": 40.19967269897461,
+          "totalRssMiB": 561
+        },
+        "after": {
+          "rendererHeapMiB": 8.165969848632812,
+          "mainHeapMiB": 18.64580535888672,
+          "totalRssMiB": 555.953125,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 267.078125
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 89.53125
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.734375
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 157.609375
+            }
+          ],
+          "dom": {
+            "documents": 1,
+            "jsEventListeners": 264,
+            "nodes": 588
+          }
+        }
+      },
+      {
+        "name": "editor-mount-cycles",
+        "durationMs": 27456,
+        "before": {
+          "rendererHeapMiB": 8.165969848632812,
+          "mainHeapMiB": 18.669754028320312,
+          "totalRssMiB": 555.9375,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 267.078125
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 89.515625
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.734375
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 157.609375
+            }
+          ],
+          "dom": {
+            "documents": 1,
+            "jsEventListeners": 264,
+            "nodes": 588
+          }
+        },
+        "peak": {
+          "rendererHeapMiB": 80.43029403686523,
+          "mainHeapMiB": 23.78887176513672,
+          "totalRssMiB": 712.78125
+        },
+        "after": {
+          "rendererHeapMiB": 13.068622589111328,
+          "mainHeapMiB": 5.72589111328125,
+          "totalRssMiB": 538.0625,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 213.921875
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 85.375
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.40625
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 197.359375
+            }
+          ],
+          "dom": {
+            "documents": 1,
+            "jsEventListeners": 268,
+            "nodes": 635
+          }
+        }
+      },
+      {
+        "name": "image-import-8MiB",
+        "durationMs": 232,
+        "before": {
+          "rendererHeapMiB": 13.07162857055664,
+          "mainHeapMiB": 5.749839782714844,
+          "totalRssMiB": 538.125,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 213.9375
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 85.375
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.40625
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 197.40625
+            }
+          ],
+          "dom": {
+            "documents": 1,
+            "jsEventListeners": 268,
+            "nodes": 635
+          }
+        },
+        "peak": {
+          "rendererHeapMiB": 15.283794403076172,
+          "mainHeapMiB": 8.103740692138672,
+          "totalRssMiB": 607.3125
+        },
+        "after": {
+          "rendererHeapMiB": 14.16219711303711,
+          "mainHeapMiB": 8.151386260986328,
+          "totalRssMiB": 580.546875,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 233.65625
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 89.609375
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.40625
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 215.875
+            }
+          ],
+          "dom": {
+            "documents": 1,
+            "jsEventListeners": 415,
+            "nodes": 655
+          }
+        }
+      },
+      {
+        "name": "drawing-mount-cycles",
+        "durationMs": 2037,
+        "before": {
+          "rendererHeapMiB": 14.162189483642578,
+          "mainHeapMiB": 8.175334930419922,
+          "totalRssMiB": 580.578125,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 233.6875
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 89.609375
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.40625
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 215.875
+            }
+          ],
+          "dom": {
+            "documents": 1,
+            "jsEventListeners": 415,
+            "nodes": 655
+          }
+        },
+        "peak": {
+          "rendererHeapMiB": 31.174945831298828,
+          "mainHeapMiB": 8.53729248046875,
+          "totalRssMiB": 698.453125
+        },
+        "after": {
+          "rendererHeapMiB": 18.964794158935547,
+          "mainHeapMiB": 7.2884368896484375,
+          "totalRssMiB": 666.234375,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 221.890625
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 121.5
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.390625
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 281.453125
+            }
+          ],
+          "dom": {
+            "documents": 5,
+            "jsEventListeners": 485,
+            "nodes": 2574
+          }
+        }
+      },
+      {
+        "name": "warm-editor-mount-cycles",
+        "durationMs": 81125,
+        "before": {
+          "rendererHeapMiB": 18.964794158935547,
+          "mainHeapMiB": 7.312412261962891,
+          "totalRssMiB": 666.25,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 221.890625
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 121.5
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.390625
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 281.46875
+            }
+          ],
+          "dom": {
+            "documents": 5,
+            "jsEventListeners": 485,
+            "nodes": 2574
+          }
+        },
+        "peak": {
+          "rendererHeapMiB": 78.10537338256836,
+          "mainHeapMiB": 9.114715576171875,
+          "totalRssMiB": 798.6875
+        },
+        "after": {
+          "rendererHeapMiB": 18.33623504638672,
+          "mainHeapMiB": 8.580543518066406,
+          "totalRssMiB": 669.59375,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 221.953125
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 114.25
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.671875
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 291.71875
+            }
+          ],
+          "dom": {
+            "documents": 5,
+            "jsEventListeners": 418,
+            "nodes": 692
+          }
+        }
+      },
+      {
+        "name": "warm-drawing-mount-cycles",
+        "durationMs": 1316,
+        "before": {
+          "rendererHeapMiB": 18.33623504638672,
+          "mainHeapMiB": 8.6044921875,
+          "totalRssMiB": 669.703125,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 221.953125
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 114.25
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 41.671875
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 291.828125
+            }
+          ],
+          "dom": {
+            "documents": 5,
+            "jsEventListeners": 418,
+            "nodes": 692
+          }
+        },
+        "peak": {
+          "rendererHeapMiB": 32.78697967529297,
+          "mainHeapMiB": 9.145484924316406,
+          "totalRssMiB": 669.703125
+        },
+        "after": {
+          "rendererHeapMiB": 20.574661254882812,
+          "mainHeapMiB": 8.90737533569336,
+          "totalRssMiB": 595.265625,
+          "processes": [
+            {
+              "type": "Browser",
+              "rssMiB": 164.296875
+            },
+            {
+              "type": "GPU",
+              "rssMiB": 121.828125
+            },
+            {
+              "type": "Utility",
+              "rssMiB": 39.484375
+            },
+            {
+              "type": "Tab",
+              "rssMiB": 269.65625
+            }
+          ],
+          "dom": {
+            "documents": 5,
+            "jsEventListeners": 506,
+            "nodes": 3202
+          }
+        }
+      }
+    ],
+    "initial": {
+      "rendererHeapMiB": 7.767307281494141,
+      "mainHeapMiB": 6.197723388671875,
+      "totalRssMiB": 524.59375,
+      "processes": [
+        {
+          "type": "Browser",
+          "rssMiB": 226.71875
+        },
+        {
+          "type": "GPU",
+          "rssMiB": 92.5
+        },
+        {
+          "type": "Utility",
+          "rssMiB": 47.03125
+        },
+        {
+          "type": "Tab",
+          "rssMiB": 158.34375
+        }
+      ],
+      "dom": {
+        "documents": 1,
+        "jsEventListeners": 264,
+        "nodes": 590
+      },
+      "noteRows": 21
+    },
+    "final": {
+      "rendererHeapMiB": 18.689849853515625,
+      "mainHeapMiB": 8.931495666503906,
+      "totalRssMiB": 589.890625,
+      "processes": [
+        {
+          "type": "Browser",
+          "rssMiB": 164.84375
+        },
+        {
+          "type": "GPU",
+          "rssMiB": 122.1875
+        },
+        {
+          "type": "Utility",
+          "rssMiB": 39.578125
+        },
+        {
+          "type": "Tab",
+          "rssMiB": 263.28125
+        }
+      ],
+      "dom": {
+        "documents": 5,
+        "jsEventListeners": 418,
+        "nodes": 1094
+      }
+    },
+    "passed": true
+  },
+  "resources": {
+    "timestamp": "2026-10-15T04:48:42.680Z",
+    "noteCount": 2000,
+    "noteBytes": 65536,
+    "stages": [
+      {
+        "calls": {
+          "status": 2
+        },
+        "git": [
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ]
+        ],
+        "readBytes": 0,
+        "readFiles": 0,
+        "writeBytes": 0,
+        "writeFiles": 0,
+        "mainCpuMs": 86.524,
+        "metrics": [
+          {
+            "type": "Browser",
+            "rssMiB": 232.234375,
+            "cpu": {
+              "cumulativeCPUUsage": 0.656857,
+              "percentCPUUsage": 0,
+              "idleWakeupsPerSecond": 0
+            }
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 86.421875,
+            "cpu": {
+              "cumulativeCPUUsage": 0.250227,
+              "percentCPUUsage": 0,
+              "idleWakeupsPerSecond": 0
+            }
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 47.09375,
+            "cpu": {
+              "cumulativeCPUUsage": 0.082388,
+              "percentCPUUsage": 0,
+              "idleWakeupsPerSecond": 0
+            }
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 164.640625,
+            "cpu": {
+              "cumulativeCPUUsage": 0.435493,
+              "percentCPUUsage": 0,
+              "idleWakeupsPerSecond": 0
+            }
+          }
+        ],
+        "name": "idle-outline-11s",
+        "durationMs": 11012.344374999999
+      },
+      {
+        "calls": {
+          "status": 2,
+          "history": 2
+        },
+        "git": [
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ],
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ]
+        ],
+        "readBytes": 0,
+        "readFiles": 0,
+        "writeBytes": 0,
+        "writeFiles": 0,
+        "mainCpuMs": 53.623,
+        "metrics": [
+          {
+            "type": "Browser",
+            "rssMiB": 193.046875,
+            "cpu": {
+              "cumulativeCPUUsage": 0.736519,
+              "percentCPUUsage": 0.06881013879760453,
+              "idleWakeupsPerSecond": 3
+            }
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 83,
+            "cpu": {
+              "cumulativeCPUUsage": 0.29142,
+              "percentCPUUsage": 0.03558135430962991,
+              "idleWakeupsPerSecond": 10
+            }
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 44.03125,
+            "cpu": {
+              "cumulativeCPUUsage": 0.082388,
+              "percentCPUUsage": 0,
+              "idleWakeupsPerSecond": 0
+            }
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 167.640625,
+            "cpu": {
+              "cumulativeCPUUsage": 0.510253,
+              "percentCPUUsage": 0.06457571269094146,
+              "idleWakeupsPerSecond": 5
+            }
+          }
+        ],
+        "name": "idle-hidden-history-11s",
+        "durationMs": 11010.682625
+      },
+      {
+        "calls": {
+          "save": 3,
+          "status": 4,
+          "history": 4,
+          "search": 3
+        },
+        "git": [
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ],
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ],
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ],
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ]
+        ],
+        "readBytes": 393019392,
+        "readFiles": 5997,
+        "writeBytes": 1256322,
+        "writeFiles": 6,
+        "mainCpuMs": 1329.2,
+        "metrics": [
+          {
+            "type": "Browser",
+            "rssMiB": 215.59375,
+            "cpu": {
+              "cumulativeCPUUsage": 2.612233,
+              "percentCPUUsage": 2.4688357388189504,
+              "idleWakeupsPerSecond": 3
+            }
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 80.046875,
+            "cpu": {
+              "cumulativeCPUUsage": 0.533656,
+              "percentCPUUsage": 0.3188340673192712,
+              "idleWakeupsPerSecond": 124
+            }
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 40.96875,
+            "cpu": {
+              "cumulativeCPUUsage": 0.082431,
+              "percentCPUUsage": 0.00005659722231362601,
+              "idleWakeupsPerSecond": 0
+            }
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 155.453125,
+            "cpu": {
+              "cumulativeCPUUsage": 0.972731,
+              "percentCPUUsage": 0.6087217590671281,
+              "idleWakeupsPerSecond": 49
+            }
+          }
+        ],
+        "name": "3-autosaves-with-query",
+        "durationMs": 5571.940666999999
+      },
+      {
+        "calls": {
+          "save": 3,
+          "status": 4,
+          "history": 4
+        },
+        "git": [
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ],
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ],
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ],
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ],
+          [
+            "log",
+            "-80",
+            "--format=%H%x00%an%x00%aI%x00%s",
+            "--follow",
+            "--",
+            "notes/audit-0.md"
+          ]
+        ],
+        "readBytes": 0,
+        "readFiles": 0,
+        "writeBytes": 1256397,
+        "writeFiles": 6,
+        "mainCpuMs": 114.897,
+        "metrics": [
+          {
+            "type": "Browser",
+            "rssMiB": 218.46875,
+            "cpu": {
+              "cumulativeCPUUsage": 2.734546,
+              "percentCPUUsage": 0.20115373995181046,
+              "idleWakeupsPerSecond": 1
+            }
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 81.390625,
+            "cpu": {
+              "cumulativeCPUUsage": 0.767707,
+              "percentCPUUsage": 0.3849207112771501,
+              "idleWakeupsPerSecond": 138
+            }
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 40.953125,
+            "cpu": {
+              "cumulativeCPUUsage": 0.082431,
+              "percentCPUUsage": 0,
+              "idleWakeupsPerSecond": 0
+            }
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 171.8125,
+            "cpu": {
+              "cumulativeCPUUsage": 1.488163,
+              "percentCPUUsage": 0.8476802894498808,
+              "idleWakeupsPerSecond": 59
+            }
+          }
+        ],
+        "name": "3-autosaves-no-query",
+        "durationMs": 5549.081624999999
+      },
+      {
+        "calls": {},
+        "git": [],
+        "readBytes": 132,
+        "readFiles": 2,
+        "writeBytes": 1048576,
+        "writeFiles": 1,
+        "mainCpuMs": 17.88,
+        "metrics": [
+          {
+            "type": "Browser",
+            "rssMiB": 221.515625,
+            "cpu": {
+              "cumulativeCPUUsage": 2.753818,
+              "percentCPUUsage": 3.112453366494937,
+              "idleWakeupsPerSecond": 0
+            }
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 85.84375,
+            "cpu": {
+              "cumulativeCPUUsage": 0.799268,
+              "percentCPUUsage": 5.107453798103376,
+              "idleWakeupsPerSecond": 275
+            }
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 40.953125,
+            "cpu": {
+              "cumulativeCPUUsage": 0.082431,
+              "percentCPUUsage": 0,
+              "idleWakeupsPerSecond": 0
+            }
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 177.859375,
+            "cpu": {
+              "cumulativeCPUUsage": 1.519179,
+              "percentCPUUsage": 5.023159394940563,
+              "idleWakeupsPerSecond": 16
+            }
+          }
+        ],
+        "name": "partial-image-import",
+        "durationMs": 56.60124999999971
+      },
+      {
+        "calls": {
+          "status": 1
+        },
+        "git": [
+          [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all"
+          ],
+          [
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...@{upstream}"
+          ],
+          [
+            "branch",
+            "--show-current"
+          ],
+          [
+            "remote",
+            "get-url",
+            "origin"
+          ]
+        ],
+        "readBytes": 0,
+        "readFiles": 0,
+        "writeBytes": 0,
+        "writeFiles": 0,
+        "mainCpuMs": 36.215,
+        "metrics": [
+          {
+            "type": "Browser",
+            "rssMiB": 220.5,
+            "cpu": {
+              "cumulativeCPUUsage": 2.791934,
+              "percentCPUUsage": 0.11265714024773577,
+              "idleWakeupsPerSecond": 3
+            }
+          },
+          {
+            "type": "GPU",
+            "rssMiB": 85.5,
+            "cpu": {
+              "cumulativeCPUUsage": 0.839271,
+              "percentCPUUsage": 0.1182335925508965,
+              "idleWakeupsPerSecond": 47
+            }
+          },
+          {
+            "type": "Utility",
+            "rssMiB": 40.953125,
+            "cpu": {
+              "cumulativeCPUUsage": 0.082431,
+              "percentCPUUsage": 0,
+              "idleWakeupsPerSecond": 0
+            }
+          },
+          {
+            "type": "Tab",
+            "rssMiB": 306.09375,
+            "cpu": {
+              "cumulativeCPUUsage": 2.481329,
+              "percentCPUUsage": 2.843730345261346,
+              "idleWakeupsPerSecond": 20
+            }
+          }
+        ],
+        "name": "open-git-panel-2000-changes",
+        "durationMs": 3365.2704999999987
+      }
+    ],
+    "partialImageImport": {
+      "noteUnchanged": true,
+      "images": [
+        "audit-0",
+        "audit-0/2026-10-15-124921-058.png"
+      ]
+    },
+    "beforeGitPanel": {
+      "heap": {
+        "backingStorageSize": 1356631,
+        "embedderHeapUsedSize": 1851440,
+        "totalSize": 11272192,
+        "usedSize": 9985028
+      },
+      "dom": {
+        "documents": 1,
+        "jsEventListeners": 261,
+        "nodes": 551
+      }
+    },
+    "afterGitPanel": {
+      "heap": {
+        "backingStorageSize": 1577125,
+        "embedderHeapUsedSize": 53839808,
+        "totalSize": 40632320,
+        "usedSize": 39219396
+      },
+      "dom": {
+        "documents": 1,
+        "jsEventListeners": 8283,
+        "nodes": 54740
+      }
+    },
+    "manifestBytes": 418741,
+    "passed": true
+  },
+  "cpu": {
+    "timestamp": "2026-10-15T04:45:21.695Z",
+    "method": "Node.js v24.21.0, installed production lowlight/diff; same calls as renderer, single run",
+    "highlight": [
+      {
+        "kib": 16,
+        "autoMs": 146.289459,
+        "plainMs": 0.026875
+      },
+      {
+        "kib": 64,
+        "autoMs": 238.958375,
+        "plainMs": 0.038709
+      },
+      {
+        "kib": 256,
+        "autoMs": 847.098458,
+        "plainMs": 0.024083
+      }
+    ],
+    "diff": [
+      {
+        "lines": 1000,
+        "totalBytes": 20778,
+        "ms": 103.332375
+      },
+      {
+        "lines": 3000,
+        "totalBytes": 66778,
+        "ms": 919.8205
+      },
+      {
+        "lines": 6000,
+        "totalBytes": 135778,
+        "ms": 3695.510417
+      }
+    ]
+  },
+  "oversizedImport": {
+    "fileMiB": 64,
+    "rejected": "导入文件最大为 10 MB",
+    "logicalReadMiB": 64,
+    "rssBeforeMiB": 17.64311981201172,
+    "rssAfterMiB": 164.53350067138672
+  }
+}

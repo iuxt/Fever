@@ -112,7 +112,7 @@ try {
   }, image.length);
   await expect(page.getByText('图片已添加到 images/')).toBeVisible();
   const content = await page.evaluate(() => window.fever.read('stress-0'));
-  const src = content.match(/\.\.\/images\/[a-zA-Z0-9_-]+\.png/)[0];
+  const src = content.match(/\.\.\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.png/)[0];
   const saved = await readFile(path.join(folder, src.slice(3)));
   expect(createHash('sha256').update(saved).digest('hex')).toBe(createHash('sha256').update(image).digest('hex'));
  });

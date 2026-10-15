@@ -5,6 +5,21 @@ const path = require('node:path');
 const os = require('node:os');
 const { VaultStore } = require('../electron/vault.cjs');
 
+function watchReads(t, delay = 0) {
+ const original = fs.open, counts = { active: 0, peak: 0, files: 0 };
+ fs.open = async (...args) => {
+  counts.files++; counts.active++; counts.peak = Math.max(counts.peak, counts.active);
+  if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+  let handle;
+  try { handle = await original(...args); } catch (e) { counts.active--; throw e; }
+  const close = handle.close.bind(handle);
+  handle.close = async () => { try { return await close(); } finally { counts.active--; } };
+  return handle;
+ };
+ t.after(() => { fs.open = original; });
+ return counts;
+}
+
 async function fixture(t) {
  const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-search-'));
  t.after(() => fs.rm(folder, { recursive: true, force: true }));
@@ -18,15 +33,9 @@ async function fixture(t) {
 
 test('search matches titles/categories/bodies in manifest order with bounded concurrent reads', async t => {
  const { store, folder } = await fixture(t);
- const original = fs.readFile; let active = 0, peak = 0;
- fs.readFile = async (...args) => {
-  active++; peak = Math.max(peak, active);
-  try { await new Promise(resolve => setTimeout(resolve, 5)); return await original(...args); }
-  finally { active--; }
- };
- t.after(() => { fs.readFile = original; });
+ const counts = watchReads(t, 5);
  assert.deepEqual(await store.search('needle'), ['search-1', 'search-2', 'search-3']);
- assert.ok(peak <= 4, `Expected at most four reads, saw ${peak}`);
+ assert.ok(counts.peak > 0 && counts.peak <= 4, `Expected at most four reads, saw ${counts.peak}`);
  assert.deepEqual(await store.search('中文 ως'), ['search-3']);
  await fs.unlink(path.join(folder, 'notes', 'search-4.md'));
  assert.deepEqual(await store.search('token-23'), ['search-23']);
@@ -36,16 +45,13 @@ test('search matches titles/categories/bodies in manifest order with bounded con
 
 test('clearing or replacing a query aborts reads and stops scheduling old work', async t => {
  const { store } = await fixture(t);
- const original = fs.readFile; let reads = 0;
- fs.readFile = async (...args) => {
-  reads++; await new Promise(resolve => setTimeout(resolve, 20)); return original(...args);
- };
- t.after(() => { fs.readFile = original; });
+ const counts = watchReads(t, 20);
  const obsolete = store.search('missing');
- while (reads < 4) await new Promise(resolve => setTimeout(resolve, 1));
+ while (counts.files < 4) await new Promise(resolve => setTimeout(resolve, 1));
  store.cancelSearch();
  assert.deepEqual(await obsolete, []);
- assert.equal(reads, 4);
+ assert.equal(counts.files, 4);
+ assert.equal(counts.active, 0);
  const first = store.search('token-3');
  const second = store.search('token-23');
  assert.deepEqual(await first, []);
@@ -56,21 +62,37 @@ test('changing vaults cancels the previous search without leaking its results', 
  const { store } = await fixture(t);
  const second = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-other-vault-'));
  t.after(() => fs.rm(second, { recursive: true, force: true }));
- const original = fs.readFile;
- fs.readFile = async (...args) => { await new Promise(resolve => setTimeout(resolve, 25)); return original(...args); };
- t.after(() => { fs.readFile = original; });
+ watchReads(t, 25);
  const obsolete = store.search('token-23');
  await store.open(second);
  assert.deepEqual(await obsolete, []);
  assert.deepEqual(await store.search('token-23'), []);
 });
 
+test('repeated searches read only changed files and still detect external edits and deletions', async t => {
+ const { store, folder } = await fixture(t);
+ const counts = watchReads(t);
+ assert.deepEqual(await store.search('needle'), ['search-1', 'search-2', 'search-3']);
+ counts.files = 0;
+ assert.deepEqual(await store.search('needle'), ['search-1', 'search-2', 'search-3']);
+ assert.equal(counts.files, 0);
+ await store.save('search-3', 'replaced'); counts.files = 0;
+ assert.deepEqual(await store.search('needle'), ['search-1', 'search-2']);
+ assert.equal(counts.files, 1);
+ await fs.writeFile(path.join(folder, 'notes/search-4.md'), 'external needle'); counts.files = 0;
+ assert.deepEqual(await store.search('needle'), ['search-1', 'search-2', 'search-4']);
+ assert.equal(counts.files, 1);
+ await fs.unlink(path.join(folder, 'notes/search-4.md'));
+ assert.deepEqual(await store.search('needle'), ['search-1', 'search-2']);
+});
+
 test('typed image payload preserves byte offsets and rejects oversize before allocating a Buffer', async t => {
  const { store, folder } = await fixture(t);
  store.lfs = true;
+ const note = store.snapshot().manifest.notes[0];
  const bytes = new Uint8Array([90, 1, 2, 3, 91]);
- const src = await store.image(bytes.subarray(1, 4), 'image.png');
+ const src = await store.image(bytes.subarray(1, 4), 'image.png', note.id);
  assert.deepEqual(await fs.readFile(path.join(folder, src.slice(3))), Buffer.from([1, 2, 3]));
- await assert.rejects(store.image(new Uint8Array(20 * 1024 * 1024 + 1), 'large.png'), /最大 20 MB/);
- await assert.rejects(store.image({}, 'bad.png'), /最大 20 MB/);
+ await assert.rejects(store.image(new Uint8Array(20 * 1024 * 1024 + 1), 'large.png', note.id), /最大 20 MB/);
+ await assert.rejects(store.image({}, 'bad.png', note.id), /最大 20 MB/);
 });

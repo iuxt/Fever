@@ -16,7 +16,7 @@ import type { EditorView } from '@tiptap/pm/view';
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
 import { readClipboard, writeClipboard } from './clipboard';
 import { InteractiveTable } from './InteractiveTable';
-import { lowlight } from './codeHighlight';
+import { editorLowlight } from './codeHighlight';
 import CodeLanguageSelect from './CodeLanguageSelect';
 import { imageAltWithWidth, parseImageAlt } from './imageSize';
 
@@ -199,7 +199,7 @@ const EditorCodeBlock = CodeBlockLowlight.extend({
   const fence = '`'.repeat(Math.max(3, longest + 1));
   return `${fence}${node.attrs?.language || ''}\n${text}\n${fence}`;
  },
-}).configure({ lowlight });
+}).configure({ lowlight: editorLowlight });
 const EditorParagraph = Paragraph.extend({
  parseMarkdown(token, helpers) {
   // Tiptap's default parser unwraps lone images as blocks; ours stay inline.

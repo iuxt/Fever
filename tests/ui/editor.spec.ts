@@ -721,7 +721,7 @@ test('inserts local images at the cursor and can undo the insertion', async ({ p
  await page.locator('input[type=file]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64') });
  await expect(editor.getByRole('img', { name: 'pixel.png', exact: true })).toBeVisible();
  expect(await editor.getByRole('img', { name: 'pixel.png', exact: true }).evaluate(img => img.naturalWidth)).toBe(1);
- await expect.poll(() => saved(page)).toMatch(/!\[pixel.png\]\([^)]*images\//);
+ await expect.poll(() => saved(page)).toMatch(/!\[pixel.png\]\(\.\.\/images\/editor-test\/\d{4}-\d{2}-\d{2}-\d{6}-\d{3}\.png\)/);
  const value = await saved(page);
  expect(value.indexOf('![pixel.png]')).toBeLessThan(value.indexOf('尾段'));
  await page.getByRole('button', { name: '撤销', exact: true }).click();

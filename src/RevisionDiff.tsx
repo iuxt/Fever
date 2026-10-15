@@ -1,20 +1,29 @@
-import { useMemo } from 'react';
-import { diffLines } from 'diff';
+import { useEffect, useState } from 'react';
+import { DiffPages, PagedText } from './PagedDiff';
+import type { DiffRow } from './diffRows';
 import type { RevisionComparison } from './types';
 
 export default function RevisionDiff({ comparison, hash }: { comparison: RevisionComparison; hash: string }) {
- const changes = useMemo(() => diffLines(comparison.previousContent, comparison.content), [comparison.previousContent, comparison.content]);
- const unchanged = comparison.previousContent === comparison.content;
+ const [result, setResult] = useState<{ comparison: RevisionComparison; rows: DiffRow[] | null } | null>(null);
+ useEffect(() => {
+  let worker: Worker | undefined, timer: ReturnType<typeof setTimeout> | undefined, cancelled = false;
+  const finish = (rows: DiffRow[] | null) => { if (!cancelled) setResult({ comparison, rows }); clearTimeout(timer); worker?.terminate(); };
+  try {
+   worker = new Worker(new URL('./revisionDiff.worker.ts', import.meta.url), { type: 'module' });
+   worker.onmessage = event => finish(event.data);
+   worker.onerror = () => finish(null);
+   timer = setTimeout(() => finish(null), 1500);
+   worker.postMessage({ before: comparison.previousContent, after: comparison.content });
+  } catch { finish(null); }
+  return () => { cancelled = true; clearTimeout(timer); worker?.terminate(); };
+ }, [comparison]);
+ const ready = result?.comparison === comparison;
  return <div className="revision-diff">
-  <div className="diff-meta"><span>{comparison.previousHash ? `上一版本（${comparison.previousHash.slice(0, 7)}）` : '空白版本'} → 此版本（{hash.slice(0, 7)}）</span><span>完整内容 · 绿色新增 · 红色删除</span>{unchanged && <span>内容无变化</span>}</div>
-  <pre className="git-diff" aria-label="历史版本差异">{changes.flatMap((change, index) => {
-   const lines = change.value.split('\n');
-   if (lines.at(-1) === '') lines.pop();
-   const prefix = change.added ? '+' : change.removed ? '-' : ' ';
-   const style = change.added ? 'diff-add' : change.removed ? 'diff-remove' : 'diff-context';
-   const rendered = lines.map((line, lineIndex) => <span key={`${index}:${lineIndex}`} className={`diff-line ${style}`}>{prefix}{line}{'\n'}</span>);
-   if (!change.value.endsWith('\n')) rendered.push(<span key={`${index}:eof`} className="diff-line diff-header">末行无换行符{'\n'}</span>);
-   return rendered;
-  })}{!changes.length && <span className="diff-line diff-header">此版本内容为空。{'\n'}</span>}</pre>
+  <div className="diff-meta"><span>{comparison.previousHash ? `上一版本（${comparison.previousHash.slice(0, 7)}）` : '空白版本'} → 此版本（{hash.slice(0, 7)}）</span><span>绿色新增 · 红色删除</span>{comparison.previousContent === comparison.content && <span>内容无变化</span>}</div>
+  {!ready ? <p role="status">正在计算差异…</p> : result.rows ? <DiffPages key={hash} rows={result.rows} label="历史版本差异" /> : <>
+   <p role="status">差异较大，已改为分页查看两个版本的内容。</p>
+   <PagedText key={`${hash}:before`} text={comparison.previousContent} label="上一版本内容" />
+   <PagedText key={`${hash}:after`} text={comparison.content} label="此版本内容" />
+  </>}
  </div>;
 }

@@ -38,7 +38,8 @@ npm run dev
 │   ├── <UUID>.md
 │   └── <UUID>.excalidraw
 └── images/
-    └── <UUID>.png
+    └── <文章UUID>/
+        └── 2026-10-15-143025-123.png
 ```
 
 清单示例：
@@ -60,7 +61,7 @@ npm run dev
 
 标题和分类由清单管理。重命名、移动笔记不会改变 UUID 文件名。分类使用 `/` 表示层级，界面递归生成文件夹树。清单和笔记通过临时文件写入后替换；写操作排队，避免快速输入导致保存顺序错乱。
 
-图片可通过拖放或「更多 → 插入图片」导入，保存为 `images/<UUID>.<扩展名>`，Markdown 引用 `../images/<UUID>.<扩展名>`。`.gitattributes` 的 `images/**` 使用 LFS。Git LFS 未安装时禁止导入图片，防止图片作为普通 Git blob 提交。支持 PNG、JPEG、GIF、WebP、AVIF，单张最多 20 MB。
+图片可通过拖放、粘贴或「更多 → 插入图片」导入，外部图片转存也使用同一规则：保存为 `images/<文章UUID>/<日期>.<原始扩展名>`，Markdown 引用 `../images/<文章UUID>/<日期>.<原始扩展名>`。日期采用本地时间 `YYYY-MM-DD-HHmmss-SSS`，重名时追加序号，保留原始图片字节和格式。`.gitattributes` 的 `images/**` 使用 LFS。Git LFS 未安装时禁止导入图片，防止图片作为普通 Git blob 提交。支持 PNG、JPEG、GIF、WebP、AVIF，单张最多 20 MB。已有图片路径仍可正常读取。
 
 ## 直接打开 FSNotes 笔记库
 
@@ -139,6 +140,7 @@ npx playwright install chromium
 npm run test:ui          # 浏览器中的交互流程与布局
 npm run test:desktop     # 原生 Electron 集成测试（先启动 dev:web）
 npm run test:memory      # 生产版内存压测，使用临时库，不需要 dev:web
+npm run test:resources   # 生产版读写量、Git 列表、历史 Worker 与后台轮询回归
 npm run build           # TypeScript 检查和前端生产构建
 npm run pack            # 生成当前平台应用目录
 npm run dist:mac        # macOS DMG / ZIP
@@ -178,6 +180,10 @@ git push origin v0.1.0
 也可以在 Actions 页面手动运行工作流：选择分支时仅构建并上传 Actions 附件；选择版本标签时会发布对应 Release。当前安装包未配置 macOS 签名 / 公证或 Windows 签名。
 
 内存压测默认生成 2,000 篇约 64 KiB 的笔记，测试全文搜索、取消查询、编辑器反复挂载、8 MiB 图片导入和绘图切换。记录各进程 RSS、渲染器 JS 堆和 DOM 节点，并检查回归上限；结果保存到 `test-results/memory.json`。可通过 `FEVER_STRESS_NOTES`、`FEVER_STRESS_NOTE_KIB`、`FEVER_STRESS_CYCLES`、`FEVER_STRESS_DRAWING_CYCLES` 和 `FEVER_MEMORY_REPORT` 调整规模和输出路径。优化前后的记录见 [内存压测报告](docs/performance/README.md)。
+
+正文读取和导入限制为 10 MB，搜索跳过超限正文，标题和分类仍可匹配。当前查询的搜索缓存只保存匹配结果，保存后重读变化的文件，并检查外部文件的属性变化。Git 变更列表按可见区域渲染；历史和文件差异每页最多 200 行，历史差异过大时可分页查看两个版本的内容。未指定语言、不支持的语言及超过 32 KiB 的代码块按纯文本展示。
+
+Git 状态查询会合并并发请求；前台约每 15 秒刷新，页面在后台时约每 60 秒刷新，保存和 Git 操作仍立即刷新。历史列表只在面板可见、选择的笔记或 HEAD 变化时刷新。批量导图先检查全部文件，中途写入失败会清理本批新图片；已插入未保存草稿的图片会保留，便于重试保存。FSNotes 正文保存不再重写未变化的 metadata.json。
 
 原生集成测试使用临时用户数据目录和临时笔记库，验证真实文件保存、IPC、Git 提交、历史预览和 LFS 图片加载，不使用你的实际笔记库。打包后也可以设置 `FEVER_EXECUTABLE` 为应用可执行文件路径，运行同一测试来验证生产应用。
 

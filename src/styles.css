@@ -124,6 +124,13 @@
 .git-changes .changes-list { max-height: none; overflow: visible; padding: 0 12px; }
 .git-changes .change { gap: 4px; padding: 4px 6px; min-height: 34px; border-radius: 5px; }
 .git-changes .change:hover, .git-changes .change:focus-within { background: var(--selected); }
+.git-changes .changes-title { height: 34px; box-sizing: border-box; }
+.git-changes .virtual-changes-list { position: relative; }
+.virtual-changes-list .change { position: absolute; left: 12px; right: 12px; height: 34px; box-sizing: border-box; }
+.diff-pagination { display: flex; align-items: center; gap: 12px; padding: 8px 0; flex-shrink: 0; color: var(--muted); font-size: 0.8125rem; }
+.diff-fallback { display: flex; flex-direction: column; min-height: 0; }
+.diff-editor > .diff-fallback { flex: 1; }
+.revision-diff .diff-fallback + .diff-fallback { margin-top: 16px; }
 .change-file { display: flex; flex: 1; min-width: 0; align-items: center; gap: 7px; padding: 5px 0; text-align: left; }
 .change-file > svg { color: var(--muted); }
 .change-file span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

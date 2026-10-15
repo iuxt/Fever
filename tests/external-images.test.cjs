@@ -46,7 +46,8 @@ test('downloads deduplicated images through redirects, rejects invalid/oversized
  const base = `http://127.0.0.1:${server.address().port}`;
  const store = new VaultStore(); await store.open(dir);
  if (!store.lfs) { t.skip('Git LFS not installed'); return; }
- const result = await store.localizeImages([`${base}/redirect`, `${base}/redirect`, `${base}/fake.png`, `${base}/missing`, `${base}/large`, `${base}/chunked`]);
+ const note = store.snapshot().manifest.notes[0];
+ const result = await store.localizeImages([`${base}/redirect`, `${base}/redirect`, `${base}/fake.png`, `${base}/missing`, `${base}/large`, `${base}/chunked`], note.id);
  assert.equal(requests, 1);
  assert.equal(Object.keys(result.replacements).length, 1);
  assert.equal(result.failed.length, 4);
@@ -55,15 +56,16 @@ test('downloads deduplicated images through redirects, rejects invalid/oversized
  assert.match(result.failed[2].message, /20 MB/);
  assert.match(result.failed[3].message, /20 MB/);
  const relative = result.replacements[`${base}/redirect`];
- assert.match(relative, /^\.\.\/images\/[0-9a-f-]+\.png$/);
+ assert.equal(path.posix.dirname(relative), `../images/${note.id}`);
+ assert.match(path.posix.basename(relative), /^\d{4}-\d{2}-\d{2}-\d{6}-\d{3}\.png$/);
  assert.deepEqual(await fs.readFile(path.join(dir, relative.slice(3))), png);
  assert.equal((await fs.readdir(path.join(dir, 'images'))).length, 1);
  await store.configure({ author: 'Test', email: 'test@example.com', remote: '' });
  await store.commit('localize images');
  assert.match(await store.git(['show', `HEAD:${relative.slice(3)}`]), /git-lfs.github.com\/spec\/v1/);
- await assert.rejects(store.localizeImages(['file:///tmp/image.png']), /无效/);
+ await assert.rejects(store.localizeImages(['file:///tmp/image.png'], note.id), /无效/);
  store.lfs = false;
- await assert.rejects(store.localizeImages([`${base}/image`]), /Git LFS/);
+ await assert.rejects(store.localizeImages([`${base}/image`], note.id), /Git LFS/);
  assert.equal(requests, 1);
 });
 
@@ -77,9 +79,9 @@ test('slow downloads allow autosaves and cannot write into a switched vault', { 
  const server = http.createServer((_request, response) => { release = () => response.end(png); received(); });
  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
  t.after(() => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); });
- const conversion = store.localizeImages([`http://127.0.0.1:${server.address().port}/image`]);
- await waiting;
  const note = store.snapshot().manifest.notes[0];
+ const conversion = store.localizeImages([`http://127.0.0.1:${server.address().port}/image`], note.id);
+ await waiting;
  await store.save(note.id, 'edited while downloading');
  assert.equal(await store.read(note.id), 'edited while downloading');
  const other = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-remote-other-'));

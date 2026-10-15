@@ -1,0 +1,74 @@
+{
+  "timestamp": "2026-10-15T05:13:33.933Z",
+  "noteCount": 2000,
+  "noteBytes": 65536,
+  "stages": [
+    {
+      "calls": {
+        "save": 3,
+        "status": 3,
+        "search": 3
+      },
+      "readBytes": 111,
+      "readFiles": 3,
+      "writeBytes": 1208331,
+      "git": 6,
+      "mainCpuMs": 596.173,
+      "name": "3-autosaves-with-query",
+      "durationMs": 5555.770083000001
+    },
+    {
+      "calls": {},
+      "readBytes": 0,
+      "readFiles": 0,
+      "writeBytes": 0,
+      "git": 0,
+      "mainCpuMs": 3.264,
+      "name": "invalid-image-batch",
+      "durationMs": 20.63329199999862
+    },
+    {
+      "calls": {
+        "status": 1
+      },
+      "readBytes": 0,
+      "readFiles": 0,
+      "writeBytes": 0,
+      "git": 2,
+      "mainCpuMs": 23.801,
+      "name": "hidden-history-idle-16s",
+      "durationMs": 16005.359666999999
+    }
+  ],
+  "beforeGit": {
+    "heap": {
+      "backingStorageSize": 1360463,
+      "embedderHeapUsedSize": 1742984,
+      "totalSize": 11010048,
+      "usedSize": 9861568
+    },
+    "dom": {
+      "documents": 1,
+      "jsEventListeners": 266,
+      "nodes": 603
+    },
+    "rssMiB": 526.875
+  },
+  "visibleGitRows": 20,
+  "afterGit": {
+    "heap": {
+      "backingStorageSize": 1361888,
+      "embedderHeapUsedSize": 3019384,
+      "totalSize": 11010048,
+      "usedSize": 10375404
+    },
+    "dom": {
+      "documents": 1,
+      "jsEventListeners": 353,
+      "nodes": 1193
+    },
+    "rssMiB": 533.703125
+  },
+  "productionWorker": "passed",
+  "passed": true
+}

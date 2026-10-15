@@ -29,6 +29,10 @@ const api = window.fever || demo;
 type Modal = 'drawing' | 'embed' | 'note' | 'folder' | 'rename' | 'delete' | 'deleteFolder' | 'settings' | 'discard' | null;
 type EditorTab = { key: string; path: string } & ({ kind: 'diff'; diff: FileDiff; staged: boolean } | { kind: 'file'; file: VaultFile });
 const time = (date: string) => new Date(date).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const sameStatus = (a: GitStatus | null, b: GitStatus) => Boolean(a && a.branch === b.branch && a.head === b.head && a.ahead === b.ahead && a.behind === b.behind && a.remote === b.remote && a.lfs === b.lfs && a.changes.length === b.changes.length && a.changes.every((change, index) => {
+ const other = b.changes[index];
+ return change.path === other.path && change.originalPath === other.originalPath && change.status === other.status && change.staged === other.staged && change.unstaged === other.unstaged;
+}));
 const defaultCommitMessage = () => {
  const date = new Date();
  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -127,6 +131,8 @@ export default function App() {
  const pending = useRef(new Map<string, string>()), saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null), readToken = useRef(0);
  const editVersion = useRef(0);
  const saving = useRef<Promise<void> | null>(null);
+ const statusToken = useRef(0);
+ const importingImages = useRef(false);
  const workspaceLock = useRef(false);
  const [workspaceLocked, setWorkspaceLocked] = useState(false);
  const [searchVersion, setSearchVersion] = useState(0);
@@ -146,10 +152,14 @@ export default function App() {
  const displayedDrawing = selectedCommit ? Boolean(active && (isDrawingNote(active) || isLegacyDrawing(revision))) : drawing;
  const drawings = vault?.manifest.notes.filter(isDrawingNote) || [];
  const notify = useCallback((message: string, error = false) => setNotice({ message, error }), []);
- const refreshStatus = useCallback(async () => { setStatus(await api.status()); }, []);
- const refresh = useCallback(async () => {
-  const v = await api.current(); vaultRef.current = v; setVault(v); setStatus(v ? await api.status() : null);
+ const refreshStatus = useCallback(async () => {
+  const path = vaultRef.current?.path, token = ++statusToken.current;
+  const next = await api.status();
+  if (token === statusToken.current && vaultRef.current?.path === path) setStatus(previous => sameStatus(previous, next) ? previous : next);
  }, []);
+ const refresh = useCallback(async () => {
+  const v = await api.current(); vaultRef.current = v; setVault(v); if (v) await refreshStatus(); else setStatus(null);
+ }, [refreshStatus]);
  const flush = useCallback((): Promise<void> => {
   if (saveTimer.current) clearTimeout(saveTimer.current);
   if (saving.current) return saving.current;
@@ -211,7 +221,7 @@ export default function App() {
   drawing: (value: string) => <Suspense fallback={<DrawingLoading />}><DrawingPreview content={value} /></Suspense>,
  }), [vault?.manifest.notes, vault?.manifest.assets, openDrawing]);
  const toggleFolder = useCallback((path: string) => setCollapsed(prev => { const next = new Set(prev); next.has(path) ? next.delete(path) : next.add(path); return next; }), []);
- useEffect(() => { let mounted = true; api.current().then(async v => { if (!mounted) return; setVault(v); if (v) { setCollapsed(collapsedFolders(v)); const id = lastOpenedNote(v); if (id) await select(id); setStatus(await api.status()); setSettings(await api.settings()); } }).catch(e => notify(e.message, true)).finally(() => setLoading(false)); return () => { mounted = false; }; }, [select, notify]);
+ useEffect(() => { let mounted = true; api.current().then(async v => { if (!mounted) return; vaultRef.current = v; setVault(v); if (v) { setCollapsed(collapsedFolders(v)); const id = lastOpenedNote(v); if (id) await select(id); await refreshStatus(); setSettings(await api.settings()); } }).catch(e => notify(e.message, true)).finally(() => setLoading(false)); return () => { mounted = false; }; }, [select, notify, refreshStatus]);
  useEffect(() => {
   if (!vault || !vault.manifest.notes.some(note => note.id === activeId)) return;
   try { localStorage.setItem(lastOpenedNoteKey(vault.path), activeId); }
@@ -224,10 +234,19 @@ export default function App() {
  useEffect(() => api.onBackupError?.(message => notify(`自动备份失败：${message}`, true)), [notify]);
  useEffect(() => {
   if (!vault) return;
-  const timer = setInterval(() => { api.status().then(setStatus).catch(() => {}); }, 5000);
-  return () => clearInterval(timer);
- }, [vault?.path]);
- useEffect(() => { if (panel !== 'history' || !activeId) return; let cancelled = false; api.history(activeId).then(h => { if (!cancelled) setHistory(h); }).catch(e => notify(e.message, true)); return () => { cancelled = true; }; }, [panel, activeId, status, notify]);
+  let cancelled = false, inFlight = false, timer: ReturnType<typeof setTimeout>;
+  const schedule = () => { clearTimeout(timer); if (!cancelled) timer = setTimeout(tick, document.hidden ? 60000 : 15000); };
+  const tick = async () => {
+   if (cancelled || inFlight) return;
+   inFlight = true;
+   try { await refreshStatus(); } catch { /* Retry after the next interval. */ }
+   finally { inFlight = false; schedule(); }
+  };
+  const visibility = () => { if (!document.hidden) { clearTimeout(timer); void tick(); } else schedule(); };
+  schedule(); document.addEventListener('visibilitychange', visibility);
+  return () => { cancelled = true; clearTimeout(timer); document.removeEventListener('visibilitychange', visibility); };
+ }, [vault?.path, refreshStatus]);
+ useEffect(() => { if (!rightOpen || panel !== 'history' || !activeId) return; let cancelled = false; api.history(activeId).then(h => { if (!cancelled) setHistory(h); }).catch(e => { if (!cancelled) notify(e.message, true); }); return () => { cancelled = true; }; }, [rightOpen, panel, activeId, status?.head, vault?.path, notify]);
  useEffect(() => { setTextMatches([]); }, [query, vault?.path, trashView]);
  useEffect(() => {
   if (!query.trim() || !vault) { void api.cancelSearch().catch(() => {}); return; }
@@ -249,7 +268,7 @@ export default function App() {
   window.addEventListener('keydown', keydown); return () => window.removeEventListener('keydown', keydown);
  }, [active, vault, flush, refreshStatus, notify, activeEditorKey, drawing, selectedCommit, trashed]);
  useEffect(() => {
-  const unload = (e: BeforeUnloadEvent) => { if (pending.current.size) { e.preventDefault(); e.returnValue = ''; void flush(); } };
+  const unload = (e: BeforeUnloadEvent) => { if (pending.current.size || workspaceLock.current || importingImages.current) { e.preventDefault(); e.returnValue = ''; void flush(); } };
   window.addEventListener('beforeunload', unload); return () => window.removeEventListener('beforeunload', unload);
  }, [flush]);
  const stageAll = () => void run(() => api.stageAll(), '已暂存全部变更');
@@ -446,19 +465,38 @@ export default function App() {
    { label: '查看版本历史', icon: <History size={14} />, action: () => { setPanel('history'); setRightOpen(true); } },
   ] });
  }
- async function insertMarkdown(markdown: string, targetId = activeId) {
+ async function insertMarkdown(markdown: string, targetId = activeId, onInserted?: () => void) {
   if (targetId === currentDocument.current.id) {
    if (!editorRef.current?.insertMarkdown(markdown)) edit(currentDocument.current.content + markdown);
+   onInserted?.();
   } else {
    const value = pending.current.get(targetId) ?? await api.read(targetId);
    pending.current.set(targetId, value + markdown);
+   onInserted?.();
    await flush();
   }
  }
  async function addImages(files: FileList | File[]) {
-  if (!activeId || trashed) return;
+  if (!activeId || trashed || busy || importingImages.current || workspaceLock.current) return;
+  const targetId = activeId;
   const selectedFiles = Array.from(files);
-  await run(async () => { let markdown = ''; for (const file of selectedFiles) { if (file.size > 20 * 1024 * 1024) throw new Error('图片最大为 20 MB'); const src = await api.image(new Uint8Array(await file.arrayBuffer()), file.name); markdown += `\n\n![${file.name.replace(/[\[\]]/g, '')}](${src})\n`; } await insertMarkdown(markdown); await flush(); }, '图片已添加到 images/');
+  importingImages.current = true;
+  try { await run(async () => {
+   for (const file of selectedFiles) {
+    if (!/\.(png|jpe?g|gif|webp|avif)$/i.test(file.name) || !file.size) throw new Error('支持 PNG/JPEG/GIF/WebP/AVIF 图片，最大 20 MB');
+    if (file.size > 20 * 1024 * 1024) throw new Error('图片最大为 20 MB');
+   }
+   const importId = crypto.randomUUID(); let markdown = '', inserted = false;
+   try {
+    for (const file of selectedFiles) {
+     const src = await api.image(new Uint8Array(await file.arrayBuffer()), file.name, targetId, importId);
+     markdown += `\n\n![${file.name.replace(/[\[\]]/g, '')}](${src})\n`;
+    }
+    await insertMarkdown(markdown, targetId, () => { inserted = true; });
+    await flush();
+   } finally { await api.completeImageImport(importId, inserted); }
+  }, '图片已添加到 images/'); }
+  finally { importingImages.current = false; }
  }
  async function localizeImages() {
   if (!activeId || trashed || !vault || busy) return;
@@ -467,7 +505,7 @@ export default function App() {
   if (!urls.length) { notify('当前笔记没有外部图片'); return; }
   await run(async () => {
    notify(`正在下载 ${urls.length} 张外部图片…`);
-   const result = await api.localizeImages(urls);
+   const result = await api.localizeImages(urls, targetId);
    const currentVault = await api.current();
    if (currentVault?.path !== vaultPath || !currentVault.manifest.notes.some(note => note.id === targetId)) throw new Error('笔记库或笔记已变化，请重新打开原笔记后转换');
    const stored = pending.current.get(targetId) ?? await api.read(targetId);
