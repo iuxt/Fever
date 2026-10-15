@@ -1,3 +1,4 @@
+import { notePath } from './notePaths.ts';
 import { FileText, Minus, Plus, RotateCcw, FilePenLine, CheckCheck } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PagedText } from './PagedDiff';
@@ -19,8 +20,8 @@ const emptyChanges: Change[] = [];
 export default function GitChanges({ status, notes, trash = [], busy, onDiff, onStage, onUnstage, onDiscard, onOpen }: Props) {
  const container = useRef<HTMLDivElement>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
- const titles = useMemo(() => new Map(notes.map(note => [`notes/${note.filename}`, note.title])), [notes]);
- const trashedPaths = useMemo(() => new Set(trash.map(note => `notes/${note.filename}`)), [trash]);
+ const titles = useMemo(() => new Map(notes.map(note => [notePath(note), note.title])), [notes]);
+ const trashedPaths = useMemo(() => new Set(trash.map(note => notePath(note))), [trash]);
  const changes = status?.changes || emptyChanges;
  const groups = [
   { title: '已暂存变更', staged: true, changes: changes.filter(c => c.staged) },

@@ -27,8 +27,9 @@ test('Obsidian drawing decoding and edits preserve surrounding Markdown and comp
 
 test('drawing references resolve stable filenames, migrated paths and unique names safely', async () => {
  const { resolveDrawing } = await import('../src/drawings.ts');
- const notes = [{ id: 'a', filename: 'abc.excalidraw', title: '架构图' }, { id: 'b', filename: 'legacy.md', title: '旧图.excalidraw', sourcePath: 'Excalidraw/旧图.excalidraw.md' }];
- for (const reference of ['../notes/abc.excalidraw', 'abc.excalidraw', '架构图', '架构图.excalidraw']) assert.equal(resolveDrawing(reference, notes)?.id, 'a');
+ const notes = [{ id: 'a', filename: 'abc.excalidraw', title: '架构图', directory: 'drawings' }, { id: 'b', filename: 'legacy.md', title: '旧图.excalidraw', sourcePath: 'Excalidraw/旧图.excalidraw.md' }];
+ for (const reference of ['../drawings/abc.excalidraw', './drawings/abc.excalidraw', 'drawings/abc.excalidraw', 'abc.excalidraw', '架构图', '架构图.excalidraw']) assert.equal(resolveDrawing(reference, notes)?.id, 'a');
+ assert.equal(resolveDrawing('../notes/legacy.md', notes)?.id, 'b');
  assert.equal(resolveDrawing('Excalidraw/%E6%97%A7%E5%9B%BE.excalidraw.md', notes)?.id, 'b');
  for (const reference of ['https://example.com/abc.excalidraw', '../../abc.excalidraw', '../notes/../abc.excalidraw', '/abc.excalidraw', 'missing.excalidraw']) assert.equal(resolveDrawing(reference, notes), undefined);
  assert.equal(resolveDrawing('架构图', [...notes, { id: 'c', filename: 'other.excalidraw', title: '架构图' }]), undefined);
@@ -39,8 +40,8 @@ test('wiki drawing embeds leave inline and fenced code literal', async () => {
  const { default: remarkParse } = await import('remark-parse');
  const { default: embeds } = await import('../src/drawings.ts');
  const tree = unified().use(remarkParse).parse('![[架构图|概览]]\n\n`![[架构图]]`\n\n```text\n![[架构图]]\n```');
- embeds([{ id: 'a', title: '架构图', filename: 'abc.excalidraw' }])(tree);
- assert.deepEqual(tree.children[0].children[0], { type: 'image', url: '../notes/abc.excalidraw', alt: '概览', title: null });
+ embeds([{ id: 'a', title: '架构图', filename: 'abc.excalidraw', directory: 'drawings' }])(tree);
+ assert.deepEqual(tree.children[0].children[0], { type: 'image', url: '../drawings/abc.excalidraw', alt: '概览', title: null });
  assert.equal(tree.children[1].children[0].value, '![[架构图]]');
  assert.equal(tree.children[2].value, '![[架构图]]');
 });

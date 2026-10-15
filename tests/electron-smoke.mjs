@@ -103,14 +103,14 @@ try {
  await expect.poll(async () => {
   const metadata = JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8'));
   const drawing = metadata.notes.find(n => n.title === '导入架构图');
-  const scene = JSON.parse(await readFile(path.join(folder, 'notes', drawing.filename), 'utf8'));
+  const scene = JSON.parse(await readFile(path.join(folder, drawing.directory || 'notes', drawing.filename), 'utf8'));
   return scene.elements.some(element => element.text === '桌面中文绘图');
  }).toBe(true);
  await page.evaluate(async id => {
   const vault = await window.fever.current();
   const drawing = vault.manifest.notes.find(note => note.title === '导入架构图');
   const content = await window.fever.read(id);
-  await window.fever.save(id, content + `\n\n![架构图](notes/${drawing.filename})\n`);
+  await window.fever.save(id, content + `\n\n![架构图](../${drawing.directory || 'notes'}/${drawing.filename})\n`);
  }, note.id);
  // Exercise the production file:// build with its local fonts and existing IPC vault.
  await app.evaluate(async ({ BrowserWindow }, file) => { await BrowserWindow.getAllWindows()[0].loadFile(file); }, path.resolve('dist/index.html'));

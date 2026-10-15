@@ -11,4 +11,7 @@ test('internal links resolve known filenames and migrated paths without acceptin
   assert.equal(resolveNoteLink(href, [note]), undefined, href);
  }
  assert.equal(resolveNoteLink('a.md', [note, { id: 'b', filename: 'b.md', sourcePath: 'a.md' }]), undefined);
+ const drawing = { id: 'drawing', filename: 'drawing.excalidraw', directory: 'drawings' };
+ for (const href of ['../drawings/drawing.excalidraw', './drawings/drawing.excalidraw', 'drawings/drawing.excalidraw']) assert.equal(resolveNoteLink(href, [note, drawing]), drawing);
+ assert.equal(resolveNoteLink('../drawings/../a.md', [note, drawing]), undefined);
 });

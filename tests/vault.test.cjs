@@ -13,6 +13,25 @@ async function fixture(t) {
  await store.configure({ author: 'Fever Test', email: 'test@example.com', remote: '' });
  return { dir, store };
 }
+test('Excalidraw default category persists per vault and rejects invalid settings', async t => {
+ const { dir, store } = await fixture(t);
+ const settings = await store.settings();
+ assert.equal(settings.excalidrawCategory, '');
+ await store.configure({ ...settings, excalidrawCategory: '  绘图/架构  ' });
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.equal((await reopened.settings()).excalidrawCategory, '绘图/架构');
+ for (const value of ['绘图//架构', '/绘图', '绘图/', '绘图\n架构', '图'.repeat(201), 123]) {
+  await assert.rejects(reopened.configure({ ...settings, excalidrawCategory: value }), /默认分类无效/);
+ }
+ assert.equal((await reopened.settings()).excalidrawCategory, '绘图/架构');
+ const other = await fixture(t);
+ await reopened.open(other.dir);
+ assert.equal((await reopened.settings()).excalidrawCategory, '');
+ await reopened.open(dir);
+ assert.equal((await reopened.settings()).excalidrawCategory, '绘图/架构');
+ await reopened.configure({ ...settings, excalidrawCategory: '' });
+ assert.equal((await reopened.settings()).excalidrawCategory, '');
+});
 test('trash can be read, searched and inspected through Git history without allowing edits or repeated deletion', async t => {
  const { dir, store } = await fixture(t);
  const note = await store.create('Archived title', '原位置/分类');
@@ -57,7 +76,6 @@ test('UUID files, nested categories, stable filenames and persisted manifest', a
  assert.match(note.filename, /^[0-9a-f-]{36}\.md$/);
  const saved = await store.save(note.id, '# 第一篇\n\n思考');
  assert.equal(saved.updatedAt, store.snapshot().manifest.notes.find(n => n.id === note.id).updatedAt);
- assert.equal(saved.vault, undefined);
  await store.update(note.id, '重命名', '日记/2026');
  const manifest = JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'));
  const persisted = manifest.notes.find(n => n.id === note.id);
@@ -135,6 +153,22 @@ test('reopening an intentionally empty vault does not recreate deleted welcome n
  assert.equal((await reopened.open(dir)).manifest.notes.length, 0);
  assert.equal(reopened.snapshot().manifest.trash.length, 1);
  assert.equal((await fs.readdir(path.join(dir, 'notes'))).length, 1);
+});
+
+test('opening existing content requires fever.json and leaves the current vault unchanged on failure', async t => {
+ const { store, dir } = await fixture(t), before = store.snapshot();
+ for (const directory of ['notes', 'drawings']) {
+  const other = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-unrecognized-'));
+  t.after(() => fs.rm(other, { recursive: true, force: true }));
+  await fs.mkdir(path.join(other, directory));
+  const file = path.join(other, directory, 'existing.md');
+  await fs.writeFile(file, 'Existing content');
+  await assert.rejects(store.open(other), /没有 fever.json/);
+  assert.deepEqual(store.snapshot(), before);
+  assert.equal(await fs.readFile(file, 'utf8'), 'Existing content');
+  await assert.rejects(fs.access(path.join(other, 'fever.json')), { code: 'ENOENT' });
+ }
+ assert.equal(store.root, await fs.realpath(dir));
 });
 test('trash retains uncommitted content, attachments, identity and category across reopen and Git commits', async t => {
  const { store, dir } = await fixture(t);
@@ -261,11 +295,19 @@ test('Excalidraw creation, atomic saves, Git revisions and reopen retain drawing
  const { store, dir } = await fixture(t);
  const note = await store.create('系统架构', '绘图', 'excalidraw');
  assert.match(note.filename, /^[0-9a-f-]{36}\.excalidraw$/);
+ assert.equal(note.directory, 'drawings');
+ const file = `drawings/${note.filename}`;
+ await fs.access(path.join(dir, file));
+ await assert.rejects(fs.access(path.join(dir, 'notes', note.filename)), { code: 'ENOENT' });
  const first = await store.read(note.id);
  assert.equal(JSON.parse(first).type, 'excalidraw');
  await store.commit('blank drawing');
  const scene = { ...JSON.parse(first), elements: [{ id: 'rectangle', type: 'rectangle', x: 10, y: 20, width: 160, height: 80, version: 1 }] };
- await store.save(note.id, JSON.stringify(scene)); await store.commit('draw rectangle');
+ await store.saveFile(file, JSON.stringify(scene));
+ assert.deepEqual(await store.search('rectangle'), [note.id]);
+ assert.ok((await store.diff(file)).patch.includes('rectangle'));
+ await store.commit('draw rectangle');
+ assert.equal(await store.git(['show', `HEAD:${file}`]), JSON.stringify(scene));
  const history = await store.history(note.id);
  assert.deepEqual(history.map(c => c.message), ['draw rectangle', 'blank drawing']);
  await store.restore(note.id, history[1].hash);
@@ -275,8 +317,51 @@ test('Excalidraw creation, atomic saves, Git revisions and reopen retain drawing
  assert.equal(await store.read(note.id), first);
  const reopened = new VaultStore(); await reopened.open(dir);
  assert.equal(await reopened.read(note.id), first);
+ assert.equal(reopened.note(note.id).directory, 'drawings');
  await store.update(note.id, '新的绘图标题', '项目/绘图');
  assert.equal(store.note(note.id).filename, note.filename);
+ await store.removeCategory('项目');
+ assert.equal(await store.read(note.id, 'trash'), first);
+ await assert.rejects(store.saveFile(file, 'overwrite'), /回收站.*只读/);
+ await assert.rejects(store.discard(file), /回收站.*只读/);
+ const restored = await store.restoreTrash(note.id);
+ assert.equal(restored.directory, 'drawings');
+ assert.equal(await store.read(note.id), first);
+});
+
+test('legacy notes/ drawings coexist with drawings/ and retain their original Git history', async t => {
+ const { store, dir } = await fixture(t);
+ const legacy = await store.create('旧版绘图', '绘图', 'excalidraw');
+ await fs.rename(path.join(dir, 'drawings', legacy.filename), path.join(dir, 'notes', legacy.filename));
+ delete store.note(legacy.id).directory;
+ await store.persist(); await store.commit('legacy drawing');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ const original = await reopened.read(legacy.id);
+ const current = await reopened.create('新版绘图', '绘图', 'excalidraw');
+ assert.equal(current.directory, 'drawings');
+ await reopened.save(legacy.id, original.replace('#ffffff', '#fafafa'));
+ await reopened.commit('both layouts');
+ const history = await reopened.history(legacy.id);
+ assert.deepEqual(history.map(commit => commit.message), ['both layouts', 'legacy drawing']);
+ assert.equal(await reopened.revision(legacy.id, history[1].hash), original);
+ await fs.access(path.join(dir, 'notes', legacy.filename));
+ await fs.access(path.join(dir, 'drawings', current.filename));
+ await assert.rejects(fs.access(path.join(dir, 'drawings', legacy.filename)), { code: 'ENOENT' });
+});
+
+test('discard and failed creation remove drawings without leaving dangling manifest entries', async t => {
+ const { store, dir } = await fixture(t);
+ await store.commit('initial');
+ const note = await store.create('撤销绘图', '绘图', 'excalidraw');
+ await store.stage(`drawings/${note.filename}`);
+ await store.discard(`drawings/${note.filename}`);
+ assert.ok(!store.manifest.notes.some(item => item.id === note.id));
+ assert.deepEqual(await fs.readdir(path.join(dir, 'drawings')), []);
+ const before = store.snapshot().manifest;
+ store.persist = async () => { throw new Error('write failed'); };
+ await assert.rejects(store.create('失败绘图', '绘图', 'excalidraw'), /write failed/);
+ assert.deepEqual(store.snapshot().manifest, before);
+ assert.deepEqual(await fs.readdir(path.join(dir, 'drawings')), []);
 });
 
 test('Excalidraw imports preserve images and reject invalid files without adding notes', async t => {
@@ -288,6 +373,13 @@ test('Excalidraw imports preserve images and reject invalid files without adding
  await fs.writeFile(file, content);
  const note = await store.importFile(file);
  assert.equal(note.title, '我的绘图'); assert.equal(await store.read(note.id), content);
+ assert.equal(note.directory, 'drawings');
+ const markdownFile = path.join(imports, '旧图.excalidraw.md');
+ const markdown = `---\nexcalidraw-plugin: parsed\n---\n\n## Drawing\n\`\`\`json\n${content}\n\`\`\`\n`;
+ await fs.writeFile(markdownFile, markdown);
+ const imported = await store.importFile(markdownFile);
+ assert.equal(imported.directory, 'drawings');
+ assert.equal(await store.read(imported.id), markdown);
  const count = store.snapshot().manifest.notes.length;
  await fs.writeFile(file, '{"type":"other","elements":[]}');
  await assert.rejects(store.importFile(file), /无效/);
@@ -329,7 +421,7 @@ test('equivalent file paths cannot bypass manifest validation or trash protectio
 
 test('manifest fields reject coercible filenames, reserved IDs and invalid asset metadata', async t => {
  const { store, dir } = await fixture(t), before = store.snapshot().manifest;
- for (const fields of [{ filename: [before.notes[0].filename] }, { id: 'file:fever.json' }, { id: '' }, { sourcePath: {} }]) {
+ for (const fields of [{ filename: [before.notes[0].filename] }, { id: 'file:fever.json' }, { id: '' }, { sourcePath: {} }, { directory: '../outside' }, { directory: '/tmp' }, { directory: ['drawings'] }, { directory: null }]) {
   const content = JSON.stringify({ ...before, notes: [{ ...before.notes[0], ...fields }] });
   await assert.rejects(store.saveFile('fever.json', content), /无效/);
  }

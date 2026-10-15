@@ -5,16 +5,17 @@ const { isUtf8 } = require('node:buffer');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const exec = promisify(execFile);
-const { metadataView, updateMetadata } = require('./metadata.cjs');
 const { downloadImage } = require('./remote-images.cjs');
 const { readBounded } = require('./files.cjs');
 const MANIFEST = 'fever.json';
 const UUID_FILE = /^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/;
+const notePath = note => `${note.directory || 'notes'}/${note.filename}`;
 function validateManifest(manifest) {
   if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.notes) || !Array.isArray(manifest.categories)) throw new Error('不支持的笔记清单格式');
   if (manifest.trash != null && !Array.isArray(manifest.trash)) throw new Error('回收站格式无效');
   const ids = new Set(), files = new Set();
   for (const n of [...manifest.notes, ...(manifest.trash || [])]) {
+    if (n?.directory !== undefined && !['notes', 'drawings'].includes(n.directory)) throw new Error('笔记存储目录无效');
     if (!n || typeof n.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(n.id) || typeof n.filename !== 'string' || !UUID_FILE.test(n.filename) || typeof n.title !== 'string' || typeof n.category !== 'string' || (n.sourcePath != null && typeof n.sourcePath !== 'string') || ids.has(n.id) || files.has(n.filename)) throw new Error('笔记清单含有无效或重复的文件记录');
     ids.add(n.id); files.add(n.filename);
   }
@@ -26,12 +27,11 @@ function validateDrawing(content) {
   try { scene = JSON.parse(content); } catch { throw new Error('Excalidraw 文件不是有效的 JSON'); }
   if (!scene || scene.type !== 'excalidraw' || !Array.isArray(scene.elements) || scene.elements.some(e => !e || typeof e.id !== 'string' || typeof e.type !== 'string' || !Number.isFinite(e.x) || !Number.isFinite(e.y)) || (scene.appState != null && (typeof scene.appState !== 'object' || Array.isArray(scene.appState))) || (scene.files != null && (typeof scene.files !== 'object' || Array.isArray(scene.files)))) throw new Error('Excalidraw 绘图格式无效');
 }
-const defaults = { autoCommit: false, interval: 10, author: '', email: '', remote: '' };
+const defaults = { autoCommit: false, interval: 10, author: '', email: '', remote: '', excalidrawCategory: '' };
 
 class VaultStore {
   constructor() {
     this.root = null; this.manifest = null; this.lfs = false; this.tail = Promise.resolve();
-    this.manifestFile = MANIFEST; this.metadata = null; this.metadataText = null;
     this.searchCache = null; this.statusTask = null; this.operationVersion = 0;
     this.imageImports = new Map();
     this.environment = { ...process.env };
@@ -39,16 +39,6 @@ class VaultStore {
     if (process.platform === 'darwin') this.environment.PATH = [...new Set([...(process.env.PATH || '').split(path.delimiter), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])].join(path.delimiter);
   }
   queued(fn) { const next = this.tail.then(() => { ++this.operationVersion; return fn(); }); this.tail = next.catch(() => {}); return next; }
-  mutate(fn) { return this.queued(async () => {
-    if (this.metadata) {
-      const text = await fs.readFile(await this.safe(this.manifestFile), 'utf8');
-      if (text !== this.metadataText) this.manifest = await this.loadMetadata(text);
-    }
-    return fn();
-  }); }
-  async assertMetadataUnchanged() {
-    if (this.metadata && await fs.readFile(await this.safe(this.manifestFile), 'utf8') !== this.metadataText) throw new Error('metadata.json 已被其他程序修改，请重新打开笔记库后再保存');
-  }
   async git(args, allowedFailure = false) {
     if (!this.root) throw new Error('请先打开笔记库');
     try { return (await exec('git', args, { cwd: this.root, env: this.environment, windowsHide: true, timeout: 120000, maxBuffer: 12 * 1024 * 1024 })).stdout; }
@@ -85,7 +75,7 @@ class VaultStore {
         const note = notes[cursor++];
         if (note.title.toLowerCase().includes(needle) || note.category.toLowerCase().includes(needle)) { matches.add(note.id); continue; }
         try {
-          const file = await this.safe(`notes/${note.filename}`);
+          const file = await this.safe(notePath(note));
           if (signal.aborted) return;
           const stat = await fs.stat(file);
           const version = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`;
@@ -106,58 +96,22 @@ class VaultStore {
       return signal.aborted ? [] : notes.filter(note => matches.has(note.id)).map(note => note.id);
     } finally { if (this.searchController === controller) this.searchController = null; }
   }
-  async persist(removedCategory) {
-    await this.assertMetadataUnchanged();
-    const metadata = this.metadata ? updateMetadata(this.metadata, this.manifest, removedCategory) : null;
-    const text = JSON.stringify(metadata || this.manifest, null, 2) + '\n';
+  async persist() {
+    const text = JSON.stringify(this.manifest, null, 2) + '\n';
     const temp = await this.safe(`.fever-${randomUUID()}.tmp`);
     try {
       await fs.writeFile(temp, text);
-      await fs.rename(temp, await this.safe(this.manifestFile));
+      await fs.rename(temp, await this.safe(MANIFEST));
     } finally { await fs.rm(temp, { force: true }); }
-    if (metadata) {
-      this.metadata = metadata; this.metadataText = text;
-      const view = metadataView(metadata), categories = new Map(view.notes.map(note => [note.id, note.category]));
-      this.manifest.categories = view.categories;
-      for (const note of this.manifest.notes) note.category = categories.get(note.id);
-      const previousTrash = new Map((this.manifest.trash || []).map(note => [note.id, note]));
-      this.manifest.trash = view.trash.map(note => ({ ...note, ...previousTrash.get(note.id), category: note.category }));
-    }
   }
-  async loadMetadata(text) {
-    const metadata = JSON.parse(text), manifest = metadataView(metadata);
-    // FSNotes stores timestamps on the note files, rather than in its snapshot.
-    let cursor = 0;
-    const notes = [...manifest.notes, ...manifest.trash];
-    await Promise.all(Array.from({ length: Math.min(4, notes.length) }, async () => {
-      while (cursor < notes.length) {
-        const note = notes[cursor++], file = await this.safe(`notes/${note.filename}`);
-        try {
-          const stat = await fs.stat(file);
-          note.createdAt = stat.birthtime.toISOString(); note.updatedAt = stat.mtime.toISOString();
-          if (/\.(md|markdown)$/.test(note.filename)) {
-            const handle = await fs.open(file, 'r');
-            try {
-              const { buffer, bytesRead } = await handle.read(Buffer.alloc(2048), 0, 2048, 0);
-              const header = buffer.subarray(0, bytesRead).toString('utf8').match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
-              if (/^excalidraw-plugin:[ \t]*\S/m.test(header || '')) note.sourcePath = `${note.id}.excalidraw.md`;
-            } finally { await handle.close(); }
-          }
-        } catch (e) { if (e.code !== 'ENOENT') throw e; }
-      }
-    }));
-    this.metadata = metadata; this.metadataText = text; this.manifestFile = 'metadata.json';
-    return manifest;
-  }
-  snapshot() { return { path: this.root, name: path.basename(this.root), manifest: structuredClone(this.manifest), lfs: this.lfs, format: this.metadata ? 'fsnotes' : 'fever' }; }
+  snapshot() { return { path: this.root, name: path.basename(this.root), manifest: structuredClone(this.manifest), lfs: this.lfs }; }
   async open(folder) {
     return this.queued(async () => {
       this.cancelSearch();
       this.searchCache = null;
       const root = await fs.realpath(folder);
-      const previous = { root: this.root, manifest: this.manifest, lfs: this.lfs, manifestFile: this.manifestFile, metadata: this.metadata, metadataText: this.metadataText };
+      const previous = { root: this.root, manifest: this.manifest, lfs: this.lfs };
       this.root = root;
-      this.manifestFile = MANIFEST; this.metadata = null; this.metadataText = null;
       try {
         let manifest, isNew = false;
         try {
@@ -165,20 +119,17 @@ class VaultStore {
           validateManifest(manifest);
         } catch (e) {
           if (e.code !== 'ENOENT') throw e;
-          let text;
-          try { text = await fs.readFile(await this.safe('metadata.json'), 'utf8'); }
-          catch (e) { if (e.code !== 'ENOENT') throw e; }
-          if (text !== undefined) manifest = await this.loadMetadata(text);
-          else {
-            // Never silently index or overwrite an unrelated notes directory.
-            const entries = await fs.readdir(await this.safe('notes')).catch(e => { if (e.code === 'ENOENT') return []; throw e; });
-            if (entries.length) throw new Error('此文件夹包含 notes 文件但没有 fever.json 或 metadata.json，请选择空文件夹或已有笔记库');
-            manifest = { version: 1, categories: ['收件箱'], notes: [] };
-            isNew = true;
+          // Never silently index or overwrite an unrelated content directory.
+          for (const directory of ['notes', 'drawings']) {
+            const entries = await fs.readdir(await this.safe(directory)).catch(e => { if (e.code === 'ENOENT') return []; throw e; });
+            if (entries.length) throw new Error(`此文件夹包含 ${directory} 文件但没有 fever.json，请选择空文件夹或已有笔记库`);
           }
+          manifest = { version: 1, categories: ['收件箱'], notes: [] };
+          isNew = true;
         }
         this.manifest = manifest;
         await fs.mkdir(await this.safe('notes'), { recursive: true });
+        await fs.mkdir(await this.safe('drawings'), { recursive: true });
         await fs.mkdir(await this.safe('images'), { recursive: true });
         const top = (await this.git(['rev-parse', '--show-toplevel'], true)).trim();
         if (top && await fs.realpath(top) !== root) throw new Error('请选择独立的 Git 仓库根目录，不能选择其他仓库的子目录');
@@ -188,7 +139,7 @@ class VaultStore {
         if (!attributes.includes('images/** filter=lfs')) await fs.writeFile(attributesFile, attributes + (attributes && !attributes.endsWith('\n') ? '\n' : '') + 'images/** filter=lfs diff=lfs merge=lfs -text\n');
         this.lfs = Boolean((await this.git(['lfs', 'version'], true)).trim());
         if (this.lfs) await this.git(['lfs', 'install', '--local']);
-        if (!this.metadata) await this.persist();
+        await this.persist();
         if (isNew) await this.createInternal('欢迎使用 Fever', '收件箱', '# 欢迎使用 Fever\n\n这是属于你的本地笔记库。让每一个想法，都有迹可循。\n\n## 从这里开始\n\n- 新建笔记，写下第一个想法\n- 使用分类组织你的知识\n- 将图片拖入编辑器，自动保存到 `images/`\n- 在 Git 面板提交备份，查看每篇笔记的历史\n\n> 所有笔记保存在 `notes/` 中，标题与分类由 `fever.json` 管理。\n');
         return this.snapshot();
       } catch (e) { Object.assign(this, previous); throw e; }
@@ -197,19 +148,14 @@ class VaultStore {
   async createInternal(title, category, content, format = 'markdown', sourcePath) {
     title = String(title).trim(); category = String(category).trim();
     if (!title || title.length > 200 || category.length > 200) throw new Error('请输入有效的标题和分类（最多 200 字）');
-    if (this.metadata && category && category.split('/').some(c => !c.trim())) throw new Error('分类无效');
     if (!['markdown', 'excalidraw'].includes(format)) throw new Error('不支持的文件格式');
     const id = randomUUID(), now = new Date().toISOString();
-    const note = { id, filename: id + (format === 'excalidraw' && !this.metadata ? '.excalidraw' : '.md'), title, category, createdAt: now, updatedAt: now, ...(sourcePath ? { sourcePath } : {}) };
+    const note = { id, filename: id + (format === 'excalidraw' ? '.excalidraw' : '.md'), title, category, createdAt: now, updatedAt: now, ...(sourcePath ? { sourcePath } : {}) };
+    const legacyDrawing = /^excalidraw-plugin:[ \t]*\S/m.test(content?.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] || '');
+    if (format === 'excalidraw' || legacyDrawing) note.directory = 'drawings';
     content ??= format === 'excalidraw' ? JSON.stringify({ type: 'excalidraw', version: 2, source: 'Fever', elements: [], appState: { viewBackgroundColor: '#ffffff' }, files: {} }, null, 2) : `# ${title}\n\n`;
-    if (format === 'excalidraw') {
-      validateDrawing(content);
-      if (this.metadata) {
-        content = ['---', 'excalidraw-plugin: parsed', '---', '', '## Drawing', '```json', content, '```', ''].join('\n');
-        note.sourcePath = `${id}.excalidraw.md`;
-      }
-    }
-    const file = await this.safe(`notes/${note.filename}`), previous = structuredClone(this.manifest);
+    if (format === 'excalidraw') validateDrawing(content);
+    const file = await this.safe(notePath(note)), previous = structuredClone(this.manifest);
     await fs.writeFile(file, content, { flag: 'wx' });
     this.manifest.notes.push(note);
     if (category && !this.manifest.categories.includes(category)) this.manifest.categories.push(category);
@@ -217,33 +163,30 @@ class VaultStore {
     catch (e) { this.manifest = previous; await fs.rm(file, { force: true }); throw e; }
     return structuredClone(note);
   }
-  create(title, category, format) { return this.mutate(() => this.createInternal(title, category, undefined, format)); }
+  create(title, category, format) { return this.queued(() => this.createInternal(title, category, undefined, format)); }
   async read(id, scope) {
     if (scope !== undefined && scope !== 'trash') throw new Error('读取范围无效');
     const note = scope === 'trash' ? this.manifest?.trash?.find(n => n.id === id) : this.note(id);
     if (!note) throw new Error('回收站中找不到这篇笔记');
-    return (await readBounded(await this.safe(`notes/${note.filename}`))).toString('utf8');
+    return (await readBounded(await this.safe(notePath(note)))).toString('utf8');
   }
   save(id, content) {
-    const manifest = this.manifest;
-    return this.mutate(async () => {
+    return this.queued(async () => {
       if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('笔记最大为 10 MB');
-      const note = this.note(id), file = await this.safe(`notes/${note.filename}`);
+      const note = this.note(id), file = await this.safe(notePath(note));
       if (note.filename.endsWith('.excalidraw')) validateDrawing(content);
-      const temp = await this.safe(`notes/.${randomUUID()}.tmp`);
+      const temp = await this.safe(`${path.posix.dirname(notePath(note))}/.${randomUUID()}.tmp`);
       try { await fs.writeFile(temp, content); await fs.rename(temp, file); }
       finally { await fs.rm(temp, { force: true }); }
       const updatedAt = note.updatedAt;
       note.updatedAt = new Date().toISOString();
-      try { if (this.metadata) await this.assertMetadataUnchanged(); else await this.persist(); }
+      try { await this.persist(); }
       catch (e) { note.updatedAt = updatedAt; throw e; }
-      // Include a snapshot only when mutate loaded metadata changed by another app.
-      return { updatedAt: note.updatedAt, ...(manifest !== this.manifest ? { vault: this.snapshot() } : {}) };
+      return { updatedAt: note.updatedAt };
     });
   }
-  update(id, title, category) { return this.mutate(async () => {
+  update(id, title, category) { return this.queued(async () => {
     if (typeof title !== 'string' || !title.trim() || title.length > 200 || typeof category !== 'string' || category.length > 200) throw new Error('标题或分类无效');
-    if (this.metadata && category && category.split('/').some(c => !c.trim())) throw new Error('分类无效');
     const previous = structuredClone(this.manifest);
     category = category.trim();
     const note = this.note(id); Object.assign(note, { title: title.trim(), category, updatedAt: new Date().toISOString() });
@@ -252,9 +195,9 @@ class VaultStore {
     catch (e) { this.manifest = previous; throw e; }
     return structuredClone(note);
   }); }
-  remove(id) { return this.mutate(async () => {
+  remove(id) { return this.queued(async () => {
     const note = this.note(id);
-    await this.safe(`notes/${note.filename}`);
+    await this.safe(notePath(note));
     const previous = structuredClone(this.manifest);
     this.manifest.notes = this.manifest.notes.filter(n => n.id !== id);
     (this.manifest.trash ||= []).push(note);
@@ -262,10 +205,10 @@ class VaultStore {
     catch (e) { this.manifest = previous; throw e; }
     this.cancelSearch();
   }); }
-  restoreTrash(id) { return this.mutate(async () => {
+  restoreTrash(id) { return this.queued(async () => {
     const note = this.manifest.trash?.find(n => n.id === id);
     if (!note) throw new Error('回收站中找不到这篇笔记');
-    const file = await this.safe(`notes/${note.filename}`);
+    const file = await this.safe(notePath(note));
     if (!(await fs.stat(file)).isFile()) throw new Error('笔记正文文件不存在');
     const previous = structuredClone(this.manifest);
     this.manifest.trash = this.manifest.trash.filter(n => n.id !== id);
@@ -275,29 +218,29 @@ class VaultStore {
     catch (e) { this.manifest = previous; throw e; }
     return structuredClone(note);
   }); }
-  category(category) { return this.mutate(async () => {
+  category(category) { return this.queued(async () => {
     if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效');
     const previous = structuredClone(this.manifest);
     if (!this.manifest.categories.includes(category.trim())) this.manifest.categories.push(category.trim());
     try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
   }); }
-  removeCategory(category) { return this.mutate(async () => {
+  removeCategory(category) { return this.queued(async () => {
     if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效');
     category = category.trim();
     const contains = value => value === category || value.startsWith(`${category}/`);
     if (!this.manifest.categories.some(contains) && !this.manifest.notes.some(note => contains(note.category))) throw new Error('分类不存在');
     const removed = this.manifest.notes.filter(note => contains(note.category));
-    for (const note of removed) await this.safe(`notes/${note.filename}`);
+    for (const note of removed) await this.safe(notePath(note));
     const previous = structuredClone(this.manifest);
     this.manifest.categories = this.manifest.categories.filter(value => !contains(value));
     this.manifest.notes = this.manifest.notes.filter(note => !contains(note.category));
     if (removed.length) (this.manifest.trash ||= []).push(...removed);
-    try { await this.persist(category); }
+    try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
     this.cancelSearch();
   }); }
-  importFile(file) { return this.mutate(async () => {
+  importFile(file) { return this.queued(async () => {
     const content = (await readBounded(file, { message: '导入文件最大为 10 MB' })).toString('utf8');
     if (Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('导入文件最大为 10 MB');
     const drawing = /\.excalidraw$/i.test(file);
@@ -322,7 +265,7 @@ class VaultStore {
       if (this.root !== batch.root) throw new Error('笔记库已变化，无法清理图片');
       // If a save reached disk before reporting failure, preserve its references.
       const note = this.manifest.notes.find(note => note.id === batch.noteId) || this.manifest.trash?.find(note => note.id === batch.noteId);
-      const content = note ? (await readBounded(await this.safe(`notes/${note.filename}`))).toString('utf8') : '';
+      const content = note ? (await readBounded(await this.safe(notePath(note)))).toString('utf8') : '';
       for (const src of batch.sources) if (!content.includes(src)) await fs.rm(await this.safe(src.slice(3)), { force: true });
     }
     this.imageImports.delete(importId);
@@ -409,29 +352,28 @@ class VaultStore {
     return { path: relative, content: binary ? '' : bytes.toString('utf8'), binary, ...(mime ? { image: `data:${mime};base64,${bytes.toString('base64')}` } : {}) };
   }); }
   saveFile(relative, content) {
-    const note = this.manifest?.notes.find(n => `notes/${n.filename}` === relative);
+    const note = this.manifest?.notes.find(n => notePath(n) === relative);
     if (note) return this.save(note.id, content);
-    return this.mutate(async () => {
+    return this.queued(async () => {
       this.assertNotTrashedFile(relative);
       const file = await this.changeFile(relative);
       if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');
       const bytes = await readBounded(file);
       if (bytes.includes(0) || !isUtf8(bytes) || /\.(png|jpe?g|gif|webp|avif)$/i.test(relative)) throw new Error('二进制文件不能作为文本保存');
       let manifest;
-      if (relative === this.manifestFile) {
+      if (relative === MANIFEST) {
         const parsed = JSON.parse(content);
-        if (this.metadata) metadataView(parsed); else { validateManifest(parsed); manifest = parsed; }
+        validateManifest(parsed); manifest = parsed;
       }
       if (relative.endsWith('.excalidraw')) validateDrawing(content);
-      await this.assertMetadataUnchanged();
       const temp = await this.safe(`${path.dirname(relative)}/.fever-${randomUUID()}.tmp`);
       try { await fs.writeFile(temp, content); await fs.rename(temp, file); }
       finally { await fs.rm(temp, { force: true }); }
-      if (relative === this.manifestFile) this.manifest = this.metadata ? await this.loadMetadata(content) : manifest;
+      if (relative === MANIFEST) this.manifest = manifest;
     });
   }
   assertNotTrashedFile(relative) {
-    if (this.manifest?.trash?.some(note => `notes/${note.filename}` === relative)) throw new Error('回收站中的笔记为只读，请先还原到原位置');
+    if (this.manifest?.trash?.some(note => notePath(note) === relative)) throw new Error('回收站中的笔记为只读，请先还原到原位置');
   }
   async validateChange(change) {
     await this.changeFile(change.path);
@@ -482,7 +424,7 @@ class VaultStore {
     if ((await this.git(['rev-parse', '--verify', 'HEAD'], true)).trim()) await this.git(['reset', 'HEAD', '--', '.']);
     else await this.git(['rm', '--cached', '-r', '-f', '--', '.']);
   }); }
-  discard(relative) { return this.mutate(async () => {
+  discard(relative) { return this.queued(async () => {
     const change = await this.change(relative), hasHead = Boolean((await this.git(['rev-parse', '--verify', 'HEAD'], true)).trim());
     const paths = [relative, ...(change.originalPath ? [change.originalPath] : [])];
     paths.forEach(file => this.assertNotTrashedFile(file));
@@ -491,13 +433,11 @@ class VaultStore {
       if (hasHead && (await this.git(['ls-tree', '--name-only', 'HEAD', '--', `:(literal)${file}`])).trim()) tracked.push(file);
       else added.push(file);
     }
-    if (added.includes(this.manifestFile)) throw new Error('请先提交初始笔记库，不能撤销未提交的笔记清单');
-    await this.assertMetadataUnchanged();
-    if (relative === this.manifestFile) {
+    if (added.includes(MANIFEST)) throw new Error('请先提交初始笔记库，不能撤销未提交的笔记清单');
+    if (relative === MANIFEST) {
       // Validate the restored snapshot before changing either the index or the file.
       const restored = JSON.parse(await this.git(['show', `HEAD:${relative}`]));
-      if (this.metadata) metadataView(restored);
-      else validateManifest(restored);
+      validateManifest(restored);
     }
     if (tracked.length) await this.git(['restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked.map(p => `:(literal)${p}`)]);
     for (const file of added) {
@@ -505,12 +445,12 @@ class VaultStore {
       await fs.rm(await this.changeFile(file), { force: true });
     }
     this.cancelSearch();
-    if (relative === this.manifestFile) {
-      const text = await fs.readFile(await this.safe(this.manifestFile), 'utf8');
-      this.manifest = this.metadata ? await this.loadMetadata(text) : JSON.parse(text);
-    } else if (added.some(file => this.manifest.notes.some(n => `notes/${n.filename}` === file))) {
+    if (relative === MANIFEST) {
+      const text = await fs.readFile(await this.safe(MANIFEST), 'utf8');
+      this.manifest = JSON.parse(text);
+    } else if (added.some(file => this.manifest.notes.some(n => notePath(n) === file))) {
       // Discarding a new note must not leave a dangling entry in the library.
-      this.manifest.notes = this.manifest.notes.filter(n => !added.includes(`notes/${n.filename}`));
+      this.manifest.notes = this.manifest.notes.filter(n => !added.includes(notePath(n)));
       await this.persist();
     }
   }); }
@@ -518,10 +458,10 @@ class VaultStore {
     if (typeof message !== 'string' || !message.trim()) throw new Error('请填写提交说明');
     if (!(await this.git(['config', 'user.name'], true)).trim() || !(await this.git(['config', 'user.email'], true)).trim()) throw new Error('请先在设置中配置 Git 用户名和邮箱');
     if (!this.lfs && (await fs.readdir(await this.safe('images'))).length) throw new Error('图片提交需要安装 Git LFS');
-    if (!stagedOnly) await this.git(['add', '--', this.manifestFile, 'notes', 'images', '.gitattributes']);
+    if (!stagedOnly) await this.git(['add', '--', MANIFEST, 'notes', 'drawings', 'images', '.gitattributes']);
     const staged = await this.git(['diff', '--cached', '--name-only', '-z']);
     if (!staged.trim()) throw new Error('没有需要提交的变更');
-    if (!stagedOnly && staged.split('\0').filter(Boolean).some(p => ![this.manifestFile, '.gitattributes'].includes(p) && !p.startsWith('notes/') && !p.startsWith('images/'))) throw new Error('仓库中有其他已暂存文件，请先处理它们再提交笔记');
+    if (!stagedOnly && staged.split('\0').filter(Boolean).some(p => ![MANIFEST, '.gitattributes'].includes(p) && !p.startsWith('notes/') && !p.startsWith('drawings/') && !p.startsWith('images/'))) throw new Error('仓库中有其他已暂存文件，请先处理它们再提交笔记');
     await this.git(['commit', '-m', message.trim()]);
   }); }
   pull() { return this.queued(async () => {
@@ -530,21 +470,21 @@ class VaultStore {
     if (status.changes.length) throw new Error('请先提交本地变更再拉取');
     await this.git(['pull', '--ff-only', 'origin', status.branch]);
     this.cancelSearch();
-    const text = await fs.readFile(await this.safe(this.manifestFile), 'utf8');
-    const manifest = this.metadata ? await this.loadMetadata(text) : JSON.parse(text);
+    const text = await fs.readFile(await this.safe(MANIFEST), 'utf8');
+    const manifest = JSON.parse(text);
     validateManifest(manifest);
     this.manifest = manifest;
   }); }
   push() { return this.queued(async () => { const s = await this.status(); if (!s.remote) throw new Error('请先在设置中配置远程仓库'); if (s.branch === 'HEAD') throw new Error('请先切换到分支再推送'); await this.git(['push', '--set-upstream', 'origin', s.branch]); }); }
   async history(id) {
     const args = ['log', '-80', '--format=%H%x00%an%x00%aI%x00%s'];
-    if (id) args.push('--follow', '--', `notes/${this.note(id, true).filename}`);
+    if (id) args.push('--follow', '--', notePath(this.note(id, true)));
     const raw = await this.git(args, true);
     return raw.trim().split('\n').filter(Boolean).map(line => { const [hash, author, date, message] = line.split('\0'); return { hash, author, date, message }; });
   }
   async revisionPath(id, hash) {
     if (!/^[0-9a-f]{40,64}$/.test(hash)) throw new Error('提交标识无效');
-    const currentPath = `notes/${this.note(id, true).filename}`;
+    const currentPath = notePath(this.note(id, true));
     const exists = await this.git(['ls-tree', '--name-only', hash, '--', currentPath]);
     if (exists.trim()) return currentPath;
     // A migrated note keeps its Git lineage even though its original filename changed.
@@ -571,15 +511,17 @@ class VaultStore {
     return { content, previousContent, previousHash };
   }
   async restore(id, hash) { const content = await this.revision(id, hash); await this.save(id, content); return content; }
-  async settings() { return { ...defaults, author: (await this.git(['config', 'user.name'], true)).trim(), email: (await this.git(['config', 'user.email'], true)).trim(), remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim() }; }
+  async settings() { return { ...defaults, author: (await this.git(['config', 'user.name'], true)).trim(), email: (await this.git(['config', 'user.email'], true)).trim(), remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim(), excalidrawCategory: (await this.git(['config', '--local', '--get', 'fever.excalidrawCategory'], true)).trim() }; }
   configure(settings) { return this.queued(async () => {
     if (typeof settings.author !== 'string' || typeof settings.email !== 'string' || typeof settings.remote !== 'string') throw new Error('设置无效');
+    if (settings.excalidrawCategory !== undefined && (typeof settings.excalidrawCategory !== 'string' || settings.excalidrawCategory.trim().length > 200 || /[\x00-\x1f]/.test(settings.excalidrawCategory) || (settings.excalidrawCategory.trim() && settings.excalidrawCategory.trim().split('/').some(c => !c.trim())))) throw new Error('Excalidraw 默认分类无效（最多 200 字，可用 / 分隔子分类）');
     if (settings.remote && !/^(https?:\/\/|ssh:\/\/|git@)[^\s]+$/.test(settings.remote)) throw new Error('请使用 HTTPS 或 SSH 远程仓库地址');
     await this.git(['config', '--local', 'user.name', settings.author.trim()]);
     await this.git(['config', '--local', 'user.email', settings.email.trim()]);
     const existing = (await this.git(['remote'], true)).trim().split('\n').includes('origin');
     if (settings.remote) await this.git(['remote', existing ? 'set-url' : 'add', 'origin', settings.remote]);
     else if (existing) await this.git(['remote', 'remove', 'origin']);
+    if (settings.excalidrawCategory !== undefined) await this.git(['config', '--local', 'fever.excalidrawCategory', settings.excalidrawCategory.trim()]);
   }); }
 }
 module.exports = { VaultStore, defaults };

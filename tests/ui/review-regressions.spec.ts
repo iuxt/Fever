@@ -100,22 +100,6 @@ test('autosave retains content search results during a search and removes matche
  await expect(page.getByText('没有找到相关笔记')).toBeVisible();
 });
 
-test('saving applies library metadata returned after an external rename', async ({ page }) => {
- await desktopFixture(page);
- await page.evaluate(async () => {
-  const vault = (await window.fever!.current())!, save = window.fever!.save;
-  window.fever!.save = async (id, content) => {
-   const result = await save(id, content);
-   return { updatedAt: result!.updatedAt, vault: { ...vault, manifest: { ...vault.manifest, notes: vault.manifest.notes.map(note => note.id === id ? { ...note, title: 'Renamed externally' } : note) } } };
-  };
- });
- const calls = await page.evaluate(() => window.reviewControls.currentCalls);
- await page.locator('.wysiwyg-content').fill('Edited after rename');
- await expect(page.locator('.note-row.selected')).toHaveText('Renamed externally');
- await expect(page.locator('.tab.current')).toContainText('Renamed externally');
- expect(await page.evaluate(() => window.reviewControls.currentCalls)).toBe(calls);
-});
-
 for (const mode of ['rich', 'source']) for (const savedBeforeRead of [false, true]) {
  test(`${mode} keeps edits made during a read even when autosave ${savedBeforeRead ? 'has finished' : 'is pending'}`, async ({ page }) => {
   await desktopFixture(page);

@@ -1,3 +1,4 @@
+import { notePath } from './notePaths.ts';
 import LZString from 'lz-string';
 import { visit, SKIP } from 'unist-util-visit';
 import type { Root, Image, Text } from 'mdast';
@@ -32,7 +33,7 @@ export function resolveDrawing(source: string, notes: Note[]) {
  try { path = decodeURIComponent(path); } catch { /* Leave malformed escapes unchanged. */ }
  path = path.replaceAll('\\', '/');
  if (/^[a-z][a-z\d+.-]*:/i.test(path) || path.startsWith('/') || path.startsWith('//')) return undefined;
- const relative = path.replace(/^(?:\.\.\/notes\/|\.\/|notes\/)/, '');
+ const relative = path.replace(/^(?:\.\.\/(?:notes|drawings)\/|\.\/(?:notes|drawings)\/|(?:notes|drawings)\/|\.\/)/, '');
  if (relative.split('/').includes('..')) return undefined;
  const exact = notes.filter(note => note.filename === relative || note.sourcePath === relative);
  if (exact.length === 1) return exact[0];
@@ -54,7 +55,7 @@ export default function remarkDrawingEmbeds(notes: Note[] = []) {
     const note = resolveDrawing(source, notes);
     if (!/\.excalidraw(?:\.md)?$/i.test(source) && !note) continue;
     if (match.index > cursor) replacements.push({ type: 'text', value: node.value.slice(cursor, match.index) });
-    replacements.push({ type: 'image', url: note ? `../notes/${note.filename}` : source, alt: alias || note?.title || source, title: null });
+    replacements.push({ type: 'image', url: note ? `../${notePath(note)}` : source, alt: alias || note?.title || source, title: null });
     cursor = match.index + match[0].length;
    }
    if (!replacements.length) return;

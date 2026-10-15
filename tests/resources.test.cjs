@@ -84,21 +84,6 @@ test('status coalesces simultaneous requests, reports HEAD and refreshes after m
  assert.ok(dirty.changes.some(change => change.path === `notes/${note.filename}`));
 });
 
-test('FSNotes body saves preserve metadata bytes and still reload external metadata edits', async t => {
- const { store, root, note } = await fixture(t);
- await fs.rm(path.join(root, 'fever.json'));
- const metadata = { version: 1, folders: [], notes: [{ id: note.id, name: 'FSNotes', fileExtension: 'md', trashed: false }] };
- const file = path.join(root, 'metadata.json'), text = JSON.stringify(metadata);
- await fs.writeFile(file, text); await store.open(root);
- store.persist = async () => { throw new Error('should not rewrite metadata on a body save'); };
- await store.save(note.id, 'body only');
- assert.equal(await fs.readFile(file, 'utf8'), text);
- metadata.notes[0].name = '外部标题'; await fs.writeFile(file, JSON.stringify(metadata));
- const result = await store.save(note.id, 'after external edit');
- assert.equal(result.vault.manifest.notes[0].title, '外部标题');
- assert.equal(await fs.readFile(file, 'utf8'), JSON.stringify(metadata));
-});
-
 test('large revision diffs stop within a bounded edit budget while small diffs retain line semantics', async () => {
  const { revisionRows } = await import('../src/diffRows.ts');
  const start = performance.now();

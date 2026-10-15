@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-首次启动会显示笔记库选择页。选择一个空文件夹、带有 `fever.json` 的 Fever 笔记库，或带有 `metadata.json` 的 FSNotes 笔记库根目录。应用会初始化独立 Git 仓库，并在安装了 Git LFS 时执行 `git lfs install --local`。不允许选择其他 Git 仓库内部的子文件夹，避免混入项目文件。
+首次启动会显示笔记库选择页。选择一个空文件夹，或带有 `fever.json` 的 Fever 笔记库根目录。应用会初始化独立 Git 仓库，并在安装了 Git LFS 时执行 `git lfs install --local`。不允许选择其他 Git 仓库内部的子文件夹，避免混入项目文件。
 
 打开设置，配置 Git 用户名和邮箱；如需远程同步，填写 origin 的 HTTPS / SSH 地址。远程仓库应为空或已经保存这个笔记库。认证使用系统 Git 的 SSH 密钥、凭据管理器；应用不存储访问令牌。
 
@@ -35,7 +35,8 @@ npm run dev
 ├── .gitattributes
 ├── fever.json
 ├── notes/
-│   ├── <UUID>.md
+│   └── <UUID>.md
+├── drawings/
 │   └── <UUID>.excalidraw
 └── images/
     └── <文章UUID>/
@@ -63,22 +64,18 @@ npm run dev
 
 图片可通过拖放、粘贴或「更多 → 插入图片」导入，外部图片转存也使用同一规则：保存为 `images/<文章UUID>/<日期>.<原始扩展名>`，Markdown 引用 `../images/<文章UUID>/<日期>.<原始扩展名>`。日期采用本地时间 `YYYY-MM-DD-HHmmss-SSS`，重名时追加序号，保留原始图片字节和格式。`.gitattributes` 的 `images/**` 使用 LFS。Git LFS 未安装时禁止导入图片，防止图片作为普通 Git blob 提交。支持 PNG、JPEG、GIF、WebP、AVIF，单张最多 20 MB。已有图片路径仍可正常读取。
 
-## 直接打开 FSNotes 笔记库
-
-支持 `metadata.json` version 1 的 `folders` / `notes` 格式。选择仓库根目录即可打开；沿用原清单、UUID 文件名、图片路径和 Git 仓库，不生成另一份 `fever.json`。`folders.parentID` 转为界面的嵌套分类，`notes.name` 显示为标题，`folderID` 管理归属；根目录笔记显示在「未分类」。支持 `.md`、`.markdown`、`.txt`、`.fountain` 正文，时间从文件属性读取。
-
-新建分类和笔记、重命名、移动都会写回 `metadata.json`，保留原记录的别名、迁移来源和额外字段。重命名将旧标题加入 `aliases`。删除沿用 FSNotes 的 `trashed` 标记，正文和附件保留，可在 FSNotes 废纸篓中恢复。已有 `images/<笔记ID>/<图片ID>.png` 和平铺图片都能预览，桌面端的 HTTP / HTTPS 外链图片按原 URL 显示。Git 提交、拉取和定时备份使用原清单，历史继续跟随原笔记文件。
-
-FSNotes 库中新建或导入的 Excalidraw 绘图保存为带绘图数据块的 `.md` 文件，Fever 可预览和编辑，保持 FSNotes 的正文扩展名约定。其他程序修改清单后，重新选择此笔记库即可刷新；每次写入前也会重新读取外部变更，保留最新清单中的其他记录。已在外部删除的笔记会阻止保存。
-
 ## Excalidraw 绘图
 
-在侧栏「我的笔记」旁点击「新建绘图」，即可使用 Excalidraw 画布绘制形状、箭头、文字和自由线条。绘图以标准 `.excalidraw` JSON 保存到 `notes/`，沿用自动保存、分类、多标签页和 Git 历史。侧栏导入按钮支持 `.excalidraw`、Markdown，以及 Obsidian 的 `.excalidraw.md` 文件；「更多 → 导出 .excalidraw」可导出到其他 Excalidraw 工具。
+在侧栏「我的笔记」旁点击「新建绘图」，即可使用 Excalidraw 画布绘制形状、箭头、文字和自由线条。绘图以标准 `.excalidraw` JSON 保存到与 `notes/` 平级的 `drawings/`，沿用自动保存、分类、多标签页和 Git 历史。侧栏导入按钮支持 `.excalidraw`、Markdown，以及 Obsidian 的 `.excalidraw.md` 文件；「更多 → 导出 .excalidraw」可导出到其他 Excalidraw 工具。
+
+新建和导入的绘图在清单中记录 `"directory": "drawings"`，导入的 Obsidian 绘图保留 Markdown 原文。已有清单没有 `directory` 的记录仍从 `notes/` 读取，原引用、自动保存、Git 历史和回收站继续可用。
+
+在「设置 → Excalidraw 默认分类」中可指定新建绘图的默认分类，支持 `绘图/架构` 这样的子分类。侧栏新建绘图和正文中新建并插入绘图会预填该分类，创建时可修改；留空则沿用当前分类。在分类右键菜单中新建时使用所选分类。设置按笔记库在本机保存，点击「保存设置」后生效。
 
 在 Markdown 编辑器点击「插入 Excalidraw」，选择已有绘图，或新建绘图后插入。阅读和双栏预览会显示绘图，点击「编辑绘图」打开画布。生成的引用使用 UUID 文件名，因此重命名和移动分类后仍然有效：
 
 ```markdown
-![架构图](../notes/<UUID>.excalidraw)
+![架构图](../drawings/<UUID>.excalidraw)
 ```
 
 也支持 `![[架构图]]`、`![[架构图.excalidraw]]` 和 `![[旧图.excalidraw.md]]`。名称重复时请使用具体文件名。标记为 `excalidraw` 的代码块可以直接放入标准 Excalidraw JSON 并显示预览；代码块中的绘图需要在 Markdown 源码中修改。
@@ -89,7 +86,7 @@ Obsidian 的 `excalidraw-plugin` Markdown 文件支持 `json` 和 `compressed-js
 
 - 首次选择笔记库，记住上次使用的文件夹，切换笔记库。
 - 新建 / 重命名 / 移动笔记与 Excalidraw 绘图，嵌套分类，导入 Markdown / Excalidraw 文件。
-- 文件夹右键菜单支持删除空文件夹或整个分类层级；其中的笔记移入回收站，恢复笔记时重建原分类。支持 Fever 和 FSNotes 笔记库。
+- 文件夹右键菜单支持删除空文件夹或整个分类层级；其中的笔记移入回收站，恢复笔记时重建原分类。
 - 回收站：删除笔记只移动清单记录，正文和附件保留。侧栏回收站支持只读查看正文、图片、绘图和版本历史，按标题、原分类和正文搜索，每页展示 20 篇；只提供还原，不支持再次删除。还原回到原分类，笔记 ID、文件名和历史保持不变；关闭或重启应用后仍可恢复。
 - CodeMirror Markdown 编辑、阅读、双栏预览；表格、代码块、任务列表；输入后 650 ms 自动保存。
 - 多标签页、标题 / 分类 / 正文搜索、标题大纲、字数统计、浅色 / 深色主题。
@@ -183,7 +180,7 @@ git push origin v0.1.0
 
 正文读取和导入限制为 10 MB，搜索跳过超限正文，标题和分类仍可匹配。当前查询的搜索缓存只保存匹配结果，保存后重读变化的文件，并检查外部文件的属性变化。Git 变更列表按可见区域渲染；历史和文件差异每页最多 200 行，历史差异过大时可分页查看两个版本的内容。未指定语言、不支持的语言及超过 32 KiB 的代码块按纯文本展示。
 
-Git 状态查询会合并并发请求；前台约每 15 秒刷新，页面在后台时约每 60 秒刷新，保存和 Git 操作仍立即刷新。历史列表只在面板可见、选择的笔记或 HEAD 变化时刷新。批量导图先检查全部文件，中途写入失败会清理本批新图片；已插入未保存草稿的图片会保留，便于重试保存。FSNotes 正文保存不再重写未变化的 metadata.json。
+Git 状态查询会合并并发请求；前台约每 15 秒刷新，页面在后台时约每 60 秒刷新，保存和 Git 操作仍立即刷新。历史列表只在面板可见、选择的笔记或 HEAD 变化时刷新。批量导图先检查全部文件，中途写入失败会清理本批新图片；已插入未保存草稿的图片会保留，便于重试保存。
 
 原生集成测试使用临时用户数据目录和临时笔记库，验证真实文件保存、IPC、Git 提交、历史预览和 LFS 图片加载，不使用你的实际笔记库。打包后也可以设置 `FEVER_EXECUTABLE` 为应用可执行文件路径，运行同一测试来验证生产应用。
 
