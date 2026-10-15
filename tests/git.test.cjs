@@ -5,10 +5,13 @@ const os = require('node:os');
 const path = require('node:path');
 const { VaultStore } = require('../electron/vault.cjs');
 
-async function fixture(t, commit = true) {
+async function fixture(t, commit = true, autocrlf = false) {
  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-git-'));
  t.after(() => fs.rm(dir, { recursive: true, force: true }));
  const store = new VaultStore(); await store.open(dir);
+ // Keep byte-level assertions independent of the host's Git line-ending defaults.
+ await store.git(['config', '--local', 'core.autocrlf', String(autocrlf)]);
+ await store.git(['config', '--local', 'core.eol', 'lf']);
  await store.configure({ author: 'Git Test', email: 'git@example.com', remote: '' });
  const note = store.manifest.notes[0], file = `notes/${note.filename}`;
  if (commit) await store.commit('initial');
@@ -107,15 +110,17 @@ test('bulk staging validates every changed file before updating the index', asyn
  assert.ok((await store.status()).changes.some(change => change.path === file));
 });
 
-test('discard restores modified and deleted files, removes new notes and reloads the manifest', async t => {
- const { store, dir, note, file } = await fixture(t);
+for (const autocrlf of [false, true]) {
+test(`discard restores modified and deleted files, removes new notes and reloads the manifest (autocrlf=${autocrlf})`, async t => {
+ const { store, dir, note, file } = await fixture(t, true, autocrlf);
  const original = await store.read(note.id), originalTitle = note.title;
+ const restored = autocrlf ? original.replace(/\n/g, '\r\n') : original;
  await store.save(note.id, 'changed'); await store.stage(file); await store.discard(file);
- assert.equal(await store.read(note.id), original);
+ assert.equal(await store.read(note.id), restored);
  assert.ok(!(await store.status()).changes.some(c => c.path === file));
  await fs.unlink(path.join(dir, file));
  assert.match((await store.diff(file)).patch, /deleted file mode/);
- await store.discard(file); assert.equal(await store.read(note.id), original);
+ await store.discard(file); assert.equal(await store.read(note.id), restored);
  const added = await store.create('discard new note', 'test');
  await store.stage(`notes/${added.filename}`); await store.discard(`notes/${added.filename}`);
  assert.ok(!store.manifest.notes.some(n => n.id === added.id));
@@ -125,21 +130,23 @@ test('discard restores modified and deleted files, removes new notes and reloads
  assert.equal((await store.status()).changes.length, 0);
 });
 
-test('staged renames retain their source path and can be safely unstaged or discarded', async t => {
- const { store, dir } = await fixture(t);
+test(`staged renames retain their source path and can be safely unstaged or discarded (autocrlf=${autocrlf})`, async t => {
+ const { store, dir } = await fixture(t, true, autocrlf);
  const oldPath = 'notes/中文 old [1].txt', newPath = 'notes/中文 new [1].txt';
+ const restored = autocrlf ? 'rename text\r\n' : 'rename text\n';
  await fs.writeFile(path.join(dir, oldPath), 'rename text\n'); await store.commit('add rename fixture');
  await store.git(['mv', '--', oldPath, newPath]);
  const change = (await store.status()).changes.find(c => c.path === newPath);
  assert.equal(change.originalPath, oldPath); assert.equal(change.staged, true);
  assert.match((await store.diff(newPath, true)).patch, /rename from/);
  await store.discard(newPath);
- assert.equal(await fs.readFile(path.join(dir, oldPath), 'utf8'), 'rename text\n');
+ assert.equal(await fs.readFile(path.join(dir, oldPath), 'utf8'), restored);
  await assert.rejects(fs.access(path.join(dir, newPath)), { code: 'ENOENT' });
  await store.git(['mv', '--', oldPath, newPath]); await store.unstage(newPath);
- assert.equal(await fs.readFile(path.join(dir, newPath), 'utf8'), 'rename text\n');
+ assert.equal(await fs.readFile(path.join(dir, newPath), 'utf8'), restored);
  assert.ok((await store.status()).changes.every(c => !c.staged));
 });
+}
 
 test('file operations reject traversal, Git internals and symlink escapes; binary diffs stay readable', async t => {
  const { store, dir } = await fixture(t);
