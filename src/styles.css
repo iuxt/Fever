@@ -191,6 +191,7 @@
 .wysiwyg-toolbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 3px; padding: 7px 22px; background: var(--paper); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .wysiwyg-toolbar > button { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 5px; color: var(--muted); }
 .wysiwyg-toolbar > button.active { background: var(--selected); color: var(--green); }
+.wysiwyg-toolbar > .heading-select { display: flex; justify-content: center; gap: 3px; width: 47px; font-size: 0.8125rem; font-weight: 600; }
 .wysiwyg-toolbar button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .format-divider { width: 1px; height: 17px; background: var(--border); margin: 0 5px; }
 .table-actions { width: 100%; display: flex; flex-wrap: wrap; gap: 12px; padding: 7px 3px 2px; font-size: 0.75rem; color: var(--green); }

@@ -8,7 +8,7 @@ import Paragraph from '@tiptap/extension-paragraph';
 import { TableKit } from '@tiptap/extension-table';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import Placeholder from '@tiptap/extension-placeholder';
-import { Bold, Code2, Heading2, ImagePlus, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Shapes, Table2, Undo2 } from 'lucide-react';
+import { Bold, ChevronDown, Code2, ImagePlus, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Shapes, Table2, Undo2 } from 'lucide-react';
 import { Extension, type Editor } from '@tiptap/core';
 import { formattingShortcuts, shortcutLabel, type FormattingAction } from './editorShortcuts';
 import { AllSelection, NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
@@ -338,7 +338,7 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
  }, [content, editor]);
  useImperativeHandle(ref, () => ({ insertMarkdown: markdown => editor && !editor.isDestroyed ? editor.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run() : false }), [editor]);
  const state = useEditorState({ editor, selector: ({ editor }) => editor ? {
-  bold: editor.isActive('bold'), italic: editor.isActive('italic'), heading: editor.isActive('heading', { level: 2 }),
+  bold: editor.isActive('bold'), italic: editor.isActive('italic'), heading: editor.isActive('heading') ? editor.getAttributes('heading').level as number : null,
   bullet: editor.isActive('bulletList'), ordered: editor.isActive('orderedList'), task: editor.isActive('taskList'),
   quote: editor.isActive('blockquote'), code: editor.isActive('codeBlock'), table: editor.isActive('table'),
   undo: editor.can().undo(), redo: editor.can().redo(),
@@ -422,6 +422,18 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   const coords = editor.view.coordsAtPos(selection.from);
   contextMenu.open({ x: keyboard ? coords.left : event.clientX, y: keyboard ? coords.bottom : event.clientY, label: '编辑器菜单', items, returnFocus: editor.view.dom });
  }
+ function showHeadingMenu(trigger: HTMLButtonElement) {
+  if (!editor) return;
+  const bounds = trigger.getBoundingClientRect();
+  contextMenu.open({ x: bounds.left, y: bounds.bottom + 4, label: '标题级别', returnFocus: trigger,
+   items: ([1, 2, 3, 4, 5] as const).map(level => ({
+    label: `H${level} · ${['一', '二', '三', '四', '五'][level - 1]}级标题`,
+    checked: editor.isActive('heading', { level }),
+    shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === `heading${level}`)!.key, modifier),
+    action: () => editor.chain().focus().toggleHeading({ level }).run(),
+   })),
+  });
+ }
  const button = (label: string, icon: ReactNode, action: () => void, active = false, disabled = false) => {
   const shortcut = formattingShortcuts.find(item => item.label === label || (label === '二级标题' && item.action === 'heading2'));
   const title = shortcut ? `${label} · ${shortcutLabel(shortcut.key, modifier)}` : label;
@@ -431,7 +443,10 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   <div className="wysiwyg-toolbar" role="toolbar" aria-label="正文格式">
    {button('加粗 · ⌘ B', <Bold size={15} />, () => { editor.chain().focus().toggleBold().run(); }, state?.bold)}
    {button('斜体 · ⌘ I', <Italic size={15} />, () => { editor.chain().focus().toggleItalic().run(); }, state?.italic)}
-   {button('二级标题', <Heading2 size={17} />, () => { editor.chain().focus().toggleHeading({ level: 2 }).run(); }, state?.heading)}
+   <button type="button" className={`heading-select${state?.heading ? ' active' : ''}`} title="选择标题级别" aria-label="标题级别" aria-haspopup="menu" aria-expanded={contextMenu.menu?.label === '标题级别'}
+    onMouseDown={event => event.preventDefault()} onClick={event => showHeadingMenu(event.currentTarget)} onKeyDown={event => {
+     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); showHeadingMenu(event.currentTarget); }
+    }}><span>H{state?.heading || ''}</span><ChevronDown size={12} aria-hidden="true" /></button>
    <span className="format-divider" />
    {button('无序列表', <List size={16} />, () => { editor.chain().focus().toggleBulletList().run(); }, state?.bullet)}
    {button('有序列表', <ListOrdered size={16} />, () => { editor.chain().focus().toggleOrderedList().run(); }, state?.ordered)}
