@@ -163,6 +163,137 @@ test('file operations reject traversal, Git internals and symlink escapes; binar
  assert.equal(await fs.readFile(outside, 'utf8'), 'untouched');
 });
 
+for (const autocrlf of [false, true]) {
+test(`bulk discard restores working changes and renames while retaining staged-only files (autocrlf=${autocrlf})`, async t => {
+ const { store, dir, note, file } = await fixture(t, true, autocrlf);
+ const oldPath = 'notes/中文 old [1].txt', newPath = 'notes/中文 new [1].txt', deleted = 'notes/deleted.txt', kept = 'notes/keep [1].txt';
+ for (const name of [oldPath, deleted, kept]) await fs.writeFile(path.join(dir, name), 'original\n');
+ await store.commit('extra files');
+ const original = await store.read(note.id), originalManifest = structuredClone(store.manifest);
+ await fs.writeFile(path.join(dir, kept), 'staged only\n'); await store.stage(kept);
+ await store.save(note.id, 'staged note\n'); await store.stage(file); await store.save(note.id, 'working note\n');
+ await store.git(['mv', '--', oldPath, newPath]); await fs.appendFile(path.join(dir, newPath), 'working rename\n');
+ await fs.unlink(path.join(dir, deleted));
+ const added = await store.create('new staged note', 'temporary');
+ const addedPath = `notes/${added.filename}`;
+ await store.stage(addedPath); await store.save(added.id, 'modified after staging\n');
+ const drawing = await store.create('new drawing', 'temporary', 'excalidraw');
+ const special = 'notes/换行\n:(glob)* [1].txt';
+ await fs.writeFile(path.join(dir, special), 'new file\n');
+ await fs.writeFile(path.join(dir, 'images/new.png'), Buffer.from([0, 1, 2]));
+ const paths = await store.discardAll();
+ assert.ok(paths.includes(file)); assert.ok(paths.includes(oldPath)); assert.ok(paths.includes(newPath));
+ assert.ok(!paths.includes(kept));
+ assert.equal(await store.read(note.id), autocrlf ? original.replace(/\n/g, '\r\n') : original);
+ for (const name of [oldPath, deleted]) assert.equal(await fs.readFile(path.join(dir, name), 'utf8'), autocrlf ? 'original\r\n' : 'original\n');
+ for (const name of [newPath, addedPath, `drawings/${drawing.filename}`, special, 'images/new.png']) await assert.rejects(fs.access(path.join(dir, name)), { code: 'ENOENT' });
+ assert.deepEqual(store.manifest, originalManifest);
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), originalManifest);
+ assert.equal(await fs.readFile(path.join(dir, kept), 'utf8'), 'staged only\n');
+ assert.equal(await store.git(['show', `:${kept}`]), 'staged only\n');
+ const remaining = (await store.status()).changes;
+ assert.equal(remaining.length, 1); assert.equal(remaining[0].path, kept);
+ assert.equal(remaining[0].staged, true); assert.equal(remaining[0].unstaged, false);
+ assert.deepEqual(await store.discardAll(), []);
+});
+}
+
+test('bulk discard uses one status scan and batches many long literal paths', async t => {
+ const { store, dir } = await fixture(t);
+ const files = Array.from({ length: 200 }, (_, index) => `notes/${String(index).padStart(3, '0')}-${'long-name-'.repeat(16)} [中文].txt`);
+ for (const file of files) await fs.writeFile(path.join(dir, file), 'original\n');
+ await store.commit('many files');
+ for (const file of files) await fs.writeFile(path.join(dir, file), 'modified\n');
+ const git = store.git.bind(store), calls = [];
+ store.git = async (...args) => { calls.push(args[0]); return git(...args); };
+ assert.equal((await store.discardAll()).length, files.length);
+ assert.equal(calls.filter(args => args[0] === 'status').length, 1);
+ assert.ok(calls.length <= 8, `expected batched Git commands, got ${calls.length}`);
+ assert.ok(calls.filter(args => args[0] === 'restore').length > 1, 'long paths should be split into bounded commands');
+ for (const file of files) assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), 'original\n');
+ assert.equal((await store.status()).changes.length, 0);
+});
+
+test('bulk discard validates protected trash and symlinks before restoring any files', async t => {
+ const { store, dir, note, file } = await fixture(t);
+ await store.save(note.id, 'keep working edit');
+ const added = await store.create('trashed new note', ''); await store.remove(added.id);
+ await assert.rejects(store.discardAll(), /回收站.*只读/);
+ assert.equal(await store.read(note.id), 'keep working edit');
+ assert.equal(await store.read(added.id, 'trash'), '# trashed new note\n\n');
+ await store.restoreTrash(added.id);
+ const outside = path.join(dir, 'outside.txt'); await fs.writeFile(outside, 'outside content');
+ await fs.symlink(outside, path.join(dir, 'notes/link.txt'));
+ await assert.rejects(store.discardAll(), /符号链接/);
+ assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), 'keep working edit');
+ await fs.access(path.join(dir, 'notes', added.filename));
+ assert.equal(await fs.readFile(outside, 'utf8'), 'outside content');
+});
+
+test('bulk discard rejects an unborn or invalid HEAD manifest before changing files', async t => {
+ const { store, dir, note, file } = await fixture(t, false);
+ await store.save(note.id, 'keep before initial commit');
+ await assert.rejects(store.discardAll(), /初始笔记库/);
+ assert.equal(await store.read(note.id), 'keep before initial commit');
+ const manifest = await fs.readFile(path.join(dir, 'fever.json'), 'utf8');
+ await fs.writeFile(path.join(dir, 'fever.json'), '{broken');
+ await store.git(['add', '-A']); await store.git(['commit', '-m', 'invalid manifest fixture']);
+ await fs.writeFile(path.join(dir, 'fever.json'), manifest);
+ await store.save(note.id, 'keep with invalid HEAD'); await store.stage(file);
+ await store.save(note.id, 'working with invalid HEAD');
+ await assert.rejects(store.discardAll(), /JSON/);
+ assert.equal(await store.read(note.id), 'working with invalid HEAD');
+ assert.equal(await store.git(['show', `:${file}`]), 'keep with invalid HEAD');
+});
+
+test('bulk discard removes new note records when the manifest is staged-only', async t => {
+ const { store, dir } = await fixture(t);
+ const added = await store.create('new note', ''); await store.stage('fever.json');
+ await store.discardAll();
+ assert.ok(!store.manifest.notes.some(note => note.id === added.id));
+ const persisted = JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'));
+ assert.ok(!persisted.notes.some(note => note.id === added.id));
+ await assert.rejects(fs.access(path.join(dir, 'notes', added.filename)), { code: 'ENOENT' });
+ assert.ok(JSON.parse(await store.git(['show', ':fever.json'])).notes.some(note => note.id === added.id));
+});
+
+test('bulk discard rejects merge conflicts before restoring unrelated files', async t => {
+ const { store, dir, note } = await fixture(t);
+ const conflict = path.join(dir, 'notes/conflict.txt');
+ await fs.writeFile(conflict, 'base\n'); await store.commit('base');
+ await store.git(['checkout', '-b', 'conflicting-side']);
+ await fs.writeFile(conflict, 'side\n'); await store.commit('side');
+ await store.git(['checkout', 'main']);
+ await fs.writeFile(conflict, 'main\n'); await store.commit('main');
+ await store.git(['merge', 'conflicting-side'], true);
+ await store.save(note.id, 'keep unrelated work');
+ const before = await fs.readFile(conflict, 'utf8');
+ assert.match(before, /<<<<<<< HEAD/);
+ await assert.rejects(store.discardAll(), /合并冲突/);
+ assert.equal(await fs.readFile(conflict, 'utf8'), before);
+ assert.equal(await store.read(note.id), 'keep unrelated work');
+ assert.ok((await store.git(['ls-files', '-u'])).trim());
+});
+
+test('bulk discard persists removed note records if a later deletion fails', async t => {
+ const { store, dir } = await fixture(t);
+ await store.create('first new note', ''); await store.create('second new note', '');
+ const paths = (await store.status()).changes.filter(change => change.path.startsWith('notes/')).map(change => change.path);
+ const remove = fs.rm;
+ t.mock.method(fs, 'rm', async (file, options) => {
+  if (file === path.join(store.root, paths[1])) throw new Error('injected deletion failure');
+  return remove(file, options);
+ });
+ await assert.rejects(store.discardAll(), /injected deletion failure/);
+ await assert.rejects(fs.access(path.join(dir, paths[0])), { code: 'ENOENT' });
+ await fs.access(path.join(dir, paths[1]));
+ const persisted = JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'));
+ for (const manifest of [store.manifest, persisted]) {
+  assert.ok(!manifest.notes.some(note => `notes/${note.filename}` === paths[0]));
+  assert.ok(manifest.notes.some(note => `notes/${note.filename}` === paths[1]));
+ }
+});
+
 test('the file editor reads and saves text, validates manifests and keeps cached notes in sync', async t => {
  const { store, dir, note, file } = await fixture(t);
  assert.equal((await store.openFile(file)).content, await store.read(note.id));

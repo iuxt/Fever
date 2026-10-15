@@ -454,6 +454,59 @@ class VaultStore {
       await this.persist();
     }
   }); }
+  // Keep command lines below Windows' limit, including quoting and Unicode paths.
+  async gitPaths(args, files) {
+    let output = '', batch = [], size = 0;
+    for (const file of files) {
+      const literal = `:(literal)${file}`, bytes = Buffer.byteLength(literal) + 3;
+      if (batch.length && size + bytes > 24000) {
+        output += await this.git([...args, '--', ...batch]); batch = []; size = 0;
+      }
+      batch.push(literal); size += bytes;
+    }
+    if (batch.length) output += await this.git([...args, '--', ...batch]);
+    return output;
+  }
+  discardAll() { return this.queued(async () => {
+    const changes = (await this.status()).changes.filter(change => change.unstaged);
+    if (!changes.length) return [];
+    // Validate the entire selection before changing files or the index.
+    const trashPaths = new Set((this.manifest.trash || []).map(notePath));
+    for (const change of changes) {
+      await this.validateChange(change);
+      if (trashPaths.has(change.path) || trashPaths.has(change.originalPath)) throw new Error('回收站中的笔记为只读，请先还原到原位置');
+    }
+    const paths = [...new Set(changes.flatMap(change => [change.path, ...(change.originalPath ? [change.originalPath] : [])]))];
+    const hasHead = Boolean((await this.git(['rev-parse', '--verify', 'HEAD'], true)).trim());
+    const tracked = new Set(hasHead ? (await this.gitPaths(['ls-tree', '-r', '--name-only', '-z', 'HEAD'], paths)).split('\0').filter(Boolean) : []);
+    const added = paths.filter(file => !tracked.has(file));
+    if (added.includes(MANIFEST)) throw new Error('请先提交初始笔记库，不能撤销未提交的笔记清单');
+    let restoredManifest;
+    if (tracked.has(MANIFEST)) {
+      restoredManifest = JSON.parse(await this.git(['show', `HEAD:${MANIFEST}`]));
+      validateManifest(restoredManifest);
+    }
+    const indexed = new Set(added.length ? (await this.gitPaths(['ls-files', '-z'], added)).split('\0').filter(Boolean) : []);
+    this.cancelSearch();
+    await this.gitPaths(['restore', '--source=HEAD', '--staged', '--worktree'], [...tracked].filter(file => file !== MANIFEST));
+    await this.gitPaths(['rm', '--cached', '-f'], added.filter(file => indexed.has(file)));
+    const removed = new Set();
+    try {
+      for (const file of added) {
+        await fs.rm(await this.changeFile(file), { force: true }); removed.add(file);
+      }
+    } finally {
+      // Persist once, including when a later deletion fails after removing notes.
+      const notes = this.manifest.notes.filter(note => !removed.has(notePath(note)));
+      if (notes.length !== this.manifest.notes.length) { this.manifest.notes = notes; await this.persist(); }
+    }
+    // Restore metadata last, after removing newly created notes by their paths.
+    if (restoredManifest) {
+      await this.gitPaths(['restore', '--source=HEAD', '--staged', '--worktree'], [MANIFEST]);
+      this.manifest = restoredManifest;
+    }
+    return paths;
+  }); }
   commit(message, stagedOnly = false) { return this.queued(async () => {
     if (typeof message !== 'string' || !message.trim()) throw new Error('请填写提交说明');
     if (!(await this.git(['config', 'user.name'], true)).trim() || !(await this.git(['config', 'user.email'], true)).trim()) throw new Error('请先在设置中配置 Git 用户名和邮箱');

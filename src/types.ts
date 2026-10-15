@@ -11,6 +11,7 @@ export type RevisionComparison = { content: string; previousContent: string; pre
 export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string };
 export type Api = {
   desktop: boolean;
+  platform?: string;
   onCloseTab?: (callback: () => void) => () => void;
   readClipboard?: () => Promise<{ text: string; html?: string }>;
   writeClipboard?: (content: { text: string; html?: string }) => Promise<void>;
@@ -38,6 +39,7 @@ export type Api = {
   stageAll(): Promise<void>;
   unstageAll(): Promise<void>;
   discard(path: string): Promise<void>;
+  discardAll(): Promise<string[]>;
   openFile(path: string): Promise<VaultFile>;
   saveFile(path: string, content: string): Promise<SaveResult | void>;
   commit(message: string, stagedOnly?: boolean): Promise<void>;

@@ -76,8 +76,27 @@ try {
  await expect(page.getByRole('button', { name: '全部取消暂存', exact: true })).toBeDisabled();
  assert.ok((await store.status()).changes.every(change => !change.staged));
  assert.ok(JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8')).categories.includes('raw editor category'));
+ // Exercise the bulk-discard IPC through the actual desktop confirmation dialog.
+ const attributes = await readFile(path.join(folder, '.gitattributes'), 'utf8');
+ await writeFile(path.join(folder, '.gitattributes'), attributes + '# retained staged change\n');
+ await store.stage('.gitattributes');
+ await writeFile(path.join(folder, 'notes/bulk-new [1].txt'), 'remove this new file\n');
+ await page.locator('.cm-content').fill('# bulk working change\n');
+ await expect(page.getByText('所有更改已保存')).toBeVisible();
+ const working = page.getByRole('region', { name: '工作区变更', exact: true });
+ await expect(working.locator('.changes-count')).toHaveText('3');
+ await working.getByRole('button', { name: '全部还原', exact: true }).click();
+ await page.getByRole('dialog').getByRole('button', { name: '全部还原', exact: true }).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ await expect(working.locator('.changes-count')).toHaveText('0');
+ await expect(page.locator('.cm-content')).toContainText('selected content');
+ assert.equal(await readFile(path.join(folder, file), 'utf8'), '# desktop staged\n\nselected content\n');
+ await assert.rejects(readFile(path.join(folder, 'notes/bulk-new [1].txt')), { code: 'ENOENT' });
+ const remaining = (await store.status()).changes;
+ assert.equal(remaining.length, 1); assert.equal(remaining[0].path, '.gitattributes');
+ assert.equal(remaining[0].staged, true); assert.equal(remaining[0].unstaged, false);
  assert.deepEqual(errors, []);
- console.log('Desktop Git diff, individual/global staging, selected commit and discard passed.');
+ console.log('Desktop Git diff, individual/global staging, selected commit and single/bulk discard passed.');
 } finally {
  if (app) await app.close();
  await rm(scratch, { recursive: true, force: true });

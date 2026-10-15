@@ -57,7 +57,7 @@ async function boot() {
     if (selection.canceled) return null;
     const vault = await store.open(selection.filePaths[0]); preferences.vault = vault.path; await persistPrefs(); return vault;
   });
-  for (const method of ['read', 'search', 'cancelSearch', 'save', 'create', 'update', 'remove', 'restoreTrash', 'category', 'removeCategory', 'image', 'completeImageImport', 'localizeImages', 'status', 'diff', 'stage', 'unstage', 'stageAll', 'unstageAll', 'discard', 'openFile', 'saveFile', 'commit', 'pull', 'push', 'history', 'revision', 'revisionComparison', 'restore']) {
+  for (const method of ['read', 'search', 'cancelSearch', 'save', 'create', 'update', 'remove', 'restoreTrash', 'category', 'removeCategory', 'image', 'completeImageImport', 'localizeImages', 'status', 'diff', 'stage', 'unstage', 'stageAll', 'unstageAll', 'discard', 'discardAll', 'openFile', 'saveFile', 'commit', 'pull', 'push', 'history', 'revision', 'revisionComparison', 'restore']) {
     ipcMain.handle(`fever:${method}`, (_event, ...args) => store[method](...args));
   }
   ipcMain.handle('fever:importNotes', async () => {
@@ -80,7 +80,9 @@ async function boot() {
   await createWindow();
 }
 async function createWindow() {
-  window = new BrowserWindow({ width: 1480, height: 950, minWidth: 960, minHeight: 680, backgroundColor: '#f8f9f5', title: 'Fever', icon: appIcon, autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  window = new BrowserWindow({ width: 1480, height: 950, minWidth: 960, minHeight: 680, backgroundColor: '#f8f9f5', title: 'Fever', icon: appIcon, autoHideMenuBar: true,
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 18 } } : {}),
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   window.webContents.on('before-input-event', (event, input) => {
     const modifier = process.platform === 'darwin' ? input.meta : input.control;
     if (input.type === 'keyDown' && modifier && !input.shift && !input.alt && input.key.toLowerCase() === 'w') {

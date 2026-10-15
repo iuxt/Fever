@@ -313,13 +313,13 @@ export default function App() {
  }, [flush]);
  const stageAll = () => void run(() => api.stageAll(), '已暂存全部变更');
  const unstageAll = () => void run(() => api.unstageAll(), '已取消全部暂存');
- async function runLocked(fn: () => Promise<void>, success?: string) {
+ async function runLocked(fn: () => Promise<void>, success?: string, refreshAfter = true) {
   if (workspaceLock.current || busy) return;
   workspaceLock.current = true; setWorkspaceLocked(true); contextMenu.close();
-  try { await run(fn, success); }
+  try { await run(fn, success, refreshAfter); }
   finally { workspaceLock.current = false; setWorkspaceLocked(false); }
  }
- async function run(fn: () => Promise<void>, success?: string) { setBusy(true); try { await flush(); await fn(); await refresh(); if (success) notify(success); } catch (e) { notify((e as Error).message, true); } finally { setBusy(false); } }
+ async function run(fn: () => Promise<void>, success?: string, refreshAfter = true) { setBusy(true); try { await flush(); await fn(); if (refreshAfter) await refresh(); if (success) notify(success); } catch (e) { notify((e as Error).message, true); } finally { setBusy(false); } }
  function showEditorTab(tab: EditorTab) {
   ++readToken.current;
   setSelectedCommit(null); setRevisionComparison(null);
@@ -421,19 +421,14 @@ export default function App() {
  async function discardFile(all = false) {
   if (!all && !discardChange) return;
   await runLocked(async () => {
-   const changes = all ? (await api.status()).changes.filter(change => change.unstaged) : [discardChange!];
-   const paths = new Set(changes.map(change => change.path));
-   const trashPaths = new Set((vault?.manifest.trash || []).map(notePath));
-   if (changes.some(change => trashPaths.has(change.path) || Boolean(change.originalPath && trashPaths.has(change.originalPath)))) throw new Error('回收站中的笔记为只读，请先还原到原位置');
-   // Restore the manifest last so new notes can still be removed by their IDs.
-   changes.sort((a, b) => Number(a.path === 'fever.json') - Number(b.path === 'fever.json'));
+   const changes = all ? (status?.changes || []).filter(change => change.unstaged) : [discardChange!];
+   const paths = new Set(changes.flatMap(change => [change.path, ...(change.originalPath ? [change.originalPath] : [])]));
    try {
-    for (const change of changes) {
-     if ((await api.status()).changes.some(current => current.path === change.path)) await api.discard(change.path);
-    }
+    if (all) for (const path of await api.discardAll()) paths.add(path);
+    else await api.discard(discardChange!.path);
    } finally {
     // Refresh even if one file fails after earlier files have been restored.
-    const v = await api.current(); setVault(v);
+    const v = await api.current(); vaultRef.current = v; setVault(v);
     setTabs(previous => previous.filter(id => v?.manifest.notes.some(note => note.id === id)));
     const next = v?.manifest.notes.find(note => note.id === activeId) || v?.manifest.notes[0];
     if (next) await select(next.id, true); else clearDocument();
@@ -444,10 +439,10 @@ export default function App() {
      setActiveEditorKey(null);
     }
     setEditorTabs(previous => previous.filter(tab => !paths.has(tab.path) || (tab.kind === 'file' && tab.key === activeEditor?.key)));
-    await refresh();
+    await refreshStatus();
    }
    setModal(null); setDiscardChange(null);
-  }, all ? '已还原全部工作区变更' : '已撤销文件变更');
+  }, all ? '已还原全部工作区变更' : '已撤销文件变更', false);
  }
  async function restoreTrashedNote(note: Note) {
   await run(async () => {

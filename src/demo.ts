@@ -46,6 +46,24 @@ const noteIdFor = (path: string) => Object.keys(state.filenames!).find(id => sta
 const persist = () => localStorage.setItem(key, JSON.stringify(state));
 const dirty = (file: string) => { if (!state.dirty.includes(file)) state.dirty.push(file); persist(); };
 const snapshot = () => ({ path: '浏览器演示 / 我的知识库', name: '我的知识库', manifest: structuredClone(state.manifest), lfs: true });
+function discardPaths(paths: string[]) {
+ const selected = new Set(paths), trashPaths = new Set((state.manifest.trash || []).map(notePath));
+ if (paths.some(path => trashPaths.has(path))) throw new Error('回收站中的笔记为只读，请先还原到原位置');
+ const manifest = selected.has('fever.json') ? JSON.parse(state.baseFiles!['fever.json']) as Manifest : undefined;
+ for (const path of paths) {
+  const before = state.baseFiles![path], id = noteIdFor(path);
+  if (path === 'fever.json') continue;
+  if (id) {
+   if (before === undefined) { delete state.contents[id]; state.manifest.notes = state.manifest.notes.filter(note => note.id !== id); }
+   else state.contents[id] = before;
+  } else if (path.startsWith('images/')) {
+   if (before === undefined) delete state.images[`../${path}`]; else state.images[`../${path}`] = before;
+  }
+ }
+ if (manifest) state.manifest = manifest;
+ for (const path of paths) delete state.stagedFiles![path];
+ state.dirty = state.dirty.filter(file => !selected.has(file)); persist();
+}
 const imageImports = new Map<string, string[]>();
 export const demo: Api = {
  desktop: false, current: async () => snapshot(), open: async () => snapshot(),
@@ -110,17 +128,11 @@ export const demo: Api = {
   persist();
  },
  unstageAll: async () => { state.stagedFiles = {}; persist(); },
- discard: async path => {
-  if (state.manifest.trash?.some(note => notePath(note) === path)) throw new Error('回收站中的笔记为只读，请先还原到原位置');
-  const before = state.baseFiles![path], id = noteIdFor(path);
-  if (path === 'fever.json') state.manifest = JSON.parse(before);
-  else if (id) {
-   if (before === undefined) { delete state.contents[id]; state.manifest.notes = state.manifest.notes.filter(note => note.id !== id); }
-   else state.contents[id] = before;
-  } else if (path.startsWith('images/')) {
-   if (before === undefined) delete state.images[`../${path}`]; else state.images[`../${path}`] = before;
-  }
-  delete state.stagedFiles![path]; state.dirty = state.dirty.filter(file => file !== path); persist();
+ discard: async path => { discardPaths([path]); },
+ discardAll: async () => {
+  const paths = fileChanges().filter(change => change.unstaged).map(change => change.path);
+  if (paths.length) discardPaths(paths);
+  return paths;
  },
  openFile: async path => {
   const content = workingFiles()[path];
