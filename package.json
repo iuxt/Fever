@@ -70,6 +70,7 @@
   "build": {
     "appId": "app.fever.notes",
     "productName": "Fever",
+    "afterAllArtifactBuild": "scripts/cleanup-mac-app.cjs",
     "directories": {
       "output": "release"
     },

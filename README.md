@@ -171,9 +171,9 @@ macOS 本地构建并安装到「应用程序」文件夹：
 ./build.sh
 ```
 
-脚本先停止正在运行的 Fever，构建当前 Node.js 架构对应的 `Fever.app`，覆盖安装到 `/Applications/Fever.app`，然后自动启动。缺少构建依赖时会执行 `npm ci`，打包前会显式准备 Electron 运行时（Electron 44 起，`npm ci` 不会自动下载二进制）；首次下载需要联网，之后复用本地运行时。应用程序目录需要管理员权限时会提示输入密码。构建失败时保留原应用，临时构建目录会自动清理。
+脚本先停止正在运行的 Fever，在系统临时目录构建当前 Node.js 架构对应的 `Fever.app`，覆盖安装到 `/Applications/Fever.app`，然后自动启动。缺少构建依赖时会执行 `npm ci`，打包前会显式准备 Electron 运行时（Electron 44 起，`npm ci` 不会自动下载二进制）；首次下载需要联网，之后复用本地运行时。应用程序目录需要管理员权限时会提示输入密码。构建失败时保留原应用，临时构建目录会自动清理，项目目录不留构建出的 `.app`。
 
-已安装 Chrome 时，也可以通过 `PLAYWRIGHT_CHANNEL=chrome npm run test:ui` 运行界面测试。产物位于 `release/`。建议分别在各自的操作系统构建。
+已安装 Chrome 时，也可以通过 `PLAYWRIGHT_CHANNEL=chrome npm run test:ui` 运行界面测试。安装包位于 `release/`，`dist:mac` 成功生成所有 DMG / ZIP 后会自动删除中间产物 `Fever.app`。`npm run pack` 专门用于生成应用目录，会保留 `.app` 供调试。建议分别在各自的操作系统构建。
 
 ### 自动发布 GitHub Release
 

@@ -105,8 +105,7 @@ if [[ ! -x node_modules/electron/dist/Electron.app/Contents/MacOS/Electron ]]; t
   exit 1
 fi
 
-mkdir -p release
-build_dir="$(mktemp -d "$PWD/release/.build.XXXXXX")"
+build_dir="$(mktemp -d "${TMPDIR:-/tmp}/Fever-build.XXXXXX")"
 echo "正在构建 Fever   $arch   …"
 npm run build
 node_modules/.bin/electron-builder --mac --dir "--$arch" --publish never \
