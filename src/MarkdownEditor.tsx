@@ -1,4 +1,4 @@
-import { createContext, isValidElement, memo, useContext, useEffect, useImperativeHandle, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type Ref } from 'react';
+import { createContext, isValidElement, memo, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type Ref } from 'react';
 import { EditorContent, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, useEditorState, type NodeViewProps } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
@@ -21,6 +21,9 @@ import { editorLowlight } from './codeHighlight';
 import CodeLanguageSelect from './CodeLanguageSelect';
 import { imageAltWithWidth, parseImageAlt } from './imageSize';
 import { selectTextLine } from './editorSelection';
+import FindReplace from './FindReplace';
+import type { SearchRequest } from './articleSearch';
+import { ArticleSearch, richTextSearchAdapter } from './richTextSearch';
 
 export type MarkdownEditorHandle = { insertMarkdown: (markdown: string) => boolean };
 type Media = { image: (src: string, alt: string, width?: number) => ReactNode; drawing: (content: string) => ReactNode };
@@ -238,7 +241,7 @@ const FormattingShortcuts = Extension.create({
  },
 });
 const extensions = [
- FormattingShortcuts,
+ FormattingShortcuts, ArticleSearch,
  StarterKit.configure({ paragraph: false, codeBlock: false, underline: false, trailingNode: false, link: { openOnClick: false } }),
  EditorParagraph, EditorCodeBlock, EditorImage, WikiImage,
  TableKit.configure({ table: false }), InteractiveTable,
@@ -264,10 +267,10 @@ function focusEndParagraph(view: EditorView) {
  view.focus();
 }
 
-export default memo(function MarkdownEditor({ content, onChange, media, ref, onError, onInsertImage, onInsertDrawing, onNavigate }: {
+export default memo(function MarkdownEditor({ content, onChange, media, ref, onError, onInsertImage, onInsertDrawing, onNavigate, findRequest }: {
  content: string; onChange: (value: string) => void; media: Media; ref?: Ref<MarkdownEditorHandle>; onError: (message: string) => void;
  onInsertImage: () => void; onInsertDrawing: () => void;
- onNavigate?: (href: string) => boolean;
+ onNavigate?: (href: string) => boolean; findRequest?: SearchRequest;
 }) {
  const contextMenu = useContextMenu();
  const navigate = useRef(onNavigate);
@@ -329,6 +332,7 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   lastContent.current = content;
   editor.commands.setContent(next.body, { contentType: 'markdown', emitUpdate: false });
  }, [content, editor]);
+ const searchAdapter = useMemo(() => editor ? richTextSearchAdapter(editor) : null, [editor]);
  useImperativeHandle(ref, () => ({ insertMarkdown: markdown => editor && !editor.isDestroyed ? editor.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run() : false }), [editor]);
  const state = useEditorState({ editor, selector: ({ editor }) => editor ? {
   bold: editor.isActive('bold'), italic: editor.isActive('italic'), heading: editor.isActive('heading') ? editor.getAttributes('heading').level as number : null,
@@ -452,6 +456,7 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   return <button type="button" title={title} aria-label={label} aria-pressed={active} disabled={disabled} onMouseDown={event => event.preventDefault()} onClick={action} className={active ? 'active' : ''}>{icon}</button>;
  };
  return <MediaContext.Provider value={{ ...media, onError }}>
+  <FindReplace adapter={searchAdapter} request={findRequest} />
   <div className="wysiwyg-toolbar" role="toolbar" aria-label="正文格式">
    {button('加粗 · ⌘ B', <Bold size={15} />, () => { editor.chain().focus().toggleBold().run(); }, state?.bold)}
    {button('斜体 · ⌘ I', <Italic size={15} />, () => { editor.chain().focus().toggleItalic().run(); }, state?.italic)}

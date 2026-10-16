@@ -14,7 +14,7 @@ test('note lifecycle, editing, Git commit, history restore and metadata', async 
  await page.locator('.cm-content').fill('# 集成测试笔记\n\n这是第一版的正文。');
  await expect(page.getByText('所有更改已保存')).toBeVisible();
  await page.getByTitle('编辑模式 · ⌘ E', { exact: true }).click();
- await expect(page.getByText('这是第一版的正文。', { exact: true })).toBeVisible();
+ await expect(page.locator('.wysiwyg-content').getByText('这是第一版的正文。', { exact: true })).toBeVisible();
  await page.getByRole('button', { name: 'Git', exact: true }).click();
  await page.getByPlaceholder('这次记录了什么？').fill('测试首次提交');
  await page.getByRole('button', { name: '提交所有笔记变更' }).click();
@@ -33,7 +33,7 @@ test('note lifecycle, editing, Git commit, history restore and metadata', async 
  await expect(page.locator('.document-space [contenteditable="true"]')).toHaveCount(0);
  await page.getByRole('button', { name: '恢复这个版本' }).click();
  await page.getByTitle('编辑模式 · ⌘ E', { exact: true }).click();
- await expect(page.getByText('这是第一版的正文。', { exact: true })).toBeVisible();
+ await expect(page.locator('.wysiwyg-content').getByText('这是第一版的正文。', { exact: true })).toBeVisible();
  await page.getByTitle('更多笔记操作').click();
  await page.getByRole('button', { name: '重命名 / 移动笔记' }).click();
  await page.getByLabel('笔记标题').fill('重命名后的笔记');
@@ -53,6 +53,7 @@ test('outline, themes, settings and responsive layout', async ({ page }) => {
  await expect(page.getByLabel('远程仓库（origin）')).toBeVisible();
  await page.getByRole('button', { name: '取消', exact: true }).click();
  await page.setViewportSize({ width: 1100, height: 800 });
+ await page.getByTitle('切换右侧面板', { exact: true }).click();
  await expect(page.locator('.inspector')).toBeVisible();
  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
  await page.setViewportSize({ width: 780, height: 800 });

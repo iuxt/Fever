@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('large sidebar renders visible rows, scrolls to the last note, and expands nested folders', async ({ page }) => {
+test('large note list renders visible summaries, scrolls to the last note, and browses nested folders', async ({ page }) => {
  await page.addInitScript(() => {
   const notes = Array.from({ length: 1200 }, (_, i) => ({ id: `large-${i}`, title: `笔记 ${String(i).padStart(4, '0')}`, category: '大库/子分类', filename: `large-${i}.md`, createdAt: '2026-10-07T00:00:00Z', updatedAt: '2026-10-07T00:00:00Z' }));
   localStorage.setItem('fever-demo-v1', JSON.stringify({ manifest: { version: 1, categories: ['大库/子分类', '空分类'], notes }, contents: Object.fromEntries(notes.map((note, i) => [note.id, `# ${note.title}\n\n正文专用编号 ${i === 1199 ? '最后一篇' : i}`])), versions: {}, images: {}, dirty: [], settings: { autoCommit: false, interval: 10, author: '', email: '', remote: '' } }));
@@ -8,30 +8,33 @@ test('large sidebar renders visible rows, scrolls to the last note, and expands 
  await page.goto('/');
  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
  await expect(page.locator('.folder-row')).toHaveCount(2);
- await expect(page.locator('.folder-row[aria-expanded="true"]')).toHaveCount(0);
- await expect(page.locator('.note-tree .note-row')).toHaveCount(0);
+ await expect(page.locator('.folder-toggle[aria-expanded="true"]')).toHaveCount(0);
+ expect(await page.locator('.note-list .note-row').count()).toBeLessThan(60);
+ await expect(page.locator('.note-list .note-row').first()).toContainText('笔记 0000');
  await page.locator('.folder-row').filter({ hasText: '大库' }).click();
- await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toHaveAttribute('aria-expanded', 'false');
- await expect(page.locator('.note-tree .note-row')).toHaveCount(0);
+ await expect(page.getByRole('button', { name: '展开文件夹：大库/子分类', exact: true })).toHaveAttribute('aria-expanded', 'false');
+ expect(await page.locator('.note-list .note-row').count()).toBeLessThan(60);
+ await expect(page.locator('.note-list .note-row').first()).toContainText('笔记 0000');
  await page.locator('.folder-row').filter({ hasText: '子分类' }).click();
  await expect(page.locator('.note-row').filter({ hasText: '笔记 0000' })).toBeVisible();
  await page.locator('.note-row').filter({ hasText: '笔记 0000' }).click();
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('笔记 0000');
- await page.locator('.note-tree').evaluate(element => { element.scrollTop = element.scrollHeight; });
+ await page.locator('.note-list').evaluate(element => { element.scrollTop = element.scrollHeight; });
  await page.locator('.note-row').filter({ hasText: '笔记 1199' }).click();
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('笔记 1199');
  expect(await page.locator('.note-tree .note-row').count()).toBeLessThan(60);
  await page.getByPlaceholder('搜索你的笔记…').fill('正文专用编号 最后一篇');
  await expect(page.locator('.note-tree .note-row')).toHaveCount(1);
- await expect(page.locator('.note-tree .note-row')).toHaveText('笔记 1199');
+ await expect(page.locator('.note-tree .note-row .note-card-title strong')).toHaveText('笔记 1199');
  await page.getByPlaceholder('搜索你的笔记…').fill('');
- await expect(page.locator('.note-row.selected')).toHaveText('笔记 1199');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('笔记 1199');
  await page.locator('.tabs .tab').first().getByRole('button').first().click();
- await expect(page.locator('.note-row.selected')).toHaveText('笔记 0000');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('笔记 0000');
  await page.reload();
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('笔记 0000');
- await expect(page.locator('.folder-row[aria-expanded="true"]')).toHaveCount(0);
- await expect(page.locator('.note-tree .note-row')).toHaveCount(0);
+ await expect(page.getByRole('button', { name: '折叠文件夹：大库', exact: true })).toHaveAttribute('aria-expanded', 'true');
+ expect(await page.locator('.note-list .note-row').count()).toBeLessThan(60);
+ await expect(page.locator('.note-list .note-row').first()).toContainText('笔记 0000');
 });
 
 test('file picker imports the image before its FileList is reset', async ({ page }) => {

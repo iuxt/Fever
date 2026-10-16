@@ -110,6 +110,8 @@ test('move dialog browses nested and empty folders, searches paths and saves onl
  await page.getByRole('button', { name: '保存更改', exact: true }).click();
  await expect(dialog).toHaveCount(0);
  await expect(note(page, '移动后的笔记')).toBeVisible();
+ await expect(page.locator('.wysiwyg-content h1')).toHaveText('保留的笔记');
+ await page.getByRole('button', { name: /^全部笔记/ }).click();
  await expect(note(page, '保留的笔记')).toHaveClass(/selected/);
  await page.reload();
  const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));

@@ -48,7 +48,7 @@ async function desktopFixture(page: Page, content = '# Note A\n\n[Other note](b.
  }, content);
  await page.goto('/');
  await page.locator('.note-row').filter({ hasText: 'Note A' }).click();
- await expect(page.locator('.note-row.selected')).toHaveText('Note A');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('Note A');
  await expect(page.locator('.wysiwyg-content')).toBeVisible();
 }
 
@@ -58,13 +58,14 @@ for (const mode of ['rich', 'source']) {
   if (mode === 'source') await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
   const editor = page.locator(mode === 'source' ? '.cm-content' : '.wysiwyg-content');
   const calls = await page.evaluate(() => window.reviewControls.currentCalls);
+  await page.getByRole('button', { name: '大纲', exact: true }).click();
   const oldTime = await page.locator('.note-info dd').nth(1).textContent();
   for (const value of ['First edit', 'Second edit']) {
    await editor.fill(value);
    await expect.poll(() => page.evaluate(() => window.reviewControls.contents.a)).toContain(value);
    await expect(page.getByText('所有更改已保存')).toBeVisible();
    expect(await page.evaluate(() => window.reviewControls.currentCalls)).toBe(calls);
-   await expect(page.locator('.note-row.selected')).toHaveText('Note A');
+   await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('Note A');
   }
   await expect(page.locator('.note-info dd').nth(1)).not.toHaveText(oldTime!);
   await editor.fill('Manual save');
@@ -78,7 +79,7 @@ for (const mode of ['rich', 'source']) {
 test('autosave retains content search results during a search and removes matches after content changes', async ({ page }) => {
  await desktopFixture(page, '# Note A\n\nUnique search phrase');
  await page.getByPlaceholder('搜索你的笔记…').fill('Unique search phrase');
- await expect(page.locator('.note-row')).toHaveText('Note A');
+ await expect(page.locator('.note-row .note-card-title strong')).toHaveText('Note A');
  await page.evaluate(() => {
   const search = window.fever!.search;
   window.fever!.search = async query => {
@@ -92,7 +93,7 @@ test('autosave retains content search results during a search and removes matche
  });
  await page.locator('.wysiwyg-content').fill('Unique search phrase with more text');
  await expect.poll(() => page.evaluate(() => window.reviewControls.waitingSearch)).toBe(true);
- await expect(page.locator('.note-row')).toHaveText('Note A');
+ await expect(page.locator('.note-row .note-card-title strong')).toHaveText('Note A');
  await page.evaluate(() => window.reviewControls.releaseSearch!());
  await page.locator('.wysiwyg-content').fill('Unrelated content');
  await expect.poll(() => page.evaluate(() => window.reviewControls.contents.a)).toContain('Unrelated content');
@@ -125,7 +126,7 @@ test('switching to a new library leaves the workspace empty', async ({ page }) =
  await desktopFixture(page);
  await page.getByTitle('设置', { exact: true }).click();
  await page.getByRole('button', { name: '切换', exact: true }).click();
- await expect(page.locator('.note-row')).toHaveText('New vault note');
+ await expect(page.locator('.note-row .note-card-title strong')).toHaveText('New vault note');
  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
  await expect(page.locator('.tab')).toHaveCount(0);
 });
@@ -196,7 +197,7 @@ test('preview opens a migrated note link inside the app and preserves the source
  await desktopFixture(page, content);
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  await page.locator('.prose').getByRole('link', { name: 'Other note' }).click();
- await expect(page.locator('.note-row.selected')).toHaveText('Note B');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('Note B');
  await expect(page.locator('.cm-content')).toContainText('Target body');
  expect(await page.evaluate(() => window.reviewControls.contents.a)).toBe(content);
  expect(page.url()).toBe('http://127.0.0.1:5173/');
@@ -206,9 +207,9 @@ test('rich editor follows internal links with a modifier while normal clicks rem
  await desktopFixture(page, '# Note A\n\n[Other note](../notes/b.md)\n');
  const link = page.locator('.wysiwyg-content').getByRole('link', { name: 'Other note' });
  await link.click();
- await expect(page.locator('.note-row.selected')).toHaveText('Note A');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('Note A');
  await link.click({ modifiers: ['ControlOrMeta'] });
- await expect(page.locator('.note-row.selected')).toHaveText('Note B');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('Note B');
  await expect(page.locator('.wysiwyg-content')).toContainText('Target body');
 });
 

@@ -1,18 +1,17 @@
 import { memo, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, Shapes } from 'lucide-react';
-import { isDrawingNote } from './drawings';
+import { Folder, FolderOpen } from 'lucide-react';
 import type { Note } from './types';
 import { keyboardContextMenu } from './ContextMenu';
 
 type FolderNode = { path: string; name: string; children: Map<string, FolderNode>; notes: Note[]; total: number };
-type Row = { depth: number } & ({ kind: 'note'; note: Note } | { kind: 'folder'; folder: FolderNode });
+type Row = { depth: number; folder: FolderNode };
 const ROW_HEIGHT = 36, OVERSCAN = 6;
 
 export type NoteTreeTarget = { kind: 'note'; note: Note } | { kind: 'folder'; path: string } | { kind: 'blank' };
 
 type NoteTreeProps = {
- notes: Note[]; categories: string[]; results: Note[] | null; activeId: string; collapsed: Set<string>;
- onToggle: (path: string) => void; onSelect: (id: string) => void;
+ notes: Note[]; categories: string[]; selectedFolder: string | null; collapsed: Set<string>;
+ onSelect: (path: string) => void;
  onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
 };
 // Saving content only changes timestamps; neither the rows nor their actions use them.
@@ -30,13 +29,13 @@ function useStableRows<T extends Note[] | null>(notes: T): T {
 }
 
 export default memo(function NoteTree(props: NoteTreeProps) {
- const notes = useStableRows(props.notes), results = useStableRows(props.results);
- return <TreeRows {...props} notes={notes} results={results} />;
+ const notes = useStableRows(props.notes);
+ return <TreeRows {...props} notes={notes} />;
 });
 
-const TreeRows = memo(function TreeRows({ notes, categories, results, activeId, collapsed, onToggle, onSelect, onContextMenu }: NoteTreeProps) {
+const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, collapsed, onSelect, onContextMenu }: NoteTreeProps) {
  const container = useRef<HTMLDivElement>(null);
- const previous = useRef({ activeId: '', searching: false });
+ const previous = useRef<string | null>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
  const root = useMemo(() => {
   const makeFolder = (path = '', name = ''): FolderNode => ({ path, name, children: new Map(), notes: [], total: 0 });
@@ -56,17 +55,15 @@ const TreeRows = memo(function TreeRows({ notes, categories, results, activeId, 
   return root;
  }, [notes, categories]);
  const rows = useMemo(() => {
-  if (results) return results.map(note => ({ kind: 'note', note, depth: 0 } as Row));
   const rows: Row[] = [];
   const walk = (folder: FolderNode, depth: number) => {
-   folder.notes.forEach(note => rows.push({ kind: 'note', note, depth }));
    for (const child of folder.children.values()) {
-    rows.push({ kind: 'folder', folder: child, depth });
+    rows.push({ folder: child, depth });
     if (!collapsed.has(child.path)) walk(child, depth + 1);
    }
   };
   walk(root, 0); return rows;
- }, [root, collapsed, results]);
+ }, [root, collapsed]);
  useLayoutEffect(() => {
   const element = container.current!;
   const update = () => setViewport({ top: element.scrollTop, height: element.clientHeight });
@@ -75,29 +72,23 @@ const TreeRows = memo(function TreeRows({ notes, categories, results, activeId, 
  }, []);
  useLayoutEffect(() => {
   const element = container.current!;
-  const selectionChanged = previous.current.activeId !== activeId;
-  const searchClosed = previous.current.searching && !results;
-  if (results && !previous.current.searching) element.scrollTop = 0;
-  previous.current = { activeId, searching: Boolean(results) };
-  const index = selectionChanged || searchClosed ? rows.findIndex(row => row.kind === 'note' && row.note.id === activeId) : -1;
+  const index = previous.current !== selectedFolder ? rows.findIndex(row => row.folder.path === selectedFolder) : -1;
+  previous.current = selectedFolder;
   if (index >= 0) {
    const top = index * ROW_HEIGHT;
    if (top < element.scrollTop || top + ROW_HEIGHT > element.scrollTop + element.clientHeight) element.scrollTop = top;
   } else element.scrollTop = Math.min(element.scrollTop, Math.max(0, rows.length * ROW_HEIGHT - element.clientHeight));
   setViewport({ top: element.scrollTop, height: element.clientHeight });
- }, [activeId, rows]);
+ }, [selectedFolder, rows]);
  const start = Math.max(0, Math.floor(viewport.top / ROW_HEIGHT) - OVERSCAN);
  const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / ROW_HEIGHT) + OVERSCAN);
  return <div ref={container} className="note-tree virtual-note-tree" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
   <div className="note-tree-rows" style={{ height: rows.length * ROW_HEIGHT }}>
-   {rows.slice(start, end).map((row, offset) => <div className="note-tree-row" key={row.kind === 'note' ? `note:${row.note.id}` : `folder:${row.folder.path}`} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }}>
-    {row.kind === 'note' ? <button className={`note-row ${row.note.id === activeId ? 'selected' : ''}`} onContextMenu={event => onContextMenu(event, { kind: 'note', note: row.note })} onClick={() => onSelect(row.note.id)} title={row.note.title}>
-     {isDrawingNote(row.note) ? <Shapes size={15} /> : <FileText size={15} />}<span>{row.note.title}</span>{row.note.id === activeId && <span className="selected-dot" />}
-    </button> : <button className="folder-row" onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })} onClick={() => onToggle(row.folder.path)} aria-expanded={!collapsed.has(row.folder.path)}>
-     {collapsed.has(row.folder.path) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}{collapsed.has(row.folder.path) ? <Folder size={15} /> : <FolderOpen size={15} />}<span>{row.folder.name}</span><small>{row.folder.total}</small>
-    </button>}
+   {rows.slice(start, end).map((row, offset) => <div className="note-tree-row folder-tree-row" key={row.folder.path} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }}>
+    <button className={`folder-row ${selectedFolder === row.folder.path ? 'selected' : ''}`} aria-pressed={selectedFolder === row.folder.path} title={row.folder.path} onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })} onClick={() => onSelect(row.folder.path)}>
+     {selectedFolder === row.folder.path ? <FolderOpen size={16} /> : <Folder size={16} />}<span>{row.folder.name}</span><small>{row.folder.total}</small>
+    </button>
    </div>)}
   </div>
-  {results && !results.length && <p className="search-empty">没有找到相关笔记</p>}
  </div>;
 });

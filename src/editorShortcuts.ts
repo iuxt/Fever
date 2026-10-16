@@ -13,5 +13,5 @@ export const formattingShortcuts = [
 ];
 export type FormattingAction = typeof formattingShortcuts[number]['action'];
 export function shortcutLabel(key: string, modifier: string) {
- return key.replace('Mod-', modifier).replace('Shift-', modifier === '⌘' ? '⇧' : 'Shift+').replace(/([a-z])$/, letter => letter.toUpperCase());
+ return key.replace('Mod-', modifier).replace('Alt-', modifier === '⌘' ? '⌥' : 'Alt+').replace('Shift-', modifier === '⌘' ? '⇧' : 'Shift+').replace(/([a-z])$/, letter => letter.toUpperCase());
 }

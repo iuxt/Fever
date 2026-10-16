@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type MouseEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import type { Extension } from '@codemirror/state';
 import CodeMirror, { EditorView, Transaction, type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
@@ -7,12 +7,16 @@ import { redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/command
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
 import { readClipboard, writeClipboard } from './clipboard';
 import { sourceFormatting } from './sourceFormatting';
+import FindReplace from './FindReplace';
+import type { SearchAdapter, SearchRequest } from './articleSearch';
+import { sourceSearchAdapter, sourceSearchHighlights, sourceSearchUpdates } from './sourceSearch';
 
 // Reuse the language extension across edits and background status refreshes.
 const extensions = [markdown({ codeLanguages: languages }), sourceFormatting];
-const basicSetup = { lineNumbers: true, foldGutter: false, highlightActiveLine: true };
-export default memo(function SourceEditor({ content, dark, onChange, onError, filename }: { content: string; dark: boolean; onChange: (value: string) => void; onError: (message: string) => void; filename?: string }) {
+const basicSetup = { lineNumbers: true, foldGutter: false, highlightActiveLine: true, searchKeymap: false };
+export default memo(function SourceEditor({ content, dark, onChange, onError, filename, findRequest }: { content: string; dark: boolean; onChange: (value: string) => void; onError: (message: string) => void; filename?: string; findRequest?: SearchRequest }) {
  const ref = useRef<ReactCodeMirrorRef>(null), contextMenu = useContextMenu();
+ const [searchAdapter, setSearchAdapter] = useState<SearchAdapter | null>(null);
  const [fileExtensions, setFileExtensions] = useState<Extension[]>(filename ? [] : extensions);
  useEffect(() => {
   if (!filename) { setFileExtensions(extensions); return; }
@@ -22,6 +26,7 @@ export default memo(function SourceEditor({ content, dark, onChange, onError, fi
   language?.load().then(extension => { if (!cancelled) setFileExtensions(/\.(md|markdown)$/i.test(filename) ? [extension, sourceFormatting] : [extension]); }).catch(() => {});
   return () => { cancelled = true; };
  }, [filename]);
+ const editorExtensions = useMemo(() => [...fileExtensions, sourceSearchHighlights, sourceSearchUpdates], [fileExtensions]);
  function showContextMenu(event: MouseEvent<HTMLElement>) {
   const view = ref.current?.view;
   if (!view) return;
@@ -61,7 +66,8 @@ export default memo(function SourceEditor({ content, dark, onChange, onError, fi
   contextMenu.open({ x: keyboard ? coords.left : event.clientX, y: keyboard ? coords.bottom : event.clientY, label: '源码编辑器菜单', items, returnFocus: view.contentDOM });
  }
  return <>
-  <CodeMirror className="source-codemirror" ref={ref} value={content} extensions={fileExtensions} theme={dark ? 'dark' : 'light'} basicSetup={basicSetup} onChange={onChange} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} height="100%" placeholder="让一个想法，从这里开始…" />
+  <FindReplace adapter={searchAdapter} request={findRequest} />
+  <CodeMirror className="source-codemirror" ref={ref} value={content} extensions={editorExtensions} onCreateEditor={view => setSearchAdapter(sourceSearchAdapter(view))} theme={dark ? 'dark' : 'light'} basicSetup={basicSetup} onChange={onChange} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} height="100%" placeholder="让一个想法，从这里开始…" />
   <ContextMenu menu={contextMenu.menu} onClose={contextMenu.close} onError={onError} />
  </>;
 });

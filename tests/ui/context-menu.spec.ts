@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
  await page.goto('/');
  await page.locator('.folder-row').filter({ hasText: '测试' }).click();
  await page.locator('.note-row').filter({ hasText: '当前笔记' }).click();
- await expect(page.locator('.note-row.selected')).toHaveText('当前笔记');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('当前笔记');
 });
 test.afterEach(({ page }) => { expect((page as Page & { errors: string[] }).errors).toEqual([]); });
 
@@ -39,13 +39,13 @@ test('list actions target the clicked note while keeping the current document op
  await other.click({ button: 'right' });
  await menu(page).getByRole('menuitem', { name: '复制 Markdown', exact: true }).click();
  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('其他内容');
- await expect(page.locator('.note-row.selected')).toHaveText('当前笔记');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('当前笔记');
  await other.click({ button: 'right' });
  await menu(page).getByRole('menuitem', { name: '重命名 / 移动笔记' }).click();
  await expect(page.getByLabel('笔记标题')).toHaveValue('另一篇笔记');
  await page.getByLabel('笔记标题').fill('改名的笔记');
  await page.getByRole('button', { name: '保存更改' }).click();
- await expect(page.locator('.note-row.selected')).toHaveText('当前笔记');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('当前笔记');
  const renamed = page.locator('.note-row').filter({ hasText: '改名的笔记' });
  await renamed.click({ button: 'right' });
  await menu(page).getByRole('menuitem', { name: '删除笔记', exact: true }).click();
@@ -67,14 +67,14 @@ test('folder and blank menus create in the correct category and search rows open
  await menu(page).getByRole('menuitem', { name: '新建子分类' }).click();
  await expect(page.getByLabel('分类名称')).toHaveValue('测试/');
  await page.getByRole('button', { name: '取消', exact: true }).click();
- await page.locator('.note-tree').click({ button: 'right', position: { x: 30, y: 220 } });
+ await page.locator('.note-list').click({ button: 'right', position: { x: 30, y: 330 } });
  await menu(page).getByRole('menuitem', { name: '新建笔记', exact: true }).click();
- await expect(page.getByLabel('所属分类')).toHaveValue('');
+ await expect(page.getByLabel('所属分类')).toHaveValue('测试');
  await page.getByRole('button', { name: '取消', exact: true }).click();
  await page.getByPlaceholder('搜索你的笔记…').fill('另一篇');
  await page.locator('.note-row').click({ button: 'right' });
  await menu(page).getByRole('menuitem', { name: '打开笔记' }).click();
- await expect(page.locator('.note-row.selected')).toHaveText('另一篇笔记');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('另一篇笔记');
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('另一篇');
 });
 

@@ -58,7 +58,7 @@ test('trash browses read-only notes and history with scoped search and paginatio
  await expect(page.locator('.trash-item')).toHaveCount(20);
  await page.screenshot({ path: 'test-results/trash-browser.png' });
  await page.getByRole('button', { name: '还原到原位置', exact: true }).click();
- await expect(page.locator('.note-row.selected')).toHaveText('已删除文章 0');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('已删除文章 0');
  await expect(page.locator('.wysiwyg-content')).toContainText('正文专属检索词');
  await expect(page.locator('.folder-row').filter({ hasText: '消失的文件夹' })).toHaveCount(1);
  await expect(page.locator('.history-item')).toHaveCount(1);
@@ -98,7 +98,7 @@ test('deleting saves pending edits and restores the original note after reload',
  await page.screenshot({ path: 'test-results/trash.png' });
  await page.getByRole('button', { name: '恢复：保留未提交正文', exact: true }).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
- await expect(page.locator('.note-row.selected')).toHaveText('保留未提交正文');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('保留未提交正文');
  await expect(page.locator('.wysiwyg-content')).toContainText('尚未提交的修改。');
  const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest);
  expect(restored.trash).toEqual([]);
