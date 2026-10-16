@@ -20,6 +20,7 @@ import { InteractiveTable } from './InteractiveTable';
 import { editorLowlight } from './codeHighlight';
 import CodeLanguageSelect from './CodeLanguageSelect';
 import { imageAltWithWidth, parseImageAlt } from './imageSize';
+import { selectTextLine } from './editorSelection';
 
 export type MarkdownEditorHandle = { insertMarkdown: (markdown: string) => boolean };
 type Media = { image: (src: string, alt: string, width?: number) => ReactNode; drawing: (content: string) => ReactNode };
@@ -278,26 +279,18 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   content: initial.current.body, contentType: 'markdown',
   editorProps: {
    attributes: { class: 'prose wysiwyg-content', role: 'textbox', 'aria-label': '笔记正文', 'aria-multiline': 'true', spellcheck: 'false' },
-   handleClick(_view, _position, event) {
+   handleClick(view, _position, event) {
+    // A fourth or later native click can be ProseMirror's next single click.
+    // Keep its mouseup handler from collapsing the line selected on mousedown.
+    if (event.detail >= 3 && selectTextLine(view, event)) return true;
     if (!(event.ctrlKey || event.metaKey) || !(event.target instanceof Element)) return false;
     const href = event.target.closest('a')?.getAttribute('href');
     if (!href || !navigate.current?.(href)) return false;
     event.preventDefault();
     return true;
    },
-   handleTripleClick(view, position, event) {
-    if (event.button !== 0) return false;
-    const $position = view.state.doc.resolve(position);
-    if ($position.parent.type.name !== 'codeBlock') return false;
-    // ProseMirror selects the whole textblock by default; code uses newline-delimited lines.
-    const text = $position.parent.textContent, offset = $position.parentOffset;
-    const start = text.slice(0, offset).lastIndexOf('\n') + 1;
-    const newline = text.indexOf('\n', offset);
-    const end = newline < 0 ? text.length : newline + 1;
-    const selection = TextSelection.create(view.state.doc, $position.start() + start, $position.start() + end);
-    view.focus();
-    view.dispatch(view.state.tr.setSelection(selection).setMeta('pointer', true));
-    return true;
+   handleTripleClick(view, _position, event) {
+    return selectTextLine(view, event);
    },
    handleKeyDown(view, event) {
     if (event.key !== 'Enter' || event.isComposing || view.composing || event.ctrlKey || event.metaKey || event.altKey) return false;
@@ -344,9 +337,28 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   undo: editor.can().undo(), redo: editor.can().redo(),
  } : null });
  if (!editor) return null;
+ function selectDocumentLine(event: MouseEvent<HTMLElement>) {
+  if (!editor || event.detail < 3) return;
+  // Browser click counts keep increasing while ProseMirror cycles after three.
+  // Bound both mousedown selection and native mouseup finalization. Mouseup
+  // must still reach ProseMirror's document listener to clean up its drag state.
+  if (selectTextLine(editor.view, event.nativeEvent)) {
+   event.preventDefault();
+   if (event.type !== 'mouseup') event.stopPropagation();
+  }
+ }
  function clickDocumentSurface(event: MouseEvent<HTMLElement>) {
   if (!editor || event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
   const view = editor.view;
+  if (event.detail > 1 && event.target instanceof Element && !event.target.closest('input, textarea, button, select')) {
+   const uneditable = event.target.closest('[contenteditable="false"]');
+   const container = view.dom.contains(event.target) && !event.target.closest('p, h1, h2, h3, h4, h5, h6, pre');
+   if (uneditable || container) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+   }
+  }
   // Only the document's blank surface should create a line, never node controls.
   const tableBottom = event.target instanceof Element && event.target.classList.contains('table-hover-edge') && event.target.classList.contains('bottom');
   if (event.target !== event.currentTarget && event.target !== view.dom && event.target !== view.dom.parentElement && !tableBottom) return;
@@ -467,7 +479,7 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
     <button onMouseDown={e => e.preventDefault()} onClick={() => editor.chain().focus().deleteTable().run()}>删除表格</button>
    </div>}
   </div>
-  <article className="document wysiwyg-document" onMouseDownCapture={clickDocumentSurface}>
+  <article className="document wysiwyg-document" onMouseDownCapture={clickDocumentSurface} onMouseDown={selectDocumentLine} onMouseUp={selectDocumentLine}>
    {prefix.current && <details className="editor-frontmatter"><summary>文档属性 · 在源码中编辑</summary><pre>{prefix.current}</pre></details>}
    <EditorContent editor={editor} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} />
   </article>

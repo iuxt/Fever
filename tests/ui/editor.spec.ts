@@ -176,6 +176,128 @@ test('preserves double clicks inside code and triple clicks inside prose', async
  expect(await saved(page)).toBe(original);
 });
 
+for (const block of [
+ { name: 'paragraph with inline formatting', markdown: 'first **bold** line  \nsecond line', selector: ':scope > p', text: 'first bold line', selected: 'first bold line\n' },
+ { name: 'paragraph after a hard break', markdown: 'first **bold** line  \nsecond line', selector: ':scope > p', text: 'second line', selected: 'second line', clickText: 'second' },
+ { name: 'paragraph after a soft break', markdown: 'first **bold** line\nsecond line', selector: ':scope > p', text: 'second line', selected: 'second line', clickText: 'second' },
+ { name: 'heading', markdown: '## heading text', selector: 'h2', text: 'heading text', selected: 'heading text' },
+ { name: 'bullet list', markdown: '- first item\n- second item', selector: 'li p', text: 'first item', selected: 'first item' },
+ { name: 'nested ordered list', markdown: '1. outer\n   1. nested item\n   2. next item', selector: 'li p', text: 'nested item', selected: 'nested item' },
+ { name: 'task list', markdown: '- [ ] task item\n- [x] next task', selector: 'li p', text: 'task item', selected: 'task item' },
+ { name: 'blockquote', markdown: '> quote line  \n> second quote line', selector: 'blockquote p', text: 'quote line', selected: 'quote line\n' },
+ { name: 'table cell', markdown: '| header | other |\n| --- | --- |\n| cell text | next cell |', selector: 'td p', text: 'cell text', selected: 'cell text' },
+]) {
+ test(`bounds repeated clicks to the current line in a ${block.name}`, async ({ page }) => {
+  const original = `${block.markdown}\n\n\`\`\`js\nconst below = 42;\n\`\`\`\n`;
+  await seed(page, original);
+  const target = page.locator('.wysiwyg-content').locator(block.selector).filter({ hasText: block.text }).first();
+  if (block.name === 'table cell') {
+   await target.click();
+   await expect(page.getByRole('button', { name: '添加行', exact: true })).toBeVisible();
+  }
+  const point = await target.evaluate((element, needle) => {
+   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+   let text = walker.nextNode()!;
+   while (needle && !text.textContent!.includes(needle)) text = walker.nextNode()!;
+   const offset = needle ? text.textContent!.indexOf(needle) + 1 : 1;
+   const range = document.createRange(); range.setStart(text, offset); range.setEnd(text, offset + 1);
+   const rect = range.getBoundingClientRect();
+   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  }, block.clickText);
+  await page.mouse.move(point.x, point.y);
+  for (let clickCount = 1; clickCount <= 6; clickCount++) {
+   await page.mouse.down({ clickCount });
+   await page.mouse.up({ clickCount });
+   if (clickCount < 3) continue;
+   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString()), { message: `${block.name}, click ${clickCount}` }).toBe(block.selected);
+   expect(await target.evaluate(element => {
+    const selection = window.getSelection()!;
+    return element.contains(selection.anchorNode) && element.contains(selection.focusNode);
+   })).toBe(true);
+  }
+  expect(await saved(page)).toBe(original);
+  await page.keyboard.insertText('replacement');
+  await expect(page.locator('.editor-code-block pre code')).toHaveText('const below = 42;');
+  await expect(page.locator('.wysiwyg-content').locator(block.selector).filter({ hasText: 'replacement' })).toHaveCount(1);
+ });
+}
+
+test('keeps selection bounded across successive multi-click sequences', async ({ page }) => {
+ await seed(page, 'before paragraph\n\n```js\nconst first = 1;\nconst last = 2;\n```\n\n```js\nconst below = 42;\n```\n');
+ const paragraph = page.locator('.wysiwyg-content > p');
+ for (const clickCount of [3, 4, 5, 6]) {
+  await paragraph.click({ position: { x: 8, y: 8 }, clickCount });
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString()), { message: `sequence ${clickCount}` }).toBe('before paragraph');
+ }
+ const pre = page.locator('.editor-code-block pre').first();
+ const bounds = (await pre.boundingBox())!;
+ for (const clickCount of [3, 4, 5, 6]) {
+  await page.mouse.click(bounds.x + 30, bounds.y + bounds.height - 3, { clickCount });
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('const last = 2;');
+ }
+});
+
+for (const surface of [
+ { name: 'quote padding', markdown: '> quoted text', selector: 'blockquote', x: 5, y: 5 },
+ { name: 'list marker', markdown: '- list item', selector: 'li', x: 0, y: 10 },
+ { name: 'table cell padding', markdown: '| header | other |\n| --- | --- |\n| cell text | next cell |', selector: 'td', x: 3, y: 3 },
+ { name: 'horizontal rule', markdown: '---', selector: 'hr', x: 3, y: 0 },
+]) {
+ test(`does not extend multi-click selection from ${surface.name} into code`, async ({ page }) => {
+  const original = `before paragraph\n\n${surface.markdown}\n\n\`\`\`js\nconst below = 42;\n\`\`\`\n`;
+  await seed(page, original);
+  await page.locator('.wysiwyg-content > p').first().click();
+  const bounds = (await page.locator('.wysiwyg-content').locator(surface.selector).first().boundingBox())!;
+  for (const clickCount of [2, 3, 4, 5, 6]) {
+   await page.mouse.click(bounds.x + surface.x, bounds.y + surface.y, { clickCount });
+   expect(await page.evaluate(() => window.getSelection()?.toString())).not.toContain('const below');
+  }
+  expect(await saved(page)).toBe(original);
+ });
+}
+
+test('preserves triple-click selection in Markdown source and preview', async ({ page }) => {
+ await seed(page, 'before paragraph\n\n```js\nconst below = 42;\n```\n');
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await page.locator('.split .document .prose > p').click({ clickCount: 3 });
+ await expect.poll(() => page.evaluate(() => window.getSelection()?.toString().trim())).toBe('before paragraph');
+ await page.locator('.cm-content .cm-line').first().click({ clickCount: 3 });
+ await page.keyboard.insertText('replacement\n');
+ await expect.poll(() => saved(page)).toBe('replacement\n\n```js\nconst below = 42;\n```\n');
+});
+
+for (const area of ['text', 'left padding', 'right padding', 'bottom padding', 'header']) {
+ test(`keeps repeated clicks in code ${area} out of neighboring blocks`, async ({ page }) => {
+  const original = 'before paragraph\n\n```js\nconst first = 1;\nconst last = 2;\n```\n\n```js\nconst below = 42;\n```\n';
+  await seed(page, original);
+  const block = page.locator('.editor-code-block').first();
+  const point = await block.evaluate((element, area) => {
+   const pre = element.querySelector('pre')!, code = pre.querySelector('code')!;
+   const text = document.createTreeWalker(code, NodeFilter.SHOW_TEXT).nextNode()!;
+   const range = document.createRange(); range.setStart(text, 1); range.setEnd(text, 2);
+   const glyph = range.getBoundingClientRect(), bounds = pre.getBoundingClientRect();
+   const header = element.querySelector('.editor-code-label')!.getBoundingClientRect();
+   return {
+    x: area === 'left padding' ? bounds.left + 3 : area === 'right padding' || area === 'header' ? bounds.right - 3 : glyph.x + 2,
+    y: area === 'bottom padding' ? bounds.bottom - 3 : area === 'header' ? header.y + header.height / 2 : glyph.y + glyph.height / 2,
+   };
+  }, area);
+  await page.mouse.move(point.x, point.y);
+  for (let clickCount = 1; clickCount <= 6; clickCount++) {
+   await page.mouse.down({ clickCount });
+   await page.mouse.up({ clickCount });
+   if (clickCount < 3) continue;
+   const selected = area === 'header' ? '' : area === 'bottom padding' ? 'const last = 2;' : 'const first = 1;\n';
+   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString()), { message: `${area}, click ${clickCount}` }).toBe(selected);
+   if (area !== 'header') expect(await block.locator('code').evaluate(element => {
+    const selection = window.getSelection()!;
+    return element.contains(selection.anchorNode) && element.contains(selection.focusNode);
+   })).toBe(true);
+  }
+  expect(await saved(page)).toBe(original);
+ });
+}
+
 test('keeps code newlines and composition while allowing Enter to leave the final block', async ({ page }) => {
  await seed(page, '```text\nfirst\nlast\n```\n');
  const code = page.locator('.editor-code-block pre code');
