@@ -14,17 +14,23 @@
  --border: #c9d0c1;
  --green: #375f2c;
  --selected: #dce8d3;
- --code: #f6f8fa;
- --code-text: #303642;
+ --code: #f5f5f5;
+ --code-text: #1f1f1f;
  --code-border: #d8dee4;
  --code-header: #eef1f4;
  --code-muted: #626c78;
- --syntax-comment: #626c78;
- --syntax-keyword: #315fa8;
- --syntax-string: #28734d;
- --syntax-number: #9a4d16;
- --syntax-title: #7952a8;
- --syntax-attr: #475b70;
+ /* VS Code Light+ token roles, with darker teal/green for this gray surface. */
+ --syntax-comment: #008000;
+ --syntax-keyword: #0000ff;
+ --syntax-string: #a31515;
+ --syntax-number: #076b47;
+ --syntax-title: #795e26;
+ --syntax-type: #216e85;
+ --syntax-attr: #001080;
+ --syntax-meta: #af00db;
+ --syntax-regexp: #811f3f;
+ --syntax-addition: #006b3c;
+ --syntax-deletion: #a31515;
  --hover: #e5ebdd;
  --quote: #edf3e4;
  --button-bg: #466b38;
@@ -48,17 +54,23 @@
  --border: #4c5746;
  --green: #b3d69b;
  --selected: #36492e;
- --code: #1f2329;
- --code-text: #d1d9e0;
+ --code: #1e1e1e;
+ --code-text: #d4d4d4;
  --code-border: #373e47;
- --code-header: #252a32;
- --code-muted: #9099a5;
- --syntax-comment: #9099a5;
- --syntax-keyword: #91b7ff;
- --syntax-string: #a4c99b;
- --syntax-number: #e5b482;
- --syntax-title: #c8a5e8;
- --syntax-attr: #a9c6da;
+ --code-header: #252526;
+ --code-muted: #a6a6a6;
+ /* VS Code Dark+ colors keep token roles distinct on a neutral dark surface. */
+ --syntax-comment: #6a9955;
+ --syntax-keyword: #569cd6;
+ --syntax-string: #ce9178;
+ --syntax-number: #b5cea8;
+ --syntax-title: #dcdcaa;
+ --syntax-type: #4ec9b0;
+ --syntax-attr: #9cdcfe;
+ --syntax-meta: #c586c0;
+ --syntax-regexp: #d16969;
+ --syntax-addition: #b5cea8;
+ --syntax-deletion: #ce9178;
  --hover: #303c29;
  --quote: #2e3b27;
  --button-bg: #aecb9c;
@@ -267,11 +279,17 @@ body.table-drag-active, body.table-drag-active * { cursor: grabbing !important; 
 .editor-code-block pre { margin: 0; border: 0; border-radius: 0; white-space: pre-wrap; }
 .prose pre code { color: var(--code-text); }
 .prose pre .hljs-comment, .prose pre .hljs-quote { color: var(--syntax-comment); }
-.prose pre .hljs-keyword, .prose pre .hljs-selector-tag, .prose pre .hljs-name, .prose pre .hljs-literal, .prose pre .hljs-type { color: var(--syntax-keyword); }
-.prose pre .hljs-string, .prose pre .hljs-regexp, .prose pre .hljs-addition { color: var(--syntax-string); }
-.prose pre .hljs-number, .prose pre .hljs-symbol, .prose pre .hljs-bullet, .prose pre .hljs-deletion { color: var(--syntax-number); }
-.prose pre .hljs-title, .prose pre .hljs-section, .prose pre .hljs-built_in, .prose pre .hljs-selector-class, .prose pre .hljs-selector-id { color: var(--syntax-title); }
-.prose pre .hljs-attr, .prose pre .hljs-attribute, .prose pre .hljs-property, .prose pre .hljs-variable, .prose pre .hljs-template-variable, .prose pre .hljs-meta { color: var(--syntax-attr); }
+.prose pre .hljs-keyword, .prose pre .hljs-selector-tag, .prose pre .hljs-name, .prose pre .hljs-literal { color: var(--syntax-keyword); }
+.prose pre .hljs-string { color: var(--syntax-string); }
+.prose pre .hljs-regexp { color: var(--syntax-regexp); }
+.prose pre .hljs-number, .prose pre .hljs-symbol, .prose pre .hljs-bullet { color: var(--syntax-number); }
+.prose pre .hljs-title, .prose pre .hljs-section, .prose pre .hljs-selector-class, .prose pre .hljs-selector-id { color: var(--syntax-title); }
+.prose pre .hljs-type, .prose pre .hljs-built_in, .prose pre .hljs-title.class_ { color: var(--syntax-type); }
+.prose pre .hljs-attr, .prose pre .hljs-attribute, .prose pre .hljs-property, .prose pre .hljs-variable, .prose pre .hljs-template-variable { color: var(--syntax-attr); }
+.prose pre .hljs-meta { color: var(--syntax-meta); }
+.prose pre .hljs-subst, .prose pre .hljs-params, .prose pre .hljs-punctuation, .prose pre .hljs-operator { color: var(--code-text); }
+.prose pre .hljs-addition { color: var(--syntax-addition); }
+.prose pre .hljs-deletion { color: var(--syntax-deletion); }
 .prose pre .hljs-emphasis { font-style: italic; }
 .prose pre .hljs-strong { font-weight: 600; }
 .editor-code-block .drawing-preview { border: 0; margin: 0; border-radius: 0; }
@@ -296,6 +314,40 @@ body.table-drag-active, body.table-drag-active * { cursor: grabbing !important; 
 .font-preview { padding: 14px 16px; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); font-size: 1rem; line-height: 1.8; overflow-wrap: anywhere; }
 .font-preview span { display: block; color: var(--muted); font-size: 0.875rem; }
 .modal select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.form-columns > .form-field { flex: 1; min-width: 0; }
+.custom-select { position: relative; margin-bottom: 18px; }
+.modal .custom-select label { margin-bottom: 8px; }
+.select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); font-size: .875rem; text-align: left; }
+.select-trigger > span, .select-option > span { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.select-trigger svg { flex-shrink: 0; color: var(--muted); }
+.select-trigger:hover, .select-trigger[aria-expanded='true'] { border-color: var(--green); }
+.select-trigger[aria-expanded='true'] > svg { transform: rotate(180deg); }
+.select-options { position: absolute; z-index: 3; top: calc(100% + 6px); left: 0; right: 0; max-height: 240px; overflow-y: auto; padding: 5px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); box-shadow: var(--shadow); }
+.select-option { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 37px; padding: 9px; border-radius: 4px; color: var(--text); font-size: .8125rem; cursor: pointer; }
+.select-option.active { background: var(--hover); }
+.select-option[aria-selected='true'] { color: var(--green); background: var(--selected); }
+.move-note-modal { width: 740px; }
+.category-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; font-size: .8125rem; }
+.category-heading small { color: var(--muted); font-size: .75rem; }
+.category-browser { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.category-search { display: flex; align-items: center; gap: 9px; padding: 0 14px; border-bottom: 1px solid var(--border); color: var(--muted); }
+.modal .category-search input { min-width: 0; margin: 0; padding: 14px 0; border: 0; background: transparent; border-radius: 0; font-size: .8125rem; }
+.modal .category-search input:focus { box-shadow: none; }
+.category-search:focus-within { outline: 2px solid var(--green); outline-offset: -2px; }
+.category-folders { height: clamp(180px, 33vh, 340px); overflow: auto; padding: 8px; background: var(--paper); scrollbar-width: thin; }
+.category-folder { display: flex; align-items: center; gap: 4px; min-height: 42px; border-radius: 5px; }
+.category-folder:hover { background: var(--hover); }
+.category-folder.selected { color: var(--green); background: var(--selected); }
+.category-expand { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 26px; padding: 0; flex-shrink: 0; color: var(--muted); border-radius: 4px; }
+button.category-expand:hover:not(:disabled) { color: var(--green); background: var(--selected); }
+.category-choice { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 11px 12px 11px 0; text-align: left; font-size: .8125rem; }
+.category-choice > svg { flex-shrink: 0; color: var(--green); }
+.category-choice > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.category-choice small { color: var(--muted); font-size: .6875rem; white-space: nowrap; }
+.category-destination { display: flex; align-items: center; gap: 8px; padding: 13px 15px; border-top: 1px solid var(--border); color: var(--muted); font-size: .75rem; }
+.category-destination > svg, .category-destination > span { flex-shrink: 0; }
+.category-destination strong { min-width: 0; color: var(--green); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.category-empty { margin: 60px 12px; text-align: center; color: var(--muted); font-size: .8125rem; }
 
 .editor-width-menu { position: relative; flex-shrink: 0; }
 .editor-width-menu > button[aria-expanded='true'] { color: var(--green); background: var(--selected); }

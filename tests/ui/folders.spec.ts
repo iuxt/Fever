@@ -80,3 +80,56 @@ test('deleting a different folder keeps the current note open', async ({ page })
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('保留的笔记');
  await expect(page.locator('.toast.error')).toHaveCount(0);
 });
+
+test('move dialog browses nested and empty folders, searches paths and saves only on confirmation', async ({ page }) => {
+ await folder(page, '项目备份').click(); await note(page, '保留的笔记').click();
+ await folder(page, '项目').click(); await note(page, '父分类笔记').click({ button: 'right' });
+ await page.getByRole('menuitem', { name: '重命名 / 移动笔记' }).click();
+ const dialog = page.getByRole('dialog');
+ await expect(dialog).toBeVisible();
+ expect((await dialog.boundingBox())!.width).toBeGreaterThan(560);
+ await expect(page.getByRole('button', { name: '选择分类：项目', exact: true })).toHaveAttribute('aria-pressed', 'true');
+ await expect(page.getByRole('button', { name: '选择分类：项目/空子分类', exact: true })).toBeVisible();
+ await page.getByRole('button', { name: '选择分类：项目/空子分类', exact: true }).click();
+ await expect(page.locator('.category-destination')).toContainText('项目 / 空子分类');
+ await page.getByRole('button', { name: '取消', exact: true }).click();
+ await expect(note(page, '父分类笔记')).toBeVisible();
+ await note(page, '父分类笔记').click({ button: 'right' });
+ await page.getByRole('menuitem', { name: '重命名 / 移动笔记' }).click();
+ await expect(page.getByRole('button', { name: '选择分类：项目', exact: true })).toHaveAttribute('aria-pressed', 'true');
+ await page.getByRole('button', { name: '收起分类：项目', exact: true }).click();
+ await expect(page.getByRole('button', { name: '选择分类：项目/空子分类', exact: true })).toHaveCount(0);
+ await page.getByLabel('搜索分类').fill('不存在');
+ await expect(dialog).toContainText('没有找到匹配的文件夹');
+ await page.getByLabel('搜索分类').fill('项目/空子分类');
+ await page.getByRole('button', { name: '选择分类：项目/空子分类', exact: true }).click();
+ await page.getByLabel('搜索分类').clear();
+ await expect(page.getByRole('button', { name: '选择分类：项目/空子分类', exact: true })).toHaveAttribute('aria-pressed', 'true');
+ await page.getByLabel('笔记标题').fill('移动后的笔记');
+ await page.screenshot({ path: 'test-results/move-note-folders.png' });
+ await page.getByRole('button', { name: '保存更改', exact: true }).click();
+ await expect(dialog).toHaveCount(0);
+ await expect(note(page, '移动后的笔记')).toBeVisible();
+ await expect(note(page, '保留的笔记')).toHaveClass(/selected/);
+ await page.reload();
+ const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
+ expect(state.manifest.notes.find((note: { id: string }) => note.id === 'parent')).toMatchObject({ title: '移动后的笔记', category: '项目/空子分类' });
+ expect(state.contents.parent).toContain('原正文');
+});
+
+test('move dialog can select root and fits a small window in dark mode', async ({ page }) => {
+ await page.emulateMedia({ colorScheme: 'dark' });
+ await page.setViewportSize({ width: 780, height: 700 });
+ await folder(page, '项目').click(); await note(page, '父分类笔记').click({ button: 'right' });
+ await page.getByRole('menuitem', { name: '重命名 / 移动笔记' }).click();
+ await page.getByRole('button', { name: '选择分类：笔记库根目录', exact: true }).click();
+ await expect(page.locator('.category-destination')).toContainText('笔记库根目录');
+ await expect(page.getByRole('button', { name: '保存更改', exact: true })).toBeInViewport();
+ expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+ await page.screenshot({ path: 'test-results/move-note-dark.png' });
+ await page.getByRole('button', { name: '保存更改', exact: true }).click();
+ await expect(note(page, '父分类笔记')).toBeVisible();
+ await note(page, '父分类笔记').click({ button: 'right' });
+ await page.getByRole('menuitem', { name: '重命名 / 移动笔记' }).click();
+ await expect(page.getByRole('button', { name: '选择分类：笔记库根目录', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});

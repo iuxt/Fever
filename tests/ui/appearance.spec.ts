@@ -1,5 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 
+async function chooseAppearance(page: Page, label: string, value: string) {
+ await page.getByRole('combobox', { name: label }).click();
+ await page.getByRole('option', { name: value, exact: true }).click();
+}
+
 async function openSettings(page: Page) {
  await page.getByTitle('设置', { exact: true }).click();
  await expect(page.getByRole('dialog')).toBeVisible();
@@ -11,25 +16,25 @@ test('follows live system changes and remembers explicit theme overrides', async
  await page.goto('/');
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
  await openSettings(page);
- await expect(page.getByLabel('颜色模式')).toHaveValue('system');
+ await expect(page.getByLabel('颜色模式')).toHaveText('跟随系统');
  await page.emulateMedia({ colorScheme: 'light' });
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
- await page.getByLabel('颜色模式').selectOption('dark');
+ await chooseAppearance(page, '颜色模式', '暗色模式');
  await page.emulateMedia({ colorScheme: 'dark' });
  await page.emulateMedia({ colorScheme: 'light' });
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
  await page.reload();
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
  await openSettings(page);
- await expect(page.getByLabel('颜色模式')).toHaveValue('dark');
- await page.getByLabel('颜色模式').selectOption('light');
+ await expect(page.getByLabel('颜色模式')).toHaveText('暗色模式');
+ await chooseAppearance(page, '颜色模式', '亮色模式');
  await page.emulateMedia({ colorScheme: 'dark' });
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
- await page.getByLabel('颜色模式').selectOption('system');
+ await chooseAppearance(page, '颜色模式', '跟随系统');
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
  await page.reload();
  await openSettings(page);
- await expect(page.getByLabel('颜色模式')).toHaveValue('system');
+ await expect(page.getByLabel('颜色模式')).toHaveText('跟随系统');
  await page.emulateMedia({ colorScheme: 'light' });
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 });
@@ -42,8 +47,8 @@ test('font size applies to interface, rich text, source and history without rewr
  await page.getByRole('button', { name: '保存设置', exact: true }).click();
  const initialNotes = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).contents);
  await openSettings(page);
- await expect(page.getByLabel('字体大小')).toHaveValue('16');
- await page.getByLabel('字体大小').selectOption('24');
+ await expect(page.getByLabel('字体大小')).toHaveText('16 px（默认）');
+ await chooseAppearance(page, '字体大小', '24 px');
  await expect.poll(() => page.getByLabel('字体预览').evaluate(el => getComputedStyle(el).fontSize)).toBe('24px');
  await expect.poll(() => page.getByLabel('颜色模式').evaluate(el => getComputedStyle(el).fontSize)).toBe('21px');
  await page.getByRole('button', { name: '取消', exact: true }).click();
@@ -53,7 +58,7 @@ test('font size applies to interface, rich text, source and history without rewr
  await expect.poll(() => page.locator('.document .prose').evaluate(el => getComputedStyle(el).fontSize)).toBe('24px');
  await page.reload();
  await openSettings(page);
- await expect(page.getByLabel('字体大小')).toHaveValue('24');
+ await expect(page.getByLabel('字体大小')).toHaveText('24 px');
  await page.getByRole('button', { name: '取消', exact: true }).click();
  await page.getByRole('button', { name: '历史', exact: true }).click();
  await page.getByRole('button', { name: /创建笔记，记录最初的想法/ }).click();
@@ -61,11 +66,11 @@ test('font size applies to interface, rich text, source and history without rewr
  await expect.poll(() => page.locator('.revision-document .prose').evaluate(el => getComputedStyle(el).fontSize)).toBe('24px');
  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).contents)).toEqual(initialNotes);
  await openSettings(page);
- await page.getByLabel('字体大小').selectOption('12');
+ await chooseAppearance(page, '字体大小', '12 px');
  await expect.poll(() => page.locator('.revision-document .prose').evaluate(el => getComputedStyle(el).fontSize)).toBe('12px');
  await page.setViewportSize({ width: 780, height: 800 });
  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
- await page.getByLabel('字体大小').selectOption('24');
+ await chooseAppearance(page, '字体大小', '24 px');
  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
  await expect(page.getByRole('button', { name: '保存设置', exact: true })).toBeInViewport();
  await page.getByRole('button', { name: '取消', exact: true }).click();
@@ -93,8 +98,8 @@ test('invalid appearance preferences fall back to readable defaults', async ({ p
  await page.goto('/');
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
  await openSettings(page);
- await expect(page.getByLabel('颜色模式')).toHaveValue('system');
- await expect(page.getByLabel('字体大小')).toHaveValue('16');
+ await expect(page.getByLabel('颜色模式')).toHaveText('跟随系统');
+ await expect(page.getByLabel('字体大小')).toHaveText('16 px（默认）');
  await expect(page.getByRole('slider', { name: '正文最大宽度' })).toHaveValue('960');
  await expect(page.getByRole('switch', { name: '铺满编辑区' })).toHaveAttribute('aria-checked', 'false');
 });
@@ -172,7 +177,7 @@ for (const theme of ['light', 'dark']) {
     });
     return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
    };
-   return ['.wysiwyg-content p', '.note-row.selected span', '.folder-row', '.sidebar-foot', '.status-bar', '.outline button', '.modal label', '.form-hint', '.demo-info', '.modal .primary', '.modal .secondary', '.font-preview span'].map(selector => {
+   return ['.wysiwyg-content p', '.note-row.selected span', '.folder-row', '.sidebar-foot', '.status-bar', '.outline button', '.modal label', '.select-trigger', '.form-hint', '.demo-info', '.modal .primary', '.modal .secondary', '.font-preview span'].map(selector => {
     const element = document.querySelector(selector)!;
     let background = element;
     while (getComputedStyle(background).backgroundColor === 'rgba(0, 0, 0, 0)' && background.parentElement) background = background.parentElement;
@@ -187,3 +192,32 @@ for (const theme of ['light', 'dark']) {
   await page.screenshot({ path: `test-results/appearance-${theme}.png`, fullPage: true });
  });
 }
+
+
+test('appearance menus support keyboard selection, dismiss without closing settings and close outside', async ({ page }) => {
+ await page.goto('/');
+ await openSettings(page);
+ const theme = page.getByRole('combobox', { name: '颜色模式' });
+ await theme.focus();
+ await page.keyboard.press('Enter');
+ await expect(page.getByRole('listbox', { name: '颜色模式' })).toBeVisible();
+ await page.keyboard.press('End');
+ await page.keyboard.press('Enter');
+ await expect(theme).toHaveText('暗色模式');
+ await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+ await theme.click();
+ await page.keyboard.press('Home');
+ await page.keyboard.press('Escape');
+ await expect(page.getByRole('dialog')).toBeVisible();
+ await expect(page.getByRole('listbox')).toHaveCount(0);
+ await expect(theme).toHaveText('暗色模式');
+ await expect(theme).toBeFocused();
+ await theme.click();
+ await page.getByRole('heading', { name: '笔记库设置' }).click();
+ await expect(page.getByRole('listbox')).toHaveCount(0);
+ await theme.click();
+ await page.screenshot({ path: 'test-results/custom-theme-dark.png' });
+ await chooseAppearance(page, '字体大小', '24 px');
+ await expect(page.getByRole('listbox')).toHaveCount(0);
+ await expect(page.getByRole('combobox', { name: '字体大小' })).toHaveText('24 px');
+});
