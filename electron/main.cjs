@@ -3,10 +3,11 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { VaultStore, defaults } = require('./vault.cjs');
+const { exportDocument } = require('./export.cjs');
 const appIcon = path.join(app.isPackaged ? path.join(process.resourcesPath, 'icons') : path.join(__dirname, '../assets/icons'), process.platform === 'win32' ? 'fever.ico' : 'fever.png');
 const customData = process.argv.find(arg => arg.startsWith('--fever-data='))?.slice('--fever-data='.length);
 if (customData) app.setPath('userData', path.resolve(customData));
-protocol.registerSchemesAsPrivileged([{ scheme: 'fever-asset', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+protocol.registerSchemesAsPrivileged([{ scheme: 'fever-asset', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 const store = new VaultStore();
 let window, preferences = {}, timer, reopening;
 const prefsFile = () => path.join(app.getPath('userData'), 'preferences.json');
@@ -40,8 +41,20 @@ async function boot() {
     try {
       const url = new URL(request.url);
       if (url.hostname !== 'vault' || !/^\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif)$/i.test(url.pathname) || !store.root) return new Response('Not found', { status: 404 });
-      return net.fetch(pathToFileURL(await store.safe(url.pathname.slice(1))).toString());
+      const response = await net.fetch(pathToFileURL(await store.safe(url.pathname.slice(1))).toString());
+      const headers = new Headers(response.headers);
+      const origin = request.headers.get('Origin');
+      if (origin === 'http://127.0.0.1:5173' || origin === 'null' || origin === 'file://') headers.set('Access-Control-Allow-Origin', origin);
+      return new Response(response.body, { status: response.status, headers });
     } catch { return new Response('Not found', { status: 404 }); }
+  });
+  let exporting = false;
+  ipcMain.handle('fever:exportNote', async (event, document) => {
+    if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('无效的导出请求');
+    if (exporting) throw new Error('已有导出正在进行');
+    exporting = true;
+    try { return await exportDocument({ BrowserWindow, dialog }, window, document); }
+    finally { exporting = false; }
   });
   ipcMain.handle('fever:current', async () => {
     if (reopening) return reopening;

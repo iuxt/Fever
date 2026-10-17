@@ -19,6 +19,7 @@ import { readClipboard, writeClipboard } from './clipboard';
 import { InteractiveTable } from './InteractiveTable';
 import { editorLowlight } from './codeHighlight';
 import CodeLanguageSelect from './CodeLanguageSelect';
+import Mermaid from './Mermaid';
 import { imageAltWithWidth, parseImageAlt } from './imageSize';
 import { selectTextLine } from './editorSelection';
 import FindReplace from './FindReplace';
@@ -180,6 +181,7 @@ function CodeView({ node, editor, getPos, updateAttributes }: NodeViewProps) {
  const [source, setSource] = useState(false);
  const drawing = node.attrs.language === 'excalidraw';
  const language = node.attrs.language || '';
+ const mermaid = language.toLowerCase() === 'mermaid';
  function setLanguage(value: string) {
   const position = getPos();
   if (typeof position !== 'number') return;
@@ -192,8 +194,10 @@ function CodeView({ node, editor, getPos, updateAttributes }: NodeViewProps) {
   <div className="editor-code-label" contentEditable={false}>
    <CodeLanguageSelect value={language} onChange={setLanguage} />
    {drawing && <button type="button" onClick={() => setSource(!source)}>{source ? '查看绘图' : '编辑数据'}</button>}
+   {mermaid && <button type="button" aria-pressed={source} onClick={() => setSource(!source)}>{source ? '查看图表' : '编辑源码'}</button>}
   </div>
-  {drawing && !source ? <div contentEditable={false}>{media.drawing(node.textContent)}</div> : <pre><NodeViewContent<'code'> as="code" className={language ? `language-${language}` : undefined} /></pre>}
+  {mermaid && !source && <div contentEditable={false}><Mermaid content={node.textContent} /></div>}
+  {drawing && !source ? <div contentEditable={false}>{media.drawing(node.textContent)}</div> : <pre hidden={mermaid && !source}><NodeViewContent<'code'> as="code" className={language ? `language-${language}` : undefined} /></pre>}
  </NodeViewWrapper>;
 }
 const EditorCodeBlock = CodeBlockLowlight.extend({

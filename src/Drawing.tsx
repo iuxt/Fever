@@ -23,7 +23,7 @@ export function DrawingPreview({ content, label = 'Excalidraw 绘图', onEdit }:
   }).catch(e => { if (!cancelled) setError(`绘图加载失败：${e.message}`); });
   return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
  }, [content]);
- return <span className="drawing-preview"><span className="drawing-preview-header"><strong>{label}</strong>{onEdit && <button className="text-button" onClick={onEdit}>编辑绘图</button>}</span>{error ? <span role="alert" className="drawing-error">{error}</span> : preview ? <img src={preview} alt={label} /> : <span className="drawing-placeholder">{empty ? (onEdit ? '空白画布，点击「编辑绘图」开始画图' : '空白画布') : '正在加载绘图…'}</span>}</span>;
+ return <span className="drawing-preview" data-export-pending={!preview && !error && !empty ? "true" : undefined}><span className="drawing-preview-header"><strong>{label}</strong>{onEdit && <button className="text-button" onClick={onEdit}>编辑绘图</button>}</span>{error ? <span role="alert" className="drawing-error">{error}</span> : preview ? <img src={preview} alt={label} /> : <span className="drawing-placeholder">{empty ? (onEdit ? '空白画布，点击「编辑绘图」开始画图' : '空白画布') : '正在加载绘图…'}</span>}</span>;
 }
 
 export default function DrawingEditor({ content, dark, onChange }: { content: string; dark: boolean; onChange: (content: string) => void }) {

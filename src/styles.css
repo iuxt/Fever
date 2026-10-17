@@ -277,6 +277,14 @@ body.table-drag-active, body.table-drag-active * { cursor: grabbing !important; 
 .code-language-options button.active { background: var(--selected); color: var(--green); }
 .code-language-empty { padding: 8px 9px; color: var(--muted); }
 .editor-code-block pre { margin: 0; border: 0; border-radius: 0; white-space: pre-wrap; }
+.editor-code-block pre[hidden] { display: none; }
+.mermaid-preview { margin: 18px 0; padding: 16px; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); text-align: center; }
+.mermaid-preview > img { display: block; max-width: 100%; height: auto; margin: auto; }
+.mermaid-preview > [role='status'] { color: var(--muted); font-size: .875em; }
+.mermaid-preview pre { text-align: left; }
+.mermaid-error { color: var(--danger); text-align: left; font-size: .875em; }
+.mermaid-error summary { cursor: pointer; }
+.editor-code-block .mermaid-preview { margin: 0; border: 0; border-radius: 0; }
 .prose pre code { color: var(--code-text); }
 .prose pre .hljs-comment, .prose pre .hljs-quote { color: var(--syntax-comment); }
 .prose pre .hljs-keyword, .prose pre .hljs-selector-tag, .prose pre .hljs-name, .prose pre .hljs-literal { color: var(--syntax-keyword); }
@@ -315,6 +323,17 @@ body.table-drag-active, body.table-drag-active * { cursor: grabbing !important; 
 .font-preview span { display: block; color: var(--muted); font-size: 0.875rem; }
 .modal select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .form-columns > .form-field { flex: 1; min-width: 0; }
+.export-modal { width: 580px; }
+.export-modal fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.export-modal fieldset:disabled { opacity: .65; }
+.export-document { display: flex; align-items: center; gap: 10px; color: var(--muted); margin-bottom: 22px; font-size: .875rem; }
+.export-document svg { flex-shrink: 0; }
+.export-document span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.export-layout { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 20px; }
+.export-layout .form-section-title { margin-bottom: 16px; }
+.export-filename { font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; margin: 4px 0 8px; line-height: 1.8; }
+.export-filename strong { color: var(--text); font-weight: 500; }
+@media (max-width: 560px) { .export-modal .form-columns { flex-direction: column; gap: 0; } }
 .custom-select { position: relative; margin-bottom: 18px; }
 .modal .custom-select label { margin-bottom: 8px; }
 .select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); font-size: .875rem; text-align: left; }

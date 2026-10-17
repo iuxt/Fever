@@ -9,8 +9,19 @@ export type GitStatus = { branch: string; head?: string; changes: Change[]; ahea
 export type Commit = { hash: string; author: string; date: string; message: string };
 export type RevisionComparison = { content: string; previousContent: string; previousHash?: string };
 export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string };
+export type ExportFormat = 'pdf' | 'html' | 'md' | 'excalidraw';
+export type ExportOptions = {
+  format: ExportFormat;
+  filename: string;
+  pageSize: 'A4' | 'A3' | 'A5' | 'Letter';
+  landscape: boolean;
+  margin: number;
+  fontSize: number;
+  width: number;
+};
 export type Api = {
   desktop: boolean;
+  exportNote?: (document: { format: ExportFormat; filename: string; content: string; pageSize?: ExportOptions['pageSize']; landscape?: boolean }) => Promise<'saved' | 'canceled'>;
   platform?: string;
   onCloseTab?: (callback: () => void) => () => void;
   readClipboard?: () => Promise<{ text: string; html?: string }>;

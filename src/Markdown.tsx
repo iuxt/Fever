@@ -1,0 +1,62 @@
+import { lazy, memo, Suspense, useEffect, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { HighlightedCode } from './codeHighlight';
+import remarkLegacyImages, { resolveAsset } from './legacyImages';
+import { resolveNoteLink } from './noteLinks';
+import { parseImageAlt } from './imageSize';
+import remarkDrawingEmbeds, { resolveDrawing } from './drawings';
+import { demo } from './demo';
+import type { Note } from './types';
+import Mermaid from './Mermaid';
+const api = window.fever || demo;
+const headingId = (text: string) => `heading-${text.replace(/[^\p{L}\p{N}]/gu, '-')}`;
+const DrawingPreview = lazy(() => import('./Drawing').then(module => ({ default: module.DrawingPreview })));
+const DrawingLoading = () => <span className="drawing-placeholder" data-export-pending="true">正在加载绘图…</span>;
+
+export function DrawingReference({ source, notes, onOpen }: { source: string; notes: Note[]; onOpen?: (id: string) => void }) {
+ const note = resolveDrawing(source, notes);
+ const [value, setValue] = useState<string | null>(null), [error, setError] = useState('');
+ useEffect(() => {
+  let cancelled = false; setValue(null); setError('');
+  if (!note) { setError('找不到绘图文件，或名称重复。请使用绘图的完整相对路径引用。'); return; }
+  api.read(note.id).catch(() => api.read(note.id, 'trash')).then(value => { if (!cancelled) setValue(value); }).catch(e => { if (!cancelled) setError(e.message); });
+  return () => { cancelled = true; };
+ }, [note?.id, note?.updatedAt]);
+ if (error) return <span role="alert" className="drawing-error">{error}</span>;
+ return value !== null ? <Suspense fallback={<DrawingLoading />}><DrawingPreview content={value} label={note?.title} onEdit={onOpen && note ? () => onOpen(note.id) : undefined} /></Suspense> : <DrawingLoading />;
+}
+
+export default memo(function Markdown({ content, assets, notes = [], onOpen, onNavigate }: { content: string; assets?: Record<string, string>; notes?: Note[]; onOpen?: (id: string) => void; onNavigate?: (href: string) => boolean }) {
+ const plugins = useMemo(() => [remarkGfm, [remarkDrawingEmbeds, notes], [remarkLegacyImages, assets || {}]] as import('unified').PluggableList, [notes, assets]);
+ const components = useMemo<import('react-markdown').Components>(() => ({
+  h1: ({ children }) => <h1 id={headingId(String(children))}>{children}</h1>,
+  h2: ({ children }) => <h2 id={headingId(String(children))}>{children}</h2>,
+  h3: ({ children }) => <h3 id={headingId(String(children))}>{children}</h3>,
+  img: ({ src, alt, title }) => {
+   if (/\.excalidraw(?:\.md)?$/i.test(src || '') || resolveDrawing(src || '', notes)) return <DrawingReference source={src || ''} notes={notes} onOpen={onOpen} />;
+   const image = parseImageAlt(alt || '');
+   return <img src={api.asset(resolveAsset(src || '', assets)) || undefined} alt={image.alt || '笔记图片'} title={title} style={image.width ? { width: image.width, height: 'auto' } : undefined} loading="lazy" decoding="async" />;
+  },
+  pre: ({ node, children }) => {
+   const code = node?.children[0];
+   if (code?.type === 'element' && Array.isArray(code.properties.className) && code.properties.className.includes('language-excalidraw')) {
+    const json = code.children.map(child => child.type === 'text' ? child.value : '').join('');
+    return <Suspense fallback={<DrawingLoading />}><DrawingPreview content={json} /></Suspense>;
+   }
+   if (code?.type === 'element' && code.tagName === 'code') {
+    const classes = Array.isArray(code.properties.className) ? code.properties.className.map(String) : [];
+    const language = classes.find(value => value.startsWith('language-'))?.slice('language-'.length);
+    const text = code.children.map(child => child.type === 'text' ? child.value : '').join('');
+    if (language?.toLowerCase() === 'mermaid') return <Mermaid content={text} />;
+    return <pre><HighlightedCode text={text} language={language} className={classes.join(' ')} /></pre>;
+   }
+   return <pre>{children}</pre>;
+  },
+  a: ({ href, children }) => {
+   const internal = Boolean(href && onNavigate && resolveNoteLink(href, notes));
+   return <a href={internal || /^(https?:|mailto:|#)/.test(href || '') ? href : undefined} target={internal || href?.startsWith('#') ? undefined : '_blank'} rel="noreferrer" onClick={event => { if (internal) { event.preventDefault(); onNavigate?.(href!); } }}>{children}</a>;
+  },
+ }), [notes, assets, onOpen, onNavigate]);
+ return <ReactMarkdown remarkPlugins={plugins} components={components}>{content}</ReactMarkdown>;
+});

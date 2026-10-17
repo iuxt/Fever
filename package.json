@@ -18,7 +18,8 @@
     "test:desktop": "node tests/electron-smoke.mjs",
     "test:desktop:tabs": "node tests/electron-tabs.mjs",
     "test:memory": "npm run build && node tests/memory-stress.mjs",
-    "test:resources": "npm run build && node tests/resource-stress.mjs"
+    "test:resources": "npm run build && node tests/resource-stress.mjs",
+    "test:desktop:export": "node tests/electron-export.mjs"
   },
   "keywords": [],
   "author": "Fever",
@@ -47,6 +48,7 @@
     "lowlight": "^3.3.0",
     "lucide-react": "^1.52.0",
     "lz-string": "^1.5.0",
+    "mermaid": "^12.2.0",
     "micromark": "^4.0.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
