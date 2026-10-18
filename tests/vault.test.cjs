@@ -409,3 +409,72 @@ test('manifest fields reject coercible filenames, reserved IDs and invalid asset
  for (const assets of [[], 'invalid', { image: 123 }]) await assert.rejects(store.saveFile('fever.json', JSON.stringify({ ...before, assets })), /无效/);
  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), before);
 });
+
+test('rejecting a nested Git directory leaves it untouched and preserves the open vault', async t => {
+ const { store, dir } = await fixture(t), before = store.snapshot();
+ const child = path.join(dir, 'unrelated');
+ await fs.mkdir(child);
+ await assert.rejects(store.open(child), /仓库.*子目录/);
+ assert.deepEqual(await fs.readdir(child), []);
+ assert.deepEqual(store.snapshot(), before);
+});
+
+test('initialization rejects unrelated files and existing images without creating a vault', async t => {
+ const { store } = await fixture(t), before = store.snapshot();
+ for (const relative of ['personal.txt', 'images/photo.png']) {
+  const other = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-unrelated-'));
+  t.after(() => fs.rm(other, { recursive: true, force: true }));
+  const file = path.join(other, relative);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, 'keep me');
+  const entries = await fs.readdir(other);
+  await assert.rejects(store.open(other), /没有 fever.json/);
+  assert.deepEqual(await fs.readdir(other), entries);
+  assert.equal(await fs.readFile(file, 'utf8'), 'keep me');
+  assert.deepEqual(store.snapshot(), before);
+ }
+});
+
+test('file saves resolve note identity after preceding manifest writes', async t => {
+ const { store, dir } = await fixture(t);
+ const note = store.manifest.notes[0], manifest = store.snapshot().manifest;
+ manifest.notes[0].id = 'replacement-id';
+ manifest.notes[0].updatedAt = '2000-01-01T00:00:00.000Z';
+ const metadata = store.saveFile('fever.json', JSON.stringify(manifest));
+ const save = store.saveFile(`notes/${note.filename}`, 'latest content');
+ await Promise.all([metadata, save]);
+ assert.equal(await store.read('replacement-id'), 'latest content');
+ const persisted = JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'));
+ assert.notEqual(persisted.notes[0].updatedAt, manifest.notes[0].updatedAt);
+ assert.deepEqual(persisted, store.snapshot().manifest);
+});
+
+test('history restore finishes in its original vault before a queued library switch', async t => {
+ const { store, dir } = await fixture(t);
+ const note = store.manifest.notes[0];
+ await store.save(note.id, 'historical content'); await store.commit('history');
+ const hash = (await store.history(note.id))[0].hash;
+ await store.save(note.id, 'current content');
+ const other = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-restore-'));
+ t.after(() => fs.rm(other, { recursive: true, force: true }));
+ const second = new VaultStore(); await second.open(other);
+ second.manifest = store.snapshot().manifest;
+ await second.persist();
+ await fs.writeFile(path.join(other, 'notes', note.filename), 'other library content');
+ const revision = store.revision.bind(store);
+ let release, entered;
+ const started = new Promise(resolve => { entered = resolve; });
+ store.revision = async (...args) => {
+  const content = await revision(...args);
+  entered(); await new Promise(resolve => { release = resolve; });
+  return content;
+ };
+ const restoring = store.restore(note.id, hash);
+ await started;
+ const switching = store.open(other);
+ // Both operations are issued while the historical read is still in flight.
+ release();
+ await Promise.all([restoring, switching]);
+ assert.equal(await fs.readFile(path.join(dir, 'notes', note.filename), 'utf8'), 'historical content');
+ assert.equal(await store.read(note.id), 'other library content');
+});

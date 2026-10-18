@@ -293,7 +293,8 @@ export default function App() {
   finally { workspaceLock.current = false; setWorkspaceLocked(false); }
  }
  async function run(fn: () => Promise<void>, success?: string, refreshAfter = true) { setBusy(true); try { await flush(); await fn(); if (refreshAfter) await refresh(); if (success) notify(success); } catch (e) { notify((e as Error).message, true); } finally { setBusy(false); } }
- function showEditorTab(tab: EditorTab) {
+ function showEditorTab(tab: EditorTab, token?: number) {
+  if (token !== undefined && token !== readToken.current) return;
   ++readToken.current;
   setSelectedCommit(null); setRevisionComparison(null);
   setEditorTabs(previous => previous.some(item => item.key === tab.key) ? previous.map(item => item.key === tab.key ? tab : item) : [...previous, tab]);
@@ -321,17 +322,21 @@ export default function App() {
   }, '已恢复到当前工作区，可提交为新的版本');
  }
  async function openDiff(change: Change, staged: boolean) {
-  await run(async () => { const diff = await api.diff(change.path, staged); showEditorTab({ key: `diff:${staged}:${change.path}`, path: change.path, kind: 'diff', diff, staged }); });
+  const token = ++readToken.current;
+  await run(async () => { const diff = await api.diff(change.path, staged); showEditorTab({ key: `diff:${staged}:${change.path}`, path: change.path, kind: 'diff', diff, staged }, token); });
  }
  async function openChangedFile(change: Change) {
+  const token = ++readToken.current;
   await run(async () => {
+   if (token !== readToken.current) return;
    const note = allNotes.find(n => notePath(n) === change.path);
    if (note) { await select(note.id); setMode('edit'); }
-   else { const file = await api.openFile(change.path); showEditorTab({ key: `file:${change.path}`, path: change.path, kind: 'file', file }); }
+   else { const file = await api.openFile(change.path); showEditorTab({ key: `file:${change.path}`, path: change.path, kind: 'file', file }, token); }
   });
  }
  async function activateEditor(tab: EditorTab) {
-  await run(async () => { if (tab.kind === 'file') showEditorTab({ ...tab, file: await api.openFile(tab.path) }); else showEditorTab(tab); });
+  const token = ++readToken.current;
+  await run(async () => { if (tab.kind === 'file') showEditorTab({ ...tab, file: await api.openFile(tab.path) }, token); else showEditorTab(tab, token); });
  }
  async function closeNoteTab(id: string) {
   const remaining = tabs.filter(tab => tab !== id); setTabs(remaining);
@@ -644,7 +649,7 @@ export default function App() {
     <button className="new-note" onClick={() => showNew('note')}><Plus size={17} /><span>新建笔记</span><kbd>⌘ N</kbd></button>
     <button className={`all-notes ${!trashView && selectedFolder === null && !query ? 'selected' : ''}`} aria-pressed={!trashView && selectedFolder === null && !query} onClick={() => selectFolder(null)}><BookOpen size={16} /><span>全部笔记</span><small>{vault.manifest.notes.length}</small></button>
     <div className="tree-label"><span>文件夹</span><div><button title="新建绘图" onClick={() => showNew('drawing')}><Shapes size={15} /></button><button title="新建分类" onClick={() => showNew('folder')}><FolderPlus size={15} /></button><button title="导入 Markdown / Excalidraw" onClick={() => void run(async () => { const notes = await api.importNotes(); if (notes.length) { await refresh(); await select(notes[0].id); } else if (!api.desktop) notify('Markdown / Excalidraw 导入请使用桌面应用'); })}><Upload size={15} /></button></div></div>
-    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView || query ? null : selectedFolder} collapsed={collapsed} onSelect={selectFolder} onContextMenu={showTreeMenu} />
+    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView || query ? null : selectedFolder} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} />
     {vault.manifest.notes.some(note => !note.category) && <button className={`all-notes ${selectedFolder === '' && !trashView ? 'selected' : ''}`} onClick={() => selectFolder('')}><Folder size={16} /><span>未分类</span><small>{vault.manifest.notes.filter(note => !note.category).length}</small></button>}
     <div className="sidebar-bottom"><button className={`trash-entry ${trashView ? 'selected' : ''}`} disabled={busy} onClick={() => void openTrash()}><Trash2 size={16} /><span>回收站</span><span className="trash-count">{vault.manifest.trash?.length || 0}</span></button><div className="sidebar-foot"><FolderOpen size={13} /><span title={vault.path}>{vault.name}</span></div></div>
    </aside>

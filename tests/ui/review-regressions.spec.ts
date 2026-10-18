@@ -275,3 +275,31 @@ test('pull prevents editing the old document while remote files are being replac
  await page.locator('.wysiwyg-content').press('ControlOrMeta+s');
  expect(await page.evaluate(() => window.reviewControls.contents.a)).toContain('New remote content');
 });
+
+for (const kind of ['file', 'diff']) {
+ test(`a delayed Git ${kind} cannot override a newer note selection`, async ({ page }) => {
+  await desktopFixture(page);
+  await page.evaluate(() => {
+   window.fever!.status = async () => ({ branch: 'main', changes: [{ path: 'extra.txt', status: 'M', staged: false, unstaged: true }], ahead: 0, behind: 0, remote: '', lfs: true });
+   const wait = () => new Promise<void>(resolve => {
+    window.reviewControls.waiting = true;
+    window.reviewControls.release = () => { window.reviewControls.waiting = false; resolve(); };
+   });
+   window.fever!.openFile = async path => { await wait(); return { path, content: 'old file result', binary: false }; };
+   window.fever!.diff = async path => { await wait(); return { path, patch: 'old diff result' }; };
+  });
+  await page.locator('.wysiwyg-content').press('ControlOrMeta+s');
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  await page.locator('.change').filter({ hasText: 'extra.txt' }).hover();
+  if (kind === 'file') await page.getByTitle('打开文件：extra.txt', { exact: true }).click();
+  else await page.getByRole('button', { name: '查看工作区差异：extra.txt', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.reviewControls.waiting)).toBe(true);
+  await page.locator('.note-row').filter({ hasText: 'Note B' }).click();
+  await expect(page.locator('.tab.current')).toContainText('Note B');
+  const calls = await page.evaluate(() => window.reviewControls.currentCalls);
+  await page.evaluate(() => window.reviewControls.release());
+  await expect.poll(() => page.evaluate(() => window.reviewControls.currentCalls)).toBeGreaterThan(calls);
+  await expect(page.locator('.tab.current')).toContainText('Note B');
+  await expect(page.locator('.wysiwyg-content')).toContainText('Target body');
+ });
+}

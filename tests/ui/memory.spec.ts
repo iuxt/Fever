@@ -12,7 +12,13 @@ test('large note list renders visible summaries, scrolls to the last note, and b
  expect(await page.locator('.note-list .note-row').count()).toBeLessThan(60);
  await expect(page.locator('.note-list .note-row').first()).toContainText('笔记 0000');
  await page.locator('.folder-row').filter({ hasText: '大库' }).click();
- await expect(page.getByRole('button', { name: '展开文件夹：大库/子分类', exact: true })).toHaveAttribute('aria-expanded', 'false');
+ await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toBeVisible();
+ const collapse = page.getByRole('button', { name: '折叠文件夹：大库', exact: true });
+ await collapse.click();
+ await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toHaveCount(0);
+ await expect(page.locator('.file-list-header h2')).toHaveText('大库');
+ await page.getByRole('button', { name: '展开文件夹：大库', exact: true }).click();
+ await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toBeVisible();
  expect(await page.locator('.note-list .note-row').count()).toBeLessThan(60);
  await expect(page.locator('.note-list .note-row').first()).toContainText('笔记 0000');
  await page.locator('.folder-row').filter({ hasText: '子分类' }).click();

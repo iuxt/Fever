@@ -131,6 +131,7 @@ try {
  await page.screenshot({ path: 'test-results/desktop-editor.png' });
 
  const retainedBody = await readFile(path.join(folder, 'notes', note.filename), 'utf8');
+ await page.getByRole('button', { name: /^全部笔记/ }).click();
  await page.locator('.note-row').filter({ hasText: '桌面集成测试' }).click({ button: 'right' });
  await page.getByRole('menuitem', { name: '删除笔记', exact: true }).click();
  await page.getByRole('dialog').getByRole('button', { name: '删除笔记', exact: true }).click();
@@ -151,7 +152,7 @@ try {
  await page.getByPlaceholder('搜索回收站…').fill('真实文件保存成功');
  await expect(page.locator('.trash-item')).toHaveCount(1);
  await page.getByRole('button', { name: '恢复：桌面集成测试', exact: true }).click();
- await expect(page.locator('.note-row.selected')).toHaveText('桌面集成测试');
+ await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('桌面集成测试');
  await expect(page.locator('.wysiwyg-content')).toContainText('真实文件保存成功。');
  const restoredManifest = JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8'));
  if (!restoredManifest.notes.some(n => n.id === note.id && n.filename === note.filename && n.category === note.category) || restoredManifest.trash.length) throw new Error('Trash restore did not preserve note identity and category');

@@ -113,6 +113,9 @@ class VaultStore {
       const previous = { root: this.root, manifest: this.manifest, lfs: this.lfs };
       this.root = root;
       try {
+        // Reject a parent repository before creating anything in the selection.
+        const top = (await this.git(['rev-parse', '--show-toplevel'], true)).trim();
+        if (top && await fs.realpath(top) !== root) throw new Error('请选择独立的 Git 仓库根目录，不能选择其他仓库的子目录');
         let manifest, isNew = false;
         try {
           manifest = JSON.parse(await fs.readFile(await this.safe(MANIFEST), 'utf8'));
@@ -120,10 +123,12 @@ class VaultStore {
         } catch (e) {
           if (e.code !== 'ENOENT') throw e;
           // Never silently index or overwrite an unrelated content directory.
-          for (const directory of ['notes', 'drawings']) {
+          for (const directory of ['notes', 'drawings', 'images']) {
             const entries = await fs.readdir(await this.safe(directory)).catch(e => { if (e.code === 'ENOENT') return []; throw e; });
             if (entries.length) throw new Error(`此文件夹包含 ${directory} 文件但没有 fever.json，请选择空文件夹或已有笔记库`);
           }
+          const entries = await fs.readdir(root);
+          if (entries.some(entry => !['.git', '.DS_Store', 'notes', 'drawings', 'images'].includes(entry))) throw new Error('此文件夹包含其他文件但没有 fever.json，请选择空文件夹或已有笔记库');
           manifest = { version: 1, categories: ['收件箱'], notes: [] };
           isNew = true;
         }
@@ -131,8 +136,6 @@ class VaultStore {
         await fs.mkdir(await this.safe('notes'), { recursive: true });
         await fs.mkdir(await this.safe('drawings'), { recursive: true });
         await fs.mkdir(await this.safe('images'), { recursive: true });
-        const top = (await this.git(['rev-parse', '--show-toplevel'], true)).trim();
-        if (top && await fs.realpath(top) !== root) throw new Error('请选择独立的 Git 仓库根目录，不能选择其他仓库的子目录');
         if (!top) await this.git(['init', '-b', 'main']);
         const attributesFile = await this.safe('.gitattributes');
         const attributes = await fs.readFile(attributesFile, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
@@ -170,20 +173,20 @@ class VaultStore {
     if (!note) throw new Error('回收站中找不到这篇笔记');
     return (await readBounded(await this.safe(notePath(note)))).toString('utf8');
   }
-  save(id, content) {
-    return this.queued(async () => {
-      if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('笔记最大为 10 MB');
-      const note = this.note(id), file = await this.safe(notePath(note));
-      if (note.filename.endsWith('.excalidraw')) validateDrawing(content);
-      const temp = await this.safe(`${path.posix.dirname(notePath(note))}/.${randomUUID()}.tmp`);
-      try { await fs.writeFile(temp, content); await fs.rename(temp, file); }
-      finally { await fs.rm(temp, { force: true }); }
-      const updatedAt = note.updatedAt;
-      note.updatedAt = new Date().toISOString();
-      try { await this.persist(); }
-      catch (e) { note.updatedAt = updatedAt; throw e; }
-      return { updatedAt: note.updatedAt };
-    });
+  save(id, content) { return this.queued(() => this.saveInternal(id, content)); }
+  // Call only from a queued operation so lookup, content and metadata stay together.
+  async saveInternal(id, content) {
+    if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('笔记最大为 10 MB');
+    const note = this.note(id), file = await this.safe(notePath(note));
+    if (note.filename.endsWith('.excalidraw')) validateDrawing(content);
+    const temp = await this.safe(`${path.posix.dirname(notePath(note))}/.${randomUUID()}.tmp`);
+    try { await fs.writeFile(temp, content); await fs.rename(temp, file); }
+    finally { await fs.rm(temp, { force: true }); }
+    const updatedAt = note.updatedAt;
+    note.updatedAt = new Date().toISOString();
+    try { await this.persist(); }
+    catch (e) { note.updatedAt = updatedAt; throw e; }
+    return { updatedAt: note.updatedAt };
   }
   update(id, title, category) { return this.queued(async () => {
     if (typeof title !== 'string' || !title.trim() || title.length > 200 || typeof category !== 'string' || category.length > 200) throw new Error('标题或分类无效');
@@ -352,9 +355,9 @@ class VaultStore {
     return { path: relative, content: binary ? '' : bytes.toString('utf8'), binary, ...(mime ? { image: `data:${mime};base64,${bytes.toString('base64')}` } : {}) };
   }); }
   saveFile(relative, content) {
-    const note = this.manifest?.notes.find(n => notePath(n) === relative);
-    if (note) return this.save(note.id, content);
     return this.queued(async () => {
+      const note = this.manifest?.notes.find(n => notePath(n) === relative);
+      if (note) return this.saveInternal(note.id, content);
       this.assertNotTrashedFile(relative);
       const file = await this.changeFile(relative);
       if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');
@@ -563,7 +566,12 @@ class VaultStore {
     ]);
     return { content, previousContent, previousHash };
   }
-  async restore(id, hash) { const content = await this.revision(id, hash); await this.save(id, content); return content; }
+  restore(id, hash) { return this.queued(async () => {
+    this.note(id);
+    const content = await this.revision(id, hash);
+    await this.saveInternal(id, content);
+    return content;
+  }); }
   async settings() { return { ...defaults, author: (await this.git(['config', 'user.name'], true)).trim(), email: (await this.git(['config', 'user.email'], true)).trim(), remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim() }; }
   configure(settings) { return this.queued(async () => {
     if (typeof settings.author !== 'string' || typeof settings.email !== 'string' || typeof settings.remote !== 'string') throw new Error('设置无效');

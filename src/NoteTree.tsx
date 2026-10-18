@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { Folder, FolderOpen } from 'lucide-react';
+import { ChevronRight, Folder, FolderOpen } from 'lucide-react';
 import type { Note } from './types';
 import { keyboardContextMenu } from './ContextMenu';
 
@@ -12,6 +12,7 @@ export type NoteTreeTarget = { kind: 'note'; note: Note } | { kind: 'folder'; pa
 type NoteTreeProps = {
  notes: Note[]; categories: string[]; selectedFolder: string | null; collapsed: Set<string>;
  onSelect: (path: string) => void;
+ onToggle: (path: string) => void;
  onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
 };
 // Saving content only changes timestamps; neither the rows nor their actions use them.
@@ -33,7 +34,7 @@ export default memo(function NoteTree(props: NoteTreeProps) {
  return <TreeRows {...props} notes={notes} />;
 });
 
-const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, collapsed, onSelect, onContextMenu }: NoteTreeProps) {
+const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, collapsed, onSelect, onToggle, onContextMenu }: NoteTreeProps) {
  const container = useRef<HTMLDivElement>(null);
  const previous = useRef<string | null>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
@@ -85,6 +86,7 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, col
  return <div ref={container} className="note-tree virtual-note-tree" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
   <div className="note-tree-rows" style={{ height: rows.length * ROW_HEIGHT }}>
    {rows.slice(start, end).map((row, offset) => <div className="note-tree-row folder-tree-row" key={row.folder.path} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }}>
+    {row.folder.children.size > 0 ? <button className="folder-toggle" aria-label={`${collapsed.has(row.folder.path) ? '展开' : '折叠'}文件夹：${row.folder.path}`} aria-expanded={!collapsed.has(row.folder.path)} onClick={() => onToggle(row.folder.path)}><ChevronRight size={14} /></button> : <span className="folder-toggle-spacer" />}
     <button className={`folder-row ${selectedFolder === row.folder.path ? 'selected' : ''}`} aria-pressed={selectedFolder === row.folder.path} title={row.folder.path} onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })} onClick={() => onSelect(row.folder.path)}>
      {selectedFolder === row.folder.path ? <FolderOpen size={16} /> : <Folder size={16} />}<span>{row.folder.name}</span><small>{row.folder.total}</small>
     </button>

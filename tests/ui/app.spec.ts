@@ -87,8 +87,11 @@ test('Excalidraw canvas saves, embeds in Markdown, reloads and exports', async (
   return JSON.parse(state.contents[note.id]).elements.filter((e: { isDeleted: boolean }) => !e.isDeleted).length;
  })).toBe(2);
  await page.getByTitle('更多笔记操作').click();
+ await page.getByRole('button', { name: '导出…', exact: true }).click();
+ await page.getByRole('combobox', { name: '文件格式', exact: true }).click();
+ await page.getByRole('option', { name: 'Excalidraw (.excalidraw)', exact: true }).click();
  const downloadEvent = page.waitForEvent('download');
- await page.getByRole('button', { name: '导出 .excalidraw' }).click();
+ await page.getByRole('button', { name: '导出', exact: true }).click();
  expect((await downloadEvent).suggestedFilename()).toBe('架构图.excalidraw');
  await page.getByRole('button', { name: '新建笔记', exact: true }).first().click();
  await page.getByLabel('笔记标题').fill('绘图文档');
