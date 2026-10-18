@@ -202,11 +202,11 @@ macOS 本地构建并安装到「应用程序」文件夹：
 `.github/workflows/build.yml` 在推送版本标签时自动测试、构建并发布 GitHub Release：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag 1
+git push origin 1
 ```
 
-请先提交并推送包含工作流的代码，再推送标签。标签使用 SemVer，例如 `v0.1.0`、`0.1.0` 或 `v0.2.0-beta.1`；安装包版本自动取自标签，不需要提前修改 `package.json`。带预发布后缀的标签会发布为 GitHub Pre-release；不符合 SemVer 的标签会构建失败。
+请先提交并推送包含工作流的代码，再推送标签。标签从 `1` 开始，后续依次使用 `2`、`3` 等正整数，不带 `v` 前缀、前导零或预发布后缀。所有版本均发布为正式 Release。为兼容 npm 和打包工具，标签 `1` 对应安装包版本 `1.0.0`，标签 `2` 对应 `2.0.0`，以此类推；不需要提前修改 `package.json`。不符合正整数格式的标签会构建失败。
 
 | 平台 | 架构 | Release 附件 |
 | --- | --- | --- |
