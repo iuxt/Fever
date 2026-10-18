@@ -1,20 +1,19 @@
 import { notePath } from './notePaths.ts';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Circle, Clock3, Code2, Copy, FilePlus2, FileText, Flame, Folder, FolderOpen, FolderPlus, GitBranch, GitCommitHorizontal, History, ImagePlus, Eye, LayoutList, LoaderCircle, MoreHorizontal, PanelLeftClose, PanelRightClose, PenLine, Shapes, Plus, Minus, Monitor, Moon, Sun, RefreshCw, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Circle, Clock3, Code2, Copy, FilePlus2, FileText, Flame, Folder, FolderOpen, FolderPlus, GitBranch, GitCommitHorizontal, History, ImagePlus, Eye, LayoutList, LoaderCircle, MoreHorizontal, PanelLeftClose, PanelRightClose, PenLine, Shapes, Plus, Minus, RefreshCw, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
 import GitChanges, { GitDiff } from './GitChanges';
 import RevisionDiff from './RevisionDiff';
-import EditorWidthButton, { EditorWidthOptions } from './EditorWidth';
+import EditorWidthButton from './EditorWidth';
+import SettingsPanel from './SettingsPanel';
 import TrashBrowser from './TrashBrowser';
-import Select from './Select';
 import CategoryPicker from './CategoryPicker';
 import NoteList from './NoteList';
 import NoteSort, { sortNotes, useNoteSort } from './NoteSort';
 import NoteTree, { type NoteTreeTarget } from './NoteTree';
 import ContextMenu, { useContextMenu, type MenuItem } from './ContextMenu';
 import { writeClipboard } from './clipboard';
-import { formattingShortcuts, shortcutLabel } from './editorShortcuts';
 import { modifier } from './ContextMenu';
-import { fontSizes, useAppearance, type ThemeMode } from './appearance';
+import { useAppearance } from './appearance';
 const MarkdownEditor = lazy(() => import('./MarkdownEditor'));
 const SourceEditor = lazy(() => import('./SourceEditor'));
 import type { MarkdownEditorHandle } from './MarkdownEditor';
@@ -81,7 +80,7 @@ export default function App() {
  const [modal, setModal] = useState<Modal>(null), [field, setField] = useState(''), [category, setCategory] = useState('');
  const [modalNoteId, setModalNoteId] = useState<string | null>(null);
  const contextMenu = useContextMenu();
- const [settings, setSettings] = useState<Settings>({ autoCommit: false, interval: 10, author: '', email: '', remote: '' });
+ const [settings, setSettings] = useState<Settings>({ autoCommit: false, interval: 10, autoPull: false, pullInterval: 10, author: '', email: '', remote: '' });
  const loadSettings = useCallback(async () => { setSettings(await api.settings()); }, []);
  const [embedId, setEmbedId] = useState(''), [editorVersion, setEditorVersion] = useState(0);
  const [revisionComparison, setRevisionComparison] = useState<RevisionComparison | null>(null), [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
@@ -215,9 +214,9 @@ export default function App() {
   if (!modal) return;
   const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-  const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]') || []).filter(element => element.getClientRects().length);
+  const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]') || []).filter(element => element.tabIndex >= 0 && element.getClientRects().length);
   const firstField = dialog?.querySelector<HTMLElement>('.modal-body input, .modal-body select, .modal-body textarea');
-  (firstField || focusable()[0])?.focus();
+  (dialog?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') || firstField || focusable()[0])?.focus();
   const trapFocus = (event: KeyboardEvent) => {
    if (event.key !== 'Tab') return;
    const elements = focusable(), first = elements[0], last = elements.at(-1);
@@ -293,6 +292,28 @@ export default function App() {
   finally { workspaceLock.current = false; setWorkspaceLocked(false); }
  }
  async function run(fn: () => Promise<void>, success?: string, refreshAfter = true) { setBusy(true); try { await flush(); await fn(); if (refreshAfter) await refresh(); if (success) notify(success); } catch (e) { notify((e as Error).message, true); } finally { setBusy(false); } }
+ async function pull(automatic = false) {
+  if (automatic && (!vault || loading || busy || modal || workspaceLock.current || importingImages.current || pending.current.size || saving.current)) return;
+  await runLocked(async () => {
+   try {
+    const before = automatic ? await api.status() : null;
+    if (before && (!before.remote || before.changes.length || before.branch === 'HEAD')) return;
+    await api.pull();
+    if (before?.head && (await api.status()).head === before.head) return;
+    const v = await api.current(); vaultRef.current = v; setVault(v);
+    setSearchVersion(version => version + 1);
+    setEditorTabs([]); setActiveEditorKey(null);
+    setTabs(previous => previous.filter(id => v?.manifest.notes.some(note => note.id === id) || v?.manifest.trash?.some(note => note.id === id)));
+    if (v?.manifest.notes.some(note => note.id === activeId) || v?.manifest.trash?.some(note => note.id === activeId)) await select(activeId);
+    else if ((!automatic || activeId) && v?.manifest.notes[0]) await select(v.manifest.notes[0].id);
+    else clearDocument();
+    notify(automatic ? '已自动拉取远程更新' : '已拉取远程更新');
+   } catch (e) { throw new Error(`${automatic ? '自动拉取失败：' : ''}${(e as Error).message}`); }
+  });
+ }
+ const autoPullRef = useRef(() => {});
+ autoPullRef.current = () => { void pull(true); };
+ useEffect(() => api.onAutoPull?.(() => autoPullRef.current()), []);
  function showEditorTab(tab: EditorTab, token?: number) {
   if (token !== undefined && token !== readToken.current) return;
   ++readToken.current;
@@ -678,7 +699,7 @@ export default function App() {
     <div className="inspector-title">源代码管理</div>
     <div className="git-toolbar" role="toolbar" aria-label="Git 全局操作">
      <button className="icon-button" title="推送" aria-label="推送" disabled={busy} onClick={() => void run(() => api.push(), '已推送到远程仓库')}><Upload size={17} /></button>
-     <button className="icon-button" title="拉取" aria-label="拉取" disabled={busy} onClick={() => void runLocked(async () => { await api.pull(); const v = await api.current(); vaultRef.current = v; setVault(v); setEditorTabs([]); setActiveEditorKey(null); setTabs(previous => previous.filter(id => v?.manifest.notes.some(note => note.id === id))); if (v?.manifest.notes.some(n => n.id === activeId)) await select(activeId); else if (v?.manifest.notes[0]) await select(v.manifest.notes[0].id); else clearDocument(); }, '已拉取远程更新')}><ArrowDownToLine size={17} /></button>
+     <button className="icon-button" title="拉取" aria-label="拉取" disabled={busy} onClick={() => void pull()}><ArrowDownToLine size={17} /></button>
      <span className="git-toolbar-separator" />
      <button className="icon-button" title="全部取消暂存" aria-label="全部取消暂存" disabled={busy || !stagedCount} onClick={unstageAll}><Minus size={19} /></button>
      <button className="icon-button git-refresh" title="刷新 Git 状态" aria-label="刷新 Git 状态" disabled={busy} onClick={() => void run(refresh)}><RefreshCw size={16} /></button>
@@ -693,12 +714,12 @@ export default function App() {
   <input ref={imageRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" multiple hidden onChange={e => { if (e.target.files) void addImages(e.target.files); e.target.value = ''; }} />
   {notice && <div className={`toast ${notice.error ? 'error' : ''}`}>{notice.error ? <Circle size={16} /> : <CheckCheck size={17} />}<span>{notice.message}</span><button onClick={() => setNotice(null)}><X size={14} /></button></div>}
   {modal === 'export' && active && <ExportDialog key={active.id} title={active.title} drawing={drawing} busy={busy} returnFocusRef={moreMenuRef} onClose={() => setModal(null)} onExport={options => void exportCurrentNote(options)} />}
-  {modal && modal !== 'export' && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setModal(null); }}><section className={`modal ${modal === 'rename' ? 'move-note-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><span className="modal-icon">{modal === 'settings' ? <Settings2 size={20} /> : modal === 'folder' ? <FolderPlus size={20} /> : modal === 'delete' || modal === 'deleteFolder' ? <Trash2 size={20} /> : <FilePlus2 size={20} />}</span><h2 id="modal-title">{{ drawing: '新建 Excalidraw 绘图', embed: '插入 Excalidraw', note: '新建笔记', folder: '新建分类', rename: '重命名 / 移动笔记', delete: '将这篇笔记移入回收站？', deleteFolder: '删除这个文件夹？', settings: '笔记库设置', discard: '撤销这个文件的变更？', discardAll: '还原全部工作区变更？' }[modal]}</h2></div><button className="icon-button" disabled={busy} onClick={() => setModal(null)}><X size={18} /></button></div>
+  {modal && modal !== 'export' && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setModal(null); }}><section className={`modal ${modal === 'rename' ? 'move-note-modal' : modal === 'settings' ? 'settings-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><span className="modal-icon">{modal === 'settings' ? <Settings2 size={20} /> : modal === 'folder' ? <FolderPlus size={20} /> : modal === 'delete' || modal === 'deleteFolder' ? <Trash2 size={20} /> : <FilePlus2 size={20} />}</span><h2 id="modal-title">{{ drawing: '新建 Excalidraw 绘图', embed: '插入 Excalidraw', note: '新建笔记', folder: '新建分类', rename: '重命名 / 移动笔记', delete: '将这篇笔记移入回收站？', deleteFolder: '删除这个文件夹？', settings: '笔记库设置', discard: '撤销这个文件的变更？', discardAll: '还原全部工作区变更？' }[modal]}</h2></div><button className="icon-button" disabled={busy} onClick={() => setModal(null)}><X size={18} /></button></div>
    <div className="modal-body">{modal === 'discardAll' && <p className="delete-description">将工作区列表中的所有文件恢复到上次提交，并取消这些文件的暂存。新增文件会被删除，未提交的修改无法恢复。</p>}{modal === 'discard' && discardChange && <p className="delete-description">将「{discardChange.path}」恢复到上次提交，并取消该文件的暂存。新增文件会被删除，未提交的修改无法恢复。</p>}{['note', 'folder', 'rename', 'drawing'].includes(modal) && <><label>{modal === 'folder' ? '分类名称' : modal === 'drawing' ? '绘图标题' : '笔记标题'}<input autoFocus value={field} placeholder={modal === 'folder' ? '例如：项目/Fever' : modal === 'drawing' ? '绘图标题' : '笔记标题'} onChange={e => setField(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && field.trim()) void submitModal(); }} maxLength={200} /></label>{modal === 'rename' ? <CategoryPicker categories={vault.manifest.categories} notes={vault.manifest.notes} value={category} current={modalNote?.category || ''} onChange={setCategory} disabled={busy} /> : modal !== 'folder' && <label>所属分类<input list="category-options" value={category} onChange={e => setCategory(e.target.value)} placeholder="收件箱" maxLength={200} /><datalist id="category-options">{vault.manifest.categories.map(c => <option key={c}>{c}</option>)}</datalist></label>}</>}
     {modal === 'embed' && <><label>选择绘图<select value={embedId} onChange={e => setEmbedId(e.target.value)}><option value="">新建绘图并插入</option>{drawings.map(note => <option key={note.id} value={note.id}>{note.category ? `${note.category} / ` : ''}{note.title}</option>)}</select></label>{!embedId && <><label>绘图标题<input autoFocus value={field} onChange={e => setField(e.target.value)} maxLength={200} placeholder="给绘图起个名字" /></label><label>所属分类<input value={category} onChange={e => setCategory(e.target.value)} maxLength={200} /></label></>}</>}
     {modal === 'deleteFolder' && <p className="delete-description">将删除「{category}」及其所有子文件夹，其中的 {vault.manifest.notes.filter(note => note.category === category || note.category.startsWith(`${category}/`)).length} 篇笔记将移入回收站。正文和图片会保留，恢复笔记时会重建原分类。</p>}
     {modal === 'delete' && <p className="delete-description">「{modalNote?.title}」将移入回收站，正文、图片和原分类会保留，可随时恢复。</p>}
-    {modal === 'settings' && <><div className="settings-vault"><FolderOpen size={17} /><div><strong>{vault.name}</strong><span>{vault.path}</span></div><button className="text-button" disabled={busy} onClick={() => { setModal(null); void openVault(); }}>切换</button></div>{!api.desktop && <div className="demo-info">当前是浏览器演示，数据保存在此浏览器中。真实文件、Git、LFS 和定时备份请在桌面应用中使用。</div>}<div className="form-section-title">外观</div><div className="form-columns"><Select<ThemeMode> label="颜色模式" value={themeMode} onChange={setThemeMode} options={[{ value: 'system', label: '跟随系统', icon: <Monitor size={16} /> }, { value: 'light', label: '亮色模式', icon: <Sun size={16} /> }, { value: 'dark', label: '暗色模式', icon: <Moon size={16} /> }]} /><Select label="字体大小" value={fontSize} onChange={setFontSize} options={fontSizes.map(size => ({ value: size, label: `${size} px${size === 16 ? '（默认）' : ''}` }))} /></div><p className="form-hint">外观调整立即生效，并在此设备上记住。字体大小同时调整正文、源码和界面文字；跟随系统会自动切换亮色与暗色。</p><EditorWidthOptions {...editorWidthProps} /><div className="font-preview" aria-label="字体预览">让每一个想法，都有迹可循。<span>Fever · Markdown 0123456789</span></div><div className="form-section-title">GIT 提交身份</div><div className="form-columns"><label>用户名<input value={settings.author} onChange={e => setSettings({ ...settings, author: e.target.value })} placeholder="你的名字" /></label><label>邮箱<input type="email" value={settings.email} onChange={e => setSettings({ ...settings, email: e.target.value })} placeholder="you@example.com" /></label></div><label>远程仓库（origin）<input value={settings.remote} onChange={e => setSettings({ ...settings, remote: e.target.value })} placeholder="git@github.com:you/notes.git" /></label><p className="form-hint">使用系统 Git 的 SSH 密钥或凭据管理器进行认证。</p><div className="setting-toggle"><div><strong>定时自动备份</strong><small>自动创建本地 Git 提交，推送由你手动操作。</small></div><button className={`switch ${settings.autoCommit ? 'on' : ''}`} role="switch" aria-checked={settings.autoCommit} aria-label="定时自动备份" disabled={!api.desktop} onClick={() => setSettings({ ...settings, autoCommit: !settings.autoCommit })}><span /></button></div>{settings.autoCommit && <label>备份间隔（分钟）<input type="number" min={1} max={1440} value={settings.interval} onChange={e => setSettings({ ...settings, interval: Number(e.target.value) })} /></label>}<div className="form-section-title">快捷键</div><p className="form-hint">格式快捷键适用于 Markdown 正文和源码编辑；Windows / Linux 使用 Ctrl。</p><dl className="shortcut-list">{[{ label: '打开设置', key: 'Mod-,' }, { label: '搜索笔记', key: 'Mod-k' }, { label: '文章内查找', key: 'Mod-f' }, { label: '文章内替换', key: modifier === '⌘' ? 'Mod-Alt-f' : 'Mod-h' }, { label: '新建笔记', key: 'Mod-n' }, { label: '保存', key: 'Mod-s' }, { label: '切换源码与正文', key: 'Mod-e' }, { label: '关闭标签页', key: 'Mod-w' }, ...formattingShortcuts, { label: '撤销', key: 'Mod-z' }, { label: '重做', key: 'Mod-Shift-z' }].map(item => <div key={item.key}><dt>{item.label}</dt><dd><kbd>{shortcutLabel(item.key, modifier)}</kbd></dd></div>)}</dl><div className="settings-lfs"><Check size={15} />笔记目录 <code>notes/</code> · 绘图目录 <code>drawings/</code> · 图片目录 <code>images/</code> · Git LFS {status?.lfs ? '已启用' : '待安装'}</div></>}
+    {modal === 'settings' && <SettingsPanel vault={vault} settings={settings} onSettingsChange={setSettings} appearance={{ themeMode, fontSize, editorWidth, editorFullWidth, setThemeMode, setFontSize, setEditorWidth, setEditorFullWidth }} desktop={api.desktop} lfs={Boolean(status?.lfs)} busy={busy} onSwitchVault={() => { setModal(null); void openVault(); }} />}
    </div><div className="modal-footer">{modal === 'discard' || modal === 'discardAll' ? <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className="danger" disabled={busy} onClick={() => void discardFile(modal === 'discardAll')}>{modal === 'discardAll' ? '全部还原' : '撤销变更'}</button></> : <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className={modal === 'delete' || modal === 'deleteFolder' ? 'danger' : 'primary'} disabled={busy || (['note', 'folder', 'rename', 'drawing'].includes(modal) && !field.trim()) || (modal === 'embed' && !embedId && !field.trim())} onClick={() => void submitModal()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{modal === 'settings' ? '保存设置' : modal === 'delete' ? '删除笔记' : modal === 'deleteFolder' ? '删除文件夹' : modal === 'folder' ? '创建分类' : modal === 'rename' ? '保存更改' : modal === 'drawing' ? '创建绘图' : modal === 'embed' ? '插入绘图' : '创建笔记'}</button></>}</div>
   </section></div>}
  </div>;

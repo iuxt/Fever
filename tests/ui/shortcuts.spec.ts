@@ -89,10 +89,12 @@ test('settings shortcut works from either editor, preserves drafts and blocks ot
  await source.click();
  await page.keyboard.press('ControlOrMeta+,');
  await expect(page.getByRole('heading', { name: '笔记库设置' })).toBeVisible();
+ await page.getByRole('tab', { name: '快捷键', exact: true }).click();
  await expect(page.locator('.shortcut-list')).toContainText('代码块');
  expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'))).toBe(true);
  await page.keyboard.press('ControlOrMeta+b');
  expect(await saved(page)).toBe('快捷键正文\n');
+ await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
  await page.getByLabel('用户名').fill('未保存的名字');
  await page.keyboard.press('ControlOrMeta+,');
  await page.keyboard.press('ControlOrMeta+n');

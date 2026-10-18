@@ -172,26 +172,30 @@ for (const theme of ['light', 'dark']) {
   await expect(page.locator('.wysiwyg-content p').first()).toBeVisible();
   await page.getByRole('button', { name: '大纲', exact: true }).click();
   await openSettings(page);
-  const samples = await page.evaluate(() => {
-   const luminance = (color: string) => {
-    const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(value => {
-     const channel = Number(value) / 255;
-     return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  for (const tab of ['外观', '笔记库']) {
+   await page.getByRole('tab', { name: tab, exact: true }).click();
+   const samples = await page.evaluate(tab => {
+    const luminance = (color: string) => {
+     const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(value => {
+      const channel = Number(value) / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+     });
+     return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    return (tab === '笔记库' ? ['.demo-info'] : ['.wysiwyg-content p', '.note-row.selected span', '.folder-row', '.sidebar-foot', '.status-bar', '.outline button', '.modal label', '.modal .select-trigger', '.form-hint', '.modal .primary', '.modal .secondary', '.font-preview span']).map(selector => {
+     const element = document.querySelector(selector)!;
+     let background = element;
+     while (getComputedStyle(background).backgroundColor === 'rgba(0, 0, 0, 0)' && background.parentElement) background = background.parentElement;
+     const text = luminance(getComputedStyle(element).color), surface = luminance(getComputedStyle(background).backgroundColor);
+     return { selector, ratio: (Math.max(text, surface) + 0.05) / (Math.min(text, surface) + 0.05), opacity: getComputedStyle(element).opacity };
     });
-    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
-   };
-   return ['.wysiwyg-content p', '.note-row.selected span', '.folder-row', '.sidebar-foot', '.status-bar', '.outline button', '.modal label', '.modal .select-trigger', '.form-hint', '.demo-info', '.modal .primary', '.modal .secondary', '.font-preview span'].map(selector => {
-    const element = document.querySelector(selector)!;
-    let background = element;
-    while (getComputedStyle(background).backgroundColor === 'rgba(0, 0, 0, 0)' && background.parentElement) background = background.parentElement;
-    const text = luminance(getComputedStyle(element).color), surface = luminance(getComputedStyle(background).backgroundColor);
-    return { selector, ratio: (Math.max(text, surface) + 0.05) / (Math.min(text, surface) + 0.05), opacity: getComputedStyle(element).opacity };
-   });
-  });
-  for (const sample of samples) {
-   expect(sample.ratio, sample.selector).toBeGreaterThanOrEqual(4.5);
-   expect(sample.opacity, sample.selector).toBe('1');
+   }, tab);
+   for (const sample of samples) {
+    expect(sample.ratio, sample.selector).toBeGreaterThanOrEqual(4.5);
+    expect(sample.opacity, sample.selector).toBe('1');
+   }
   }
+  await page.getByRole('tab', { name: '外观', exact: true }).click();
   await page.screenshot({ path: `test-results/appearance-${theme}.png`, fullPage: true });
  });
 }

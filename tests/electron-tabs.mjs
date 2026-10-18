@@ -41,6 +41,7 @@ try {
  await page.locator('.cm-content').fill('# 快捷键关闭前的修改');
  await shortcut(',');
  await expect(page.getByRole('heading', { name: '笔记库设置' })).toBeVisible();
+ await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
  await page.getByLabel('用户名').fill('未保存的名字');
  await shortcut(',');
  await expect(page.getByLabel('用户名')).toHaveValue('未保存的名字');

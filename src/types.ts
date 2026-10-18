@@ -8,7 +8,7 @@ export type VaultFile = { path: string; content: string; binary: boolean; image?
 export type GitStatus = { branch: string; head?: string; changes: Change[]; ahead: number; behind: number; remote: string; lfs: boolean };
 export type Commit = { hash: string; author: string; date: string; message: string };
 export type RevisionComparison = { content: string; previousContent: string; previousHash?: string };
-export type Settings = { autoCommit: boolean; interval: number; author: string; email: string; remote: string };
+export type Settings = { autoCommit: boolean; interval: number; autoPull: boolean; pullInterval: number; author: string; email: string; remote: string };
 export type ExportFormat = 'pdf' | 'html' | 'md' | 'excalidraw';
 export type ExportOptions = {
   format: ExportFormat;
@@ -63,5 +63,6 @@ export type Api = {
   settings(): Promise<Settings>;
   configure(settings: Settings): Promise<void>;
   onBackupError?: (callback: (message: string) => void) => () => void;
+  onAutoPull?: (callback: () => void) => () => void;
 };
 declare global { interface Window { fever?: Api; EXCALIDRAW_ASSET_PATH?: string } }

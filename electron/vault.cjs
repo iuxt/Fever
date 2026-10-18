@@ -27,7 +27,7 @@ function validateDrawing(content) {
   try { scene = JSON.parse(content); } catch { throw new Error('Excalidraw 文件不是有效的 JSON'); }
   if (!scene || scene.type !== 'excalidraw' || !Array.isArray(scene.elements) || scene.elements.some(e => !e || typeof e.id !== 'string' || typeof e.type !== 'string' || !Number.isFinite(e.x) || !Number.isFinite(e.y)) || (scene.appState != null && (typeof scene.appState !== 'object' || Array.isArray(scene.appState))) || (scene.files != null && (typeof scene.files !== 'object' || Array.isArray(scene.files)))) throw new Error('Excalidraw 绘图格式无效');
 }
-const defaults = { autoCommit: false, interval: 10, author: '', email: '', remote: '' };
+const defaults = { autoCommit: false, interval: 10, autoPull: false, pullInterval: 10, author: '', email: '', remote: '' };
 
 class VaultStore {
   constructor() {

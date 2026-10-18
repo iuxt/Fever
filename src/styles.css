@@ -321,6 +321,30 @@ body.table-drag-active, body.table-drag-active * { cursor: grabbing !important; 
 
 .font-preview { padding: 14px 16px; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); font-size: 1rem; line-height: 1.8; overflow-wrap: anywhere; }
 .font-preview span { display: block; color: var(--muted); font-size: 0.875rem; }
+.settings-modal { width: 640px; height: 700px; max-height: min(90vh, calc(100dvh - 50px)); }
+.settings-modal > .modal-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; padding: 0; }
+.settings-tabs { display: flex; flex-shrink: 0; gap: 8px; padding: 0 27px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.settings-tabs button { display: flex; align-items: center; justify-content: center; gap: 7px; flex: 1 0 auto; padding: 13px 9px; border-bottom: 2px solid transparent; color: var(--muted); font-size: .8125rem; white-space: nowrap; }
+.settings-tabs button:hover { background: var(--hover); color: var(--text); }
+.settings-tabs button[aria-selected='true'] { color: var(--green); border-bottom-color: var(--green); background: var(--panel); }
+.settings-tabs button:focus-visible { outline: 2px solid var(--green); outline-offset: -4px; border-radius: 4px; }
+.settings-panel { flex: 1; min-height: 0; padding: 24px 27px 20px; overflow-y: auto; scrollbar-gutter: stable; }
+.settings-panel[hidden] { display: none; }
+.settings-panel:focus-visible { outline: 2px solid var(--green); outline-offset: -4px; }
+.settings-panel .font-preview { margin-bottom: 0; }
+.settings-panel .setting-toggle { gap: 16px; }
+.settings-panel .setting-toggle small { line-height: 1.7; }
+.settings-panel .switch, .settings-vault > svg { flex-shrink: 0; }
+.settings-panel .settings-lfs { line-height: 1.8; }
+@media (max-width: 560px) {
+ .settings-tabs { padding: 0 16px; gap: 0; }
+ .settings-tabs button { padding: 12px 7px; gap: 5px; }
+ .settings-tabs button svg { display: none; }
+ .settings-panel { padding: 20px 16px; }
+ .settings-panel .form-columns { flex-direction: column; gap: 0; }
+ .settings-panel .shortcut-list { grid-template-columns: 1fr; }
+ .settings-modal .modal-header, .settings-modal .modal-footer { padding-left: 16px; padding-right: 16px; }
+}
 .modal select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 .form-columns > .form-field { flex: 1; min-width: 0; }
 .export-modal { width: 580px; }

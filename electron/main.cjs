@@ -9,9 +9,20 @@ const customData = process.argv.find(arg => arg.startsWith('--fever-data='))?.sl
 if (customData) app.setPath('userData', path.resolve(customData));
 protocol.registerSchemesAsPrivileged([{ scheme: 'fever-asset', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 const store = new VaultStore();
-let window, preferences = {}, timer, reopening;
+let window, preferences = {}, timer, pullTimer, reopening;
 const prefsFile = () => path.join(app.getPath('userData'), 'preferences.json');
 async function persistPrefs() { await fs.writeFile(prefsFile(), JSON.stringify(preferences, null, 2)); }
+const intervalMinutes = value => Math.min(1440, Math.max(1, Math.round(Number(value) || 10)));
+const automationSettings = (settings = {}) => ({ autoCommit: Boolean(settings.autoCommit), interval: intervalMinutes(settings.interval), autoPull: Boolean(settings.autoPull), pullInterval: intervalMinutes(settings.pullInterval) });
+function schedulePull() {
+  clearInterval(pullTimer);
+  const settings = automationSettings(preferences.settings);
+  // The renderer owns the workspace lock and pending drafts, so it decides
+  // whether each scheduled pull can safely proceed.
+  if (settings.autoPull) pullTimer = setInterval(() => {
+    if (store.root && window && !window.isDestroyed()) window.webContents.send('fever:auto-pull');
+  }, settings.pullInterval * 60000);
+}
 function scheduleBackup() {
   clearInterval(timer);
   const s = preferences.settings;
@@ -77,8 +88,8 @@ async function boot() {
     const selection = await dialog.showOpenDialog(window, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Markdown / Excalidraw', extensions: ['md', 'markdown', 'excalidraw'] }] });
     const result = []; if (!selection.canceled) for (const file of selection.filePaths) result.push(await store.importFile(file)); return result;
   });
-  ipcMain.handle('fever:settings', async () => ({ ...defaults, ...preferences.settings, ...await store.settings(), autoCommit: preferences.settings?.autoCommit || false, interval: preferences.settings?.interval || 10 }));
-  ipcMain.handle('fever:configure', async (_event, settings) => { await store.configure(settings); preferences.settings = { autoCommit: Boolean(settings.autoCommit), interval: Math.min(1440, Math.max(1, Number(settings.interval) || 10)) }; await persistPrefs(); scheduleBackup(); });
+  ipcMain.handle('fever:settings', async () => ({ ...defaults, ...await store.settings(), ...automationSettings(preferences.settings) }));
+  ipcMain.handle('fever:configure', async (_event, settings) => { await store.configure(settings); preferences.settings = automationSettings(settings); await persistPrefs(); scheduleBackup(); schedulePull(); });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
     { label: '文件', submenu: [
@@ -107,9 +118,10 @@ async function createWindow() {
   window.webContents.on('will-navigate', (event, url) => { const current = window.webContents.getURL(); if (url.split('#')[0] !== current.split('#')[0]) event.preventDefault(); });
   if (app.isPackaged) await window.loadFile(path.join(__dirname, '../dist/index.html')); else await window.loadURL('http://127.0.0.1:5173');
   scheduleBackup();
+  schedulePull();
   window.on('closed', () => { window = null; });
 }
 app.whenReady().then(boot);
-app.on('window-all-closed', () => { clearInterval(timer); if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => { clearInterval(timer); clearInterval(pullTimer); if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (!window) createWindow(); });
-app.on('before-quit', () => clearInterval(timer));
+app.on('before-quit', () => { clearInterval(timer); clearInterval(pullTimer); });

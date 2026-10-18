@@ -28,6 +28,7 @@ try {
  await page.getByRole('button', { name: '选择笔记库文件夹' }).click();
  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
  await page.getByTitle('设置', { exact: true }).click();
+ await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
  await page.getByLabel('用户名', { exact: true }).fill('Desktop Test');
  await page.getByLabel('邮箱', { exact: true }).fill('desktop@example.com');
  await page.getByRole('button', { name: '保存设置', exact: true }).click();
