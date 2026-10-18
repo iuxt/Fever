@@ -91,7 +91,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           shopt -s nullglob
-          installers=(*.dmg *.zip *.exe *.AppImage *.deb)
+          installers=(*.dmg *.exe *.AppImage *.deb)
           if (( ${#installers[@]} == 0 )); then
             echo "No installers found to upload" >&2
             exit 1
@@ -112,7 +112,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release download "$GITHUB_REF_NAME" --dir release \
-            --pattern '*.dmg' --pattern '*.zip' --pattern '*.exe' \
+            --pattern '*.dmg' --pattern '*.exe' \
             --pattern '*.AppImage' --pattern '*.deb'
           cd release
           sha256sum ./* > SHA256SUMS.txt

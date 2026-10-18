@@ -97,8 +97,7 @@
       "artifactName": "Fever-${version}-macOS-${arch}.${ext}",
       "category": "public.app-category.productivity",
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ]
     },
     "win": {

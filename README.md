@@ -182,7 +182,7 @@ npm run test:memory      # 生产版内存压测，使用临时库，不需要 d
 npm run test:resources   # 生产版读写量、Git 列表、历史 Worker 与后台轮询回归
 npm run build           # TypeScript 检查和前端生产构建
 npm run pack            # 生成当前平台应用目录
-npm run dist:mac        # macOS DMG / ZIP
+npm run dist:mac        # macOS DMG
 npm run dist:win        # Windows NSIS
 npm run dist:linux      # Linux AppImage / DEB
 ```
@@ -195,7 +195,7 @@ macOS 本地构建并安装到「应用程序」文件夹：
 
 脚本先停止正在运行的 Fever，在系统临时目录构建当前 Node.js 架构对应的 `Fever.app`，覆盖安装到 `/Applications/Fever.app`，然后自动启动。缺少构建依赖时会执行 `npm ci`，打包前会显式准备 Electron 运行时（Electron 44 起，`npm ci` 不会自动下载二进制）；首次下载需要联网，之后复用本地运行时。应用程序目录需要管理员权限时会提示输入密码。构建失败时保留原应用，临时构建目录会自动清理，项目目录不留构建出的 `.app`。
 
-已安装 Chrome 时，也可以通过 `PLAYWRIGHT_CHANNEL=chrome npm run test:ui` 运行界面测试。安装包位于 `release/`，`dist:mac` 成功生成所有 DMG / ZIP 后会自动删除中间产物 `Fever.app`。`npm run pack` 专门用于生成应用目录，会保留 `.app` 供调试。建议分别在各自的操作系统构建。
+已安装 Chrome 时，也可以通过 `PLAYWRIGHT_CHANNEL=chrome npm run test:ui` 运行界面测试。安装包位于 `release/`，`dist:mac` 成功生成所有 DMG 后会自动删除中间产物 `Fever.app`。`npm run pack` 专门用于生成应用目录，会保留 `.app` 供调试。建议分别在各自的操作系统构建。
 
 ### 自动发布 GitHub Release
 
@@ -211,7 +211,7 @@ git push origin 1
 | 平台 | 架构 | Release 附件 |
 | --- | --- | --- |
 | Windows | x64 | NSIS 安装程序 `.exe` |
-| macOS | Apple Silicon arm64、Intel x64 | 各自的 `.dmg` 和 `.zip` |
+| macOS | Apple Silicon arm64、Intel x64 | 各自的 `.dmg` |
 | Linux | x64 | `.AppImage` 和 `.deb` |
 
 工作流先创建草稿 Release 并自动生成发布说明，各平台打包完成后直接将安装包上传到该 Release，不使用 Actions Artifacts。全部平台构建和上传成功后，最终任务从 Release 下载安装包生成并上传 `SHA256SUMS.txt`，再公开 Release。使用仓库自带的 `GITHUB_TOKEN`，上传和发布任务已声明 `contents: write`，无需配置个人访问令牌。构建或上传失败时，新 Release 保持草稿，可重新运行失败任务继续上传。

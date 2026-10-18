@@ -21,7 +21,7 @@ test('macOS --dir keeps the executable available for installation', async t => {
   const targets = new Map();
   // 使用实际的 electron-builder 目标创建逻辑，覆盖 --dir 返回空 Map 的行为。
   createTargets(targets, ['dir'], outDir, {
-    defaultTarget: ['dmg', 'zip'],
+    defaultTarget: require('../package.json').build.mac.target,
     createTargets: MacPackager.prototype.createTargets,
   });
   assert.equal(targets.size, 0);
@@ -29,17 +29,17 @@ test('macOS --dir keeps the executable available for installation', async t => {
   await fs.access(executable, fs.constants.X_OK);
 });
 
-test('macOS installers keep DMG and ZIP while removing intermediate apps for all architectures', async t => {
+test('macOS installers keep DMG while removing intermediate apps for all architectures', async t => {
   const { outDir } = await fixture(t);
   const apps = ['mac', 'mac-arm64', 'mac-x64', 'mac-universal'].map(dir => path.join(outDir, dir, 'Fever.app'));
   for (const app of apps) await fs.mkdir(app, { recursive: true });
-  for (const file of ['Fever.dmg', 'Fever.zip']) await fs.writeFile(path.join(outDir, file), file);
+  await fs.writeFile(path.join(outDir, 'Fever.dmg'), 'dmg');
   const unrelated = path.join(outDir, 'unrelated/Fever.app');
   await fs.mkdir(unrelated, { recursive: true });
-  const context = { outDir, platformToTargets: new Map([[Platform.MAC, new Map([['dmg', {}], ['zip', {}]])]]) };
+  const context = { outDir, platformToTargets: new Map([[Platform.MAC, new Map([['dmg', {}]])]]) };
   await cleanup(context);
   for (const app of apps) await assert.rejects(fs.access(app), { code: 'ENOENT' });
-  for (const file of ['Fever.dmg', 'Fever.zip', 'unrelated/Fever.app']) await fs.access(path.join(outDir, file));
+  for (const file of ['Fever.dmg', 'unrelated/Fever.app']) await fs.access(path.join(outDir, file));
   await cleanup(context);
 });
 

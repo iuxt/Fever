@@ -7,7 +7,7 @@ module.exports = async function cleanupMacApp({ outDir, platformToTargets }) {
   // 保留它供 npm run pack 和本地安装脚本使用，安装脚本会在退出时清理临时目录。
   if (!macTargets || macTargets.size === 0 || macTargets.has('dir')) return [];
 
-  // 此钩子在所有架构的安装包生成后执行，避免提前删除 DMG / ZIP 的源应用。
+  // 此钩子在所有架构的安装包生成后执行，避免提前删除 DMG 的源应用。
   const entries = await readdir(outDir, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.isDirectory() && /^mac(?:-(?:arm64|x64|universal))?$/.test(entry.name)) {
