@@ -17,8 +17,33 @@ defaults:
     shell: bash
 
 jobs:
+  prepare:
+    name: Prepare GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Expected a positive integer tag: 1, 2, 3, ..." >&2
+            exit 1
+          fi
+          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+              --title "Fever $GITHUB_REF_NAME" --generate-notes \
+              --prerelease=false
+          fi
+
   build:
     name: Build ${{ matrix.target }} (${{ matrix.arch }})
+    needs: prepare
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -58,17 +83,20 @@ jobs:
       - run: npm run dist:${{ matrix.target }} -- --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Fever-${{ matrix.target }}-${{ matrix.arch }}
-          if-no-files-found: error
-          compression-level: 0
-          path: |
-            release/*.dmg
-            release/*.zip
-            release/*.exe
-            release/*.AppImage
-            release/*.deb
+      - name: Upload installers directly to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          installers=(*.dmg *.zip *.exe *.AppImage *.deb)
+          if (( ${#installers[@]} == 0 )); then
+            echo "No installers found to upload" >&2
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${installers[@]}" --clobber
 
   release:
     name: Publish GitHub Release
@@ -78,24 +106,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: Fever-*
-          path: release
-          merge-multiple: true
-      - name: Publish installers
-        working-directory: release
+      - name: Publish release with checksums
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          gh release download "$GITHUB_REF_NAME" --dir release \
+            --pattern '*.dmg' --pattern '*.zip' --pattern '*.exe' \
+            --pattern '*.AppImage' --pattern '*.deb'
+          cd release
           sha256sum ./* > SHA256SUMS.txt
-
-          # Keep a new release in draft until every asset has uploaded successfully.
-          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
-              --title "Fever $GITHUB_REF_NAME" --generate-notes \
-              --prerelease=false
-          fi
-          gh release upload "$GITHUB_REF_NAME" ./* --clobber
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease=false

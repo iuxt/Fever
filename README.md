@@ -214,9 +214,9 @@ git push origin 1
 | macOS | Apple Silicon arm64、Intel x64 | 各自的 `.dmg` 和 `.zip` |
 | Linux | x64 | `.AppImage` 和 `.deb` |
 
-所有平台构建成功后统一上传安装包和 `SHA256SUMS.txt`，自动生成发布说明，再公开 Release；任一构建失败都不会触发发布。使用仓库自带的 `GITHUB_TOKEN`，工作流已为发布任务声明 `contents: write`，无需配置个人访问令牌。发布任务上传失败时，新 Release 保持草稿，可重新运行失败任务继续上传。
+工作流先创建草稿 Release 并自动生成发布说明，各平台打包完成后直接将安装包上传到该 Release，不使用 Actions Artifacts。全部平台构建和上传成功后，最终任务从 Release 下载安装包生成并上传 `SHA256SUMS.txt`，再公开 Release。使用仓库自带的 `GITHUB_TOKEN`，上传和发布任务已声明 `contents: write`，无需配置个人访问令牌。构建或上传失败时，新 Release 保持草稿，可重新运行失败任务继续上传。
 
-也可以在 Actions 页面手动运行工作流：选择分支时仅构建并上传 Actions 附件；选择版本标签时会发布对应 Release。当前安装包未配置 macOS 签名 / 公证或 Windows 签名。
+也可以在 Actions 页面手动运行工作流：选择分支时仅测试和构建，不上传安装包；选择版本标签时会发布对应 Release。当前安装包未配置 macOS 签名 / 公证或 Windows 签名。
 
 内存压测默认生成 2,000 篇约 64 KiB 的笔记，测试全文搜索、取消查询、编辑器反复挂载、8 MiB 图片导入和绘图切换。记录各进程 RSS、渲染器 JS 堆和 DOM 节点，并检查回归上限；结果保存到 `test-results/memory.json`。可通过 `FEVER_STRESS_NOTES`、`FEVER_STRESS_NOTE_KIB`、`FEVER_STRESS_CYCLES`、`FEVER_STRESS_DRAWING_CYCLES` 和 `FEVER_MEMORY_REPORT` 调整规模和输出路径。优化前后的记录见 [内存压测报告](docs/performance/README.md)。
 
