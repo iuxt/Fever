@@ -11,7 +11,7 @@ const FOLDER_DRAG_TYPE = 'application/x-fever-folder';
 export type NoteTreeTarget = { kind: 'note'; note: Note } | { kind: 'folder'; path: string } | { kind: 'blank' };
 
 type NoteTreeProps = {
- notes: Note[]; categories: string[]; selectedFolder: string | null; collapsed: Set<string>;
+ notes: Note[]; categories: string[]; selectedFolder: string | null; revealRequest: number; collapsed: Set<string>;
  onSelect: (path: string) => void;
  onToggle: (path: string) => void;
  onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
@@ -37,9 +37,9 @@ export default memo(function NoteTree(props: NoteTreeProps) {
  return <TreeRows {...props} notes={notes} />;
 });
 
-const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, collapsed, onSelect, onToggle, onContextMenu, onMove, disabled }: NoteTreeProps) {
+const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, revealRequest, collapsed, onSelect, onToggle, onContextMenu, onMove, disabled }: NoteTreeProps) {
  const container = useRef<HTMLDivElement>(null);
- const previous = useRef<string | null>(null);
+ const previous = useRef<{ selectedFolder: string | null; revealRequest: number }>({ selectedFolder: null, revealRequest: -1 });
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
  const [dragging, setDragging] = useState<string | null>(null);
  const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -99,14 +99,15 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, col
  }, []);
  useLayoutEffect(() => {
   const element = container.current!;
-  const index = previous.current !== selectedFolder ? rows.findIndex(row => row.folder.path === selectedFolder) : -1;
-  previous.current = selectedFolder;
+  const shouldReveal = previous.current.selectedFolder !== selectedFolder || previous.current.revealRequest !== revealRequest;
+  const index = shouldReveal ? rows.findIndex(row => row.folder.path === selectedFolder) : -1;
+  previous.current = { selectedFolder, revealRequest };
   if (index >= 0) {
    const top = index * ROW_HEIGHT;
    if (top < element.scrollTop || top + ROW_HEIGHT > element.scrollTop + element.clientHeight) element.scrollTop = top;
   } else element.scrollTop = Math.min(element.scrollTop, Math.max(0, rows.length * ROW_HEIGHT - element.clientHeight));
   setViewport({ top: element.scrollTop, height: element.clientHeight });
- }, [selectedFolder, rows]);
+ }, [selectedFolder, revealRequest, rows]);
  const start = Math.max(0, Math.floor(viewport.top / ROW_HEIGHT) - OVERSCAN);
  const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / ROW_HEIGHT) + OVERSCAN);
  return <div ref={container} className="note-tree virtual-note-tree" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>

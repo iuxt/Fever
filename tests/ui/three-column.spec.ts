@@ -65,3 +65,60 @@ test('parent folders include descendants and empty folders create notes in place
  await page.getByRole('button', { name: '恢复：空文件夹里的笔记', exact: true }).click();
  await expect(page.locator('.note-card.selected')).toContainText('空文件夹里的笔记');
 });
+
+test('opening notes from all notes, parent folders, search and tabs reveals their folder', async ({ page }) => {
+ await page.goto('/');
+ const allNotes = page.locator('.all-notes').filter({ hasText: '全部笔记' });
+ const project = page.locator('.folder-row[title="项目"]');
+ const nested = page.locator('.folder-row[title="项目/Fever"]');
+ const search = page.getByPlaceholder('搜索你的笔记…');
+ const openProduct = () => page.locator('.note-card[title="Fever 产品构想"]').click();
+ await openProduct();
+ await expect(nested).toHaveAttribute('aria-pressed', 'true');
+ await expect(project).toHaveAttribute('aria-expanded', 'true');
+ await expect(page.locator('.file-list-header h2')).toHaveText('Fever');
+ await allNotes.click();
+ await page.locator('.note-card[title="Markdown 语法指南"]').click();
+ await expect(page.locator('.folder-row[title="开始使用"]')).toHaveAttribute('aria-pressed', 'true');
+ await project.click();
+ await openProduct();
+ await expect(nested).toHaveAttribute('aria-pressed', 'true');
+ await project.click({ button: 'right' });
+ await page.getByRole('menuitem', { name: '折叠分类', exact: true }).click();
+ await expect(nested).toHaveCount(0);
+ await search.fill('Fever 产品构想');
+ await openProduct();
+ await expect(nested).toHaveAttribute('aria-pressed', 'true');
+ await expect(search).toHaveValue('Fever 产品构想');
+ await search.fill('');
+ await page.locator('.tab').getByRole('button', { name: 'Markdown 语法指南', exact: true }).click();
+ await expect(page.locator('.folder-row[title="开始使用"]')).toHaveAttribute('aria-pressed', 'true');
+ await page.locator('.tab').getByRole('button', { name: 'Fever 产品构想', exact: true }).click();
+ await expect(nested).toHaveAttribute('aria-pressed', 'true');
+ await page.reload();
+ await expect(nested).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('opening a note scrolls its folder into view even when the folder is already selected', async ({ page }) => {
+ await page.addInitScript(() => {
+  if (localStorage.getItem('fever-demo-v1')) return;
+  const category = '末尾/子文件夹';
+  const note = { id: 'deep', title: '末尾文章', category, filename: 'deep.md', createdAt: '2026-10-19', updatedAt: '2026-10-19' };
+  localStorage.setItem('fever-demo-v1', JSON.stringify({
+   manifest: { version: 1, categories: [...Array.from({ length: 80 }, (_, i) => `文件夹${i}`), category], notes: [note] },
+   contents: { deep: '# 末尾文章' }, versions: {}, dirty: [], images: {}, settings: {},
+  }));
+ });
+ await page.goto('/');
+ const target = page.locator('.folder-row[title="末尾/子文件夹"]');
+ await page.locator('.note-card[title="末尾文章"]').click();
+ await expect(target).toHaveAttribute('aria-pressed', 'true');
+ await expect(target).toBeInViewport();
+ await page.locator('.sidebar .virtual-note-tree').evaluate(element => { element.scrollTop = 0; });
+ await expect(target).toHaveCount(0);
+ await page.locator('.tab').getByRole('button', { name: '末尾文章', exact: true }).click();
+ await expect(target).toBeInViewport();
+ await page.reload();
+ await expect(target).toHaveAttribute('aria-pressed', 'true');
+ await expect(target).toBeInViewport();
+});

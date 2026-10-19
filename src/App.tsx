@@ -74,6 +74,7 @@ export default function App() {
  const [trashView, setTrashView] = useState(false);
  const [query, setQuery] = useState(''), [textMatches, setTextMatches] = useState<string[]>([]);
  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+ const [folderRevealRequest, setFolderRevealRequest] = useState(0);
  const [noteSort, setNoteSort] = useNoteSort();
  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
  const [status, setStatus] = useState<GitStatus | null>(null), [history, setHistory] = useState<Commit[]>([]);
@@ -169,7 +170,8 @@ export default function App() {
    if (!inTrash) {
     const note = vaultRef.current?.manifest.notes.find(note => note.id === id);
     if (note) {
-     setSelectedFolder(previous => previous === null || note.category === previous || note.category.startsWith(`${previous}/`) ? previous : note.category);
+     setSelectedFolder(note.category);
+     setFolderRevealRequest(request => request + 1);
      setCollapsed(previous => { const next = new Set(previous), parts = note.category.split('/'); for (let i = 1; i < parts.length; i++) next.delete(parts.slice(0, i).join('/')); return next; });
     }
    }
@@ -693,7 +695,7 @@ export default function App() {
     <button className="new-note" onClick={() => showNew('note')}><Plus size={17} /><span>新建笔记</span><kbd>⌘ N</kbd></button>
     <button className={`all-notes ${!trashView && selectedFolder === null && !query ? 'selected' : ''}`} aria-pressed={!trashView && selectedFolder === null && !query} onClick={() => selectFolder(null)}><BookOpen size={16} /><span>全部笔记</span><small>{vault.manifest.notes.length}</small></button>
     <div className="tree-label"><span>文件夹</span><div><button title="新建绘图" onClick={() => showNew('drawing')}><Shapes size={15} /></button><button title="新建分类" onClick={() => showNew('folder')}><FolderPlus size={15} /></button><button title="导入 Markdown / Excalidraw" onClick={() => void run(async () => { const notes = await api.importNotes(); if (notes.length) { await refresh(); await select(notes[0].id); } else if (!api.desktop) notify('Markdown / Excalidraw 导入请使用桌面应用'); })}><Upload size={15} /></button></div></div>
-    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView || query ? null : selectedFolder} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} onMove={moveFolder} disabled={busy} />
+    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView ? null : selectedFolder} revealRequest={folderRevealRequest} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} onMove={moveFolder} disabled={busy} />
     {vault.manifest.notes.some(note => !note.category) && <button className={`all-notes ${selectedFolder === '' && !trashView ? 'selected' : ''}`} onClick={() => selectFolder('')}><Folder size={16} /><span>未分类</span><small>{vault.manifest.notes.filter(note => !note.category).length}</small></button>}
     <div className="sidebar-bottom"><button className={`trash-entry ${trashView ? 'selected' : ''}`} disabled={busy} onClick={() => void openTrash()}><Trash2 size={16} /><span>回收站</span><span className="trash-count">{vault.manifest.trash?.length || 0}</span></button><div className="sidebar-foot"><FolderOpen size={13} /><span title={vault.path}>{vault.name}</span></div></div>
    </aside>
