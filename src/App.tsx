@@ -678,7 +678,7 @@ export default function App() {
  const folderNotes = useMemo(() => sortNotes(query.trim() ? filtered : (vault?.manifest.notes || []).filter(note => selectedFolder === null || note.category === selectedFolder || note.category.startsWith(`${selectedFolder}/`)), noteSort), [filtered, query, selectedFolder, vault?.manifest.notes, noteSort]);
  const selectFolder = (path: string | null) => {
   setSelectedFolder(path); setQuery(''); setTrashView(false);
-  if (path !== null) setCollapsed(previous => { const next = new Set(previous); next.delete(path); return next; });
+  if (path !== null) toggleFolder(path);
  };
  const listTitle = trashView ? '回收站' : query.trim() ? '搜索结果' : selectedFolder === null ? '全部笔记' : selectedFolder.split('/').at(-1) || '未分类';
 

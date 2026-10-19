@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react';
-import { ChevronRight, Folder, FolderOpen } from 'lucide-react';
+import { Folder, FolderOpen } from 'lucide-react';
 import type { Note } from './types';
 import { keyboardContextMenu } from './ContextMenu';
 
@@ -112,9 +112,8 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, col
  return <div ref={container} className="note-tree virtual-note-tree" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
   <div className="note-tree-rows" style={{ height: rows.length * ROW_HEIGHT }}>
    {rows.slice(start, end).map((row, offset) => <div className={`note-tree-row folder-tree-row${dragging === row.folder.path ? ' dragging' : ''}${dropTarget === row.folder.path ? ' folder-drop-target' : ''}`} key={row.folder.path} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }} onDragOver={event => dragOver(event, row.folder.path)} onDragLeave={dragLeave} onDrop={event => drop(event, row.folder.path)}>
-    {row.folder.children.size > 0 ? <button className="folder-toggle" aria-label={`${collapsed.has(row.folder.path) ? '展开' : '折叠'}文件夹：${row.folder.path}`} aria-expanded={!collapsed.has(row.folder.path)} onClick={() => onToggle(row.folder.path)}><ChevronRight size={14} /></button> : <span className="folder-toggle-spacer" />}
-    <button className={`folder-row ${selectedFolder === row.folder.path ? 'selected' : ''}`} aria-pressed={selectedFolder === row.folder.path} title={row.folder.path} draggable={!disabled} onDragStart={event => { event.dataTransfer.setData(FOLDER_DRAG_TYPE, row.folder.path); event.dataTransfer.effectAllowed = 'move'; setDragging(row.folder.path); }} onDragEnd={() => { setDragging(null); setDropTarget(null); }} onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })} onClick={() => onSelect(row.folder.path)}>
-     {selectedFolder === row.folder.path ? <FolderOpen size={16} /> : <Folder size={16} />}<span>{row.folder.name}</span><small>{row.folder.total}</small>
+    <button className={`folder-row ${selectedFolder === row.folder.path ? 'selected' : ''}`} aria-pressed={selectedFolder === row.folder.path} aria-expanded={row.folder.children.size > 0 ? !collapsed.has(row.folder.path) : undefined} title={row.folder.path} draggable={!disabled} onDragStart={event => { event.dataTransfer.setData(FOLDER_DRAG_TYPE, row.folder.path); event.dataTransfer.effectAllowed = 'move'; setDragging(row.folder.path); }} onDragEnd={() => { setDragging(null); setDropTarget(null); }} onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })} onClick={() => onSelect(row.folder.path)}>
+     {(row.folder.children.size > 0 ? !collapsed.has(row.folder.path) : selectedFolder === row.folder.path) ? <FolderOpen size={16} /> : <Folder size={16} />}<span>{row.folder.name}</span><small>{row.folder.total}</small>
     </button>
    </div>)}
   </div>

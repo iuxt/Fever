@@ -451,11 +451,6 @@ button.category-expand:hover:not(:disabled) { color: var(--green); background: v
 .all-notes:hover, .folder-row:hover { background: var(--hover); }
 .all-notes.selected, .folder-row.selected, .trash-entry.selected { color: var(--green); background: var(--selected); }
 .folder-tree-row { display: flex; align-items: center; }
-.folder-toggle, .folder-toggle-spacer { width: 20px; flex: 0 0 20px; }
-.folder-toggle { height: 30px; display: grid; place-items: center; border-radius: 4px; color: var(--muted); }
-.folder-toggle:hover { background: var(--hover); }
-.folder-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
-.folder-toggle:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .folder-tree-row .folder-row { flex: 1; min-width: 0; height: 33px; padding: 0 7px; border-radius: 5px; }
 .folder-row > svg { flex-shrink: 0; }
 .folder-tree-row.dragging { opacity: .45; }
