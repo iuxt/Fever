@@ -35,6 +35,59 @@ test('diff and selected commits retain the staged snapshot and other working cha
  assert.ok((await store.status()).changes.some(c => c.path === 'fever.json'));
 });
 
+test('diff filters whitespace and blank lines while preserving raw staged and working snapshots', async t => {
+ const { store, dir, file } = await fixture(t);
+ const original = '# Title\nalpha beta\nsecond line\n';
+ const stagedContent = '#  Title  \nalpha  beta\n\n\t\nsecond line\n';
+ await fs.writeFile(path.join(dir, file), original); await store.commit('whitespace baseline');
+ await fs.writeFile(path.join(dir, file), stagedContent);
+ const working = await store.diff(file);
+ assert.match(working.patch, /\+alpha  beta/);
+ assert.equal(working.whitespaceIgnoredPatch, '已忽略空格和空行变化，没有其他文本差异。');
+ assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), stagedContent);
+ assert.equal((await store.status()).changes.find(change => change.path === file).unstaged, true);
+ await store.stage(file);
+ assert.equal((await store.diff(file, true)).whitespaceIgnoredPatch, working.whitespaceIgnoredPatch);
+ assert.match((await store.diff(file, true)).patch, /\+alpha  beta/);
+ const workingContent = stagedContent.replace('second line', 'actual content');
+ await fs.writeFile(path.join(dir, file), workingContent);
+ const mixed = await store.diff(file);
+ assert.match(mixed.whitespaceIgnoredPatch, /-second line\n\+actual content/);
+ assert.equal((await store.diff(file, true)).whitespaceIgnoredPatch, working.whitespaceIgnoredPatch);
+ await store.commit('keep exact staged whitespace', true);
+ assert.equal(await store.git(['show', `HEAD:${file}`]), stagedContent);
+ assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), workingContent);
+});
+
+test('filtered diff retains real edits and their line numbers alongside whitespace changes', async t => {
+ const { store, dir, file } = await fixture(t);
+ const lines = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
+ await fs.writeFile(path.join(dir, file), lines.join('\n') + '\n'); await store.commit('mixed baseline');
+ lines[0] = 'line   1  ';
+ lines[29] = 'meaningful edit';
+ await fs.writeFile(path.join(dir, file), '\n' + lines.join('\n') + '\n');
+ const diff = await store.diff(file);
+ assert.match(diff.patch, /\+line   1  /);
+ assert.doesNotMatch(diff.whitespaceIgnoredPatch, /\+line   1  /);
+ assert.match(diff.whitespaceIgnoredPatch, /@@ -27,4 \+28,4 @@/);
+ assert.match(diff.whitespaceIgnoredPatch, /-line 30\n\+meaningful edit/);
+});
+
+test('filtered diff keeps blank file additions, deletions and mode changes visible', async t => {
+ const { store, dir } = await fixture(t);
+ const file = 'notes/blank [1].txt';
+ await fs.writeFile(path.join(dir, file), '\n \n');
+ assert.match((await store.diff(file)).patch, /--- \/dev\/null/);
+ await store.stage(file);
+ assert.match((await store.diff(file, true)).whitespaceIgnoredPatch, /new file mode/);
+ await store.commit('blank file');
+ await store.git(['update-index', '--chmod=+x', '--', file]);
+ assert.match((await store.diff(file, true)).whitespaceIgnoredPatch, /new mode 100755/);
+ await store.unstage(file);
+ await fs.unlink(path.join(dir, file));
+ assert.match((await store.diff(file)).whitespaceIgnoredPatch, /deleted file mode/);
+});
+
 test('unstage works before the first commit and preserves untracked file contents', async t => {
  const { store, dir, file } = await fixture(t, false);
  const nested = 'notes/nested/中文 [1].md';

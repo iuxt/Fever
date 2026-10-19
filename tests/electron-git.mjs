@@ -65,7 +65,7 @@ try {
  manifest.folders.push({ id: 'raw-editor-folder', name: 'raw editor category', parentId: null });
  await page.locator('.file-editor .cm-content').fill(JSON.stringify(manifest, null, 2));
  await expect(page.getByText('所有更改已保存')).toBeVisible();
- await expect.poll(async () => JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8')).categories).toContain('raw editor category');
+ await expect.poll(async () => JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8')).folders.map(folder => folder.name)).toContain('raw editor category');
  await page.getByTitle('关闭文件：fever.json', { exact: true }).click();
  await page.getByRole('button', { name: '全部暂存', exact: true }).click();
  await expect(page.getByText('已暂存全部变更', { exact: true })).toBeVisible();
@@ -75,7 +75,7 @@ try {
  await expect(page.getByText('已取消全部暂存', { exact: true })).toBeVisible();
  await expect(page.getByRole('button', { name: '全部取消暂存', exact: true })).toBeDisabled();
  assert.ok((await store.status()).changes.every(change => !change.staged));
- assert.ok(JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8')).categories.includes('raw editor category'));
+ assert.ok(JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8')).folders.some(folder => folder.name === 'raw editor category'));
  // Exercise the bulk-discard IPC through the actual desktop confirmation dialog.
  const attributes = await readFile(path.join(folder, '.gitattributes'), 'utf8');
  await writeFile(path.join(folder, '.gitattributes'), attributes + '# retained staged change\n');
@@ -95,6 +95,25 @@ try {
  const remaining = (await store.status()).changes;
  assert.equal(remaining.length, 1); assert.equal(remaining[0].path, '.gitattributes');
  assert.equal(remaining[0].staged, true); assert.equal(remaining[0].unstaged, false);
+ // Verify the filter and full-patch switch through the real Git/IPC path.
+ const whitespaceContent = '#  desktop staged  \n\nselected   content\n\n \n';
+ await writeFile(path.join(folder, file), whitespaceContent);
+ await page.getByTitle('刷新 Git 状态', { exact: true }).click();
+ await page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever' }).click();
+ const toggle = page.getByRole('checkbox', { name: '忽略空格和空行' });
+ await expect(toggle).toBeChecked();
+ await expect(page.locator('.diff-editor')).toContainText('已忽略空格和空行变化，没有其他文本差异。');
+ await toggle.uncheck();
+ await expect(page.locator('.diff-editor')).toContainText('+selected   content');
+ await page.getByTitle(`关闭对比：${file}`, { exact: true }).click();
+ await page.getByTitle(`暂存变更：${file}`, { exact: true }).click();
+ await page.getByRole('button', { name: '查看已暂存差异：欢迎使用 Fever' }).click();
+ await expect(toggle).toBeChecked();
+ await expect(page.locator('.diff-editor')).toContainText('已忽略空格和空行变化，没有其他文本差异。');
+ await toggle.uncheck();
+ await expect(page.locator('.diff-editor')).toContainText('+selected   content');
+ assert.equal(await readFile(path.join(folder, file), 'utf8'), whitespaceContent);
+ assert.equal(await store.git(['show', `:${file}`]), whitespaceContent);
  assert.deepEqual(errors, []);
  console.log('Desktop Git diff, individual/global staging, selected commit and single/bulk discard passed.');
 } finally {

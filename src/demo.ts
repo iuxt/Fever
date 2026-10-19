@@ -1,4 +1,4 @@
-import { createTwoFilesPatch } from 'diff';
+import { createTwoFilesPatch, formatPatch, structuredPatch } from 'diff';
 import { notePath } from './notePaths.ts';
 import { readManifest, manifestView, noteView, noteCategory, folderPaths, ensureFolder, moveCategory, removeCategory } from '../electron/manifest.mjs';
 import type { Api, Commit, StoredManifest, StoredNote, Settings } from './types';
@@ -118,10 +118,20 @@ export const demo: Api = {
  asset: src => state.images[src] || '',
  status: async () => ({ branch: 'main', head: Object.values(state.versions).flat().reduce((latest, version) => !latest || version.commit.date >= latest.date ? version.commit : latest, null as Commit | null)?.hash || '', changes: fileChanges(), ahead: 0, behind: 0, remote: state.settings.remote, lfs: true }),
  diff: async (path, staged = false) => {
-  const before = (staged ? state.baseFiles![path] : Object.hasOwn(state.stagedFiles!, path) ? state.stagedFiles![path] : state.baseFiles![path]) ?? '';
-  const after = (staged ? state.stagedFiles![path] : workingFiles()[path]) ?? '';
+  const beforeFile = (staged ? state.baseFiles![path] : Object.hasOwn(state.stagedFiles!, path) ? state.stagedFiles![path] : state.baseFiles![path]) ?? null;
+  const afterFile = (staged ? state.stagedFiles![path] : workingFiles()[path]) ?? null;
+  const before = beforeFile ?? '', after = afterFile ?? '';
   if (path.startsWith('images/')) return { path, patch: '二进制文件发生变化，无法显示文本差异。' };
-  return { path, patch: createTwoFilesPatch(`a/${path}`, `b/${path}`, before, after, '', '', { context: 3, timeout: 250 }) || '差异过大，无法显示。' };
+  const patch = createTwoFilesPatch(`a/${path}`, `b/${path}`, before, after, '', '', { context: 3, timeout: 250 }) || '差异过大，无法显示。';
+  // Keep file additions/deletions visible even when their content is blank.
+  if (beforeFile === null || afterFile === null) return { path, patch };
+  const options = {
+   context: 3, timeout: 250, comparator: (left: string, right: string) => left.replace(/[ \t\r\v\f]/g, '') === right.replace(/[ \t\r\v\f]/g, ''),
+  };
+  const filtered = structuredPatch(`a/${path}`, `b/${path}`, before, after, '', '', options);
+  if (!filtered) return { path, patch };
+  filtered.hunks = filtered.hunks.filter(hunk => hunk.lines.some(line => /^[+-]/.test(line) && line.slice(1).trim()));
+  return { path, patch, whitespaceIgnoredPatch: filtered.hunks.length ? formatPatch(filtered) : '已忽略空格和空行变化，没有其他文本差异。' };
  },
  stage: async path => { state.stagedFiles![path] = workingFiles()[path] ?? null; persist(); },
  unstage: async path => { delete state.stagedFiles![path]; persist(); },

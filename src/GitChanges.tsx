@@ -63,5 +63,7 @@ export default function GitChanges({ status, notes, trash = [], busy, onDiff, on
 }
 
 export function GitDiff({ diff, staged }: { diff: FileDiff; staged: boolean }) {
- return <><div className="diff-meta"><code>{diff.path}</code><span>{staged ? '上次提交 → 暂存版本' : '暂存版本（或上次提交）→ 工作区'}</span></div><PagedText key={`${staged}:${diff.path}`} text={diff.patch} label="文件变更对比" patch /></>;
+ const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
+ const patch = ignoreWhitespace ? diff.whitespaceIgnoredPatch ?? diff.patch : diff.patch;
+ return <><div className="diff-meta"><code>{diff.path}</code><span>{staged ? '上次提交 → 暂存版本' : '暂存版本（或上次提交）→ 工作区'}</span><label className="diff-whitespace-toggle"><input type="checkbox" checked={ignoreWhitespace} onChange={event => setIgnoreWhitespace(event.target.checked)} />忽略空格和空行</label></div><PagedText key={`${staged}:${diff.path}:${ignoreWhitespace}`} text={patch} label="文件变更对比" patch /></>;
 }

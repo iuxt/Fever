@@ -397,8 +397,14 @@ class VaultStore {
       return { path: relative, patch: `--- /dev/null\n+++ b/${relative}\n@@ -0,0 +1,${lines.length} @@\n${lines.map(line => '+' + line).join('\n')}${text && !text.endsWith('\n') ? '\n\\ No newline at end of file' : ''}\n` };
     }
     const paths = [relative, ...(change.originalPath ? [change.originalPath] : [])].map(p => `:(literal)${p}`);
-    const patch = await this.git(['diff', '--no-ext-diff', '--no-textconv', '--no-color', ...(staged ? ['--cached'] : []), '--', ...paths]);
-    return { path: relative, patch: patch || '没有文本差异（文件权限或属性发生变化）。' };
+    const args = ['diff', '--no-ext-diff', '--no-textconv', '--no-color', ...(staged ? ['--cached'] : [])];
+    const patch = await this.git([...args, '--', ...paths]);
+    const whitespaceIgnoredPatch = patch ? await this.git([...args, '--ignore-all-space', '--ignore-blank-lines', '--', ...paths]) : '';
+    return {
+      path: relative,
+      patch: patch || '没有文本差异（文件权限或属性发生变化）。',
+      whitespaceIgnoredPatch: whitespaceIgnoredPatch || (patch ? '已忽略空格和空行变化，没有其他文本差异。' : '没有文本差异（文件权限或属性发生变化）。'),
+    };
   }); }
   stage(relative) { return this.queued(async () => {
     await this.change(relative);
