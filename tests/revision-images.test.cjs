@@ -126,14 +126,20 @@ test('opening an old vault removes obsolete assets without changing Markdown ref
  assert.equal(Object.hasOwn(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), 'assets'), false);
 });
 
-test('restoring history imports historical images and rewrites destinations without touching code, labels, or current image versions', async t => {
+for (const autocrlf of [false, true]) {
+test(`restoring history imports historical images and preserves code, labels and historical line endings (autocrlf=${autocrlf})`, async t => {
  const { dir, store, note, head } = await fixture(t);
+ await store.git(['config', '--local', 'core.autocrlf', String(autocrlf)]);
+ await store.git(['config', '--local', 'core.eol', 'lf']);
  await fs.mkdir(path.join(dir, 'legacy'));
  await fs.writeFile(path.join(dir, 'legacy/旧 图.png'), png);
  const original = '# Restore\r\n\r\n![../legacy/旧%20图.png](../legacy/旧%20图.png "title")\r\n\r\n![ref][photo]\r\n\r\n[photo]: ../legacy/旧%20图.png "ref title"\r\n\r\n![[旧 图.png|caption]]\r\n\r\n`![[旧 图.png]]`\r\n\r\n```md\r\n![x](../legacy/旧%20图.png)\r\n```\r\n';
  await store.save(note.id, original);
  await store.git(['add', '.']); await store.git(['commit', '-m', 'legacy references']);
  const hash = await head();
+ // Restore preserves the committed blob: Git normalizes CRLF on add when enabled.
+ const historical = autocrlf ? original.replace(/\r\n/g, '\n') : original;
+ assert.equal(await store.revision(note.id, hash), historical);
  await fs.writeFile(path.join(dir, 'legacy/旧 图.png'), Buffer.concat([png, Buffer.from('current version')]));
  await store.save(note.id, '# Current');
  const restored = await store.restore(note.id, hash);
@@ -141,12 +147,14 @@ test('restoring history imports historical images and rewrites destinations with
  assert.match(restored, /!\[\.\.\/legacy\/旧%20图\.png\]\(\.\.\/images\/[a-z0-9-]+\/[a-z0-9-]+\.png "title"\)/);
  assert.match(restored, /!\[caption\]\(\.\.\/images\//);
  assert.ok(restored.includes('`![[旧 图.png]]`'));
- assert.ok(restored.includes('```md\r\n![x](../legacy/旧%20图.png)\r\n```'));
+ const eol = autocrlf ? '\n' : '\r\n';
+ assert.ok(restored.includes(`\`\`\`md${eol}![x](../legacy/旧%20图.png)${eol}\`\`\``));
  const paths = [...restored.matchAll(/\.\.\/images\/[a-z0-9-]+\/[a-z0-9-]+\.png/g)].map(match => match[0]);
  for (const relative of paths) assert.deepEqual(await fs.readFile(path.join(dir, relative.slice(3))), png);
  assert.deepEqual(await fs.readFile(path.join(dir, 'legacy/旧 图.png')), Buffer.concat([png, Buffer.from('current version')]));
  assert.equal(Object.hasOwn(store.manifest, 'assets'), false);
 });
+}
 
 test('failed historical restore cleans imported images and preserves the current note', async t => {
  const { dir, store, note, head } = await fixture(t);

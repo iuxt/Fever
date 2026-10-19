@@ -564,8 +564,11 @@ test('v1 vaults migrate on open, retain stable UUIDs on reopen and produce singl
  assert.match((await reopened.git(['diff', '--numstat', '--', 'fever.json'])).trim(), /^1\s+1\s+fever\.json$/);
 });
 
-test('old Git manifests remain readable after discard and file edits upgrade them without changing note history', async t => {
+for (const autocrlf of [false, true]) {
+test(`old Git manifests remain readable after discard and file edits preserve note history (autocrlf=${autocrlf})`, async t => {
  const { store, dir } = await fixture(t);
+ await store.git(['config', '--local', 'core.autocrlf', String(autocrlf)]);
+ await store.git(['config', '--local', 'core.eol', 'lf']);
  const note = await store.create('历史兼容', '项目/子分类');
  const view = store.snapshot().manifest;
  const oldText = JSON.stringify({ version: 1, categories: view.categories, notes: view.notes.map(({ folderId, ...note }) => note) }, null, 2) + '\n';
@@ -574,7 +577,9 @@ test('old Git manifests remain readable after discard and file edits upgrade the
  const reopened = new VaultStore(); await reopened.open(dir);
  await reopened.moveCategory('项目', '重命名');
  await reopened.discard('fever.json');
- assert.equal(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'), oldText);
+ // Discard checks the blob out using the repository's worktree line-ending policy.
+ const restoredText = autocrlf ? oldText.replace(/\n/g, '\r\n') : oldText;
+ assert.equal(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'), restoredText);
  assert.equal(reopened.snapshot().manifest.notes.find(item => item.id === note.id).category, '项目/子分类');
  assert.equal(await reopened.revision(note.id, hash), '# 历史兼容\n\n');
  await reopened.saveFile('fever.json', oldText);
@@ -584,6 +589,7 @@ test('old Git manifests remain readable after discard and file edits upgrade the
  await assert.rejects(reopened.saveFile('fever.json', JSON.stringify(invalid)), /循环/);
  assert.equal(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'), before);
 });
+}
 
 test('failed v1 migration preserves the original manifest and the previously open vault', async t => {
  const { store } = await fixture(t), before = store.snapshot();
