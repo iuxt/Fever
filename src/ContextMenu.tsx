@@ -60,6 +60,7 @@ export default function ContextMenu({ menu, onClose, onError }: { menu: MenuStat
   {menu.items.map((item, index) => 'separator' in item ? <div role="separator" className="context-menu-separator" key={index} /> :
    <button key={index} type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-label={item.label} aria-checked={item.checked} disabled={item.disabled} className={item.danger ? 'danger-text' : undefined} onClick={() => {
     onClose();
+    menu.returnFocus?.focus({ preventScroll: true });
     try { Promise.resolve(item.action()).catch(error => onError(error instanceof Error ? error.message : String(error))); }
     catch (error) { onError(error instanceof Error ? error.message : String(error)); }
    }}><span className="context-menu-icon" aria-hidden="true">{item.icon || (item.checked ? '✓' : null)}</span><span>{item.label}</span>{item.shortcut && <kbd aria-hidden="true">{item.shortcut}</kbd>}</button>)}

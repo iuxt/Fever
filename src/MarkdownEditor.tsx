@@ -1,4 +1,4 @@
-import { createContext, isValidElement, memo, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type Ref } from 'react';
+import { createContext, isValidElement, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type Ref } from 'react';
 import { EditorContent, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, useEditorState, type NodeViewProps } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
@@ -26,7 +26,7 @@ import FindReplace from './FindReplace';
 import type { SearchRequest } from './articleSearch';
 import { ArticleSearch, richTextSearchAdapter } from './richTextSearch';
 
-export type MarkdownEditorHandle = { insertMarkdown: (markdown: string) => boolean };
+export type MarkdownEditorHandle = { insertMarkdown: (markdown: string) => boolean; flush: () => void; isDirty: () => boolean };
 type Media = { image: (src: string, alt: string, width?: number) => ReactNode; drawing: (content: string) => ReactNode };
 const MediaContext = createContext<(Media & { onError: (message: string) => void }) | null>(null);
 
@@ -271,19 +271,31 @@ function focusEndParagraph(view: EditorView) {
  view.focus();
 }
 
-export default memo(function MarkdownEditor({ content, onChange, media, ref, onError, onInsertImage, onInsertDrawing, onNavigate, findRequest }: {
- content: string; onChange: (value: string) => void; media: Media; ref?: Ref<MarkdownEditorHandle>; onError: (message: string) => void;
+export default memo(function MarkdownEditor({ content, onChange, onDirty, media, ref, onError, onInsertImage, onInsertDrawing, onNavigate, findRequest }: {
+ content: string; onChange: (value: string) => void; onDirty: () => void; media: Media; ref?: Ref<MarkdownEditorHandle>; onError: (message: string) => void;
  onInsertImage: () => void; onInsertDrawing: () => void;
  onNavigate?: (href: string) => boolean; findRequest?: SearchRequest;
 }) {
  const contextMenu = useContextMenu();
  const navigate = useRef(onNavigate);
  navigate.current = onNavigate;
- const initial = useRef(splitContent(content));
- const prefix = useRef(initial.current.prefix), lastContent = useRef(content);
+ const [initial] = useState(() => splitContent(content));
+ const prefix = useRef(initial.prefix), lastContent = useRef(content);
+ const liveEditor = useRef<Editor | null>(null), dirty = useRef(false);
+ const callbacks = useRef({ onChange, onDirty }); callbacks.current = { onChange, onDirty };
+ const serializationTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), deadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+ const publish = useCallback(() => {
+  clearTimeout(serializationTimer.current); clearTimeout(deadline.current); deadline.current = undefined;
+  const editor = liveEditor.current;
+  if (!dirty.current || !editor || editor.isDestroyed) return;
+  const markdown = editor.getMarkdown();
+  const value = prefix.current + markdown + (markdown ? '\n' : '');
+  dirty.current = false; lastContent.current = value;
+  callbacks.current.onChange(value);
+ }, []);
  const editor: Editor | null = useEditor({
   extensions,
-  content: initial.current.body, contentType: 'markdown',
+  content: initial.body, contentType: 'markdown',
   editorProps: {
    attributes: { class: 'prose wysiwyg-content', role: 'textbox', 'aria-label': '笔记正文', 'aria-multiline': 'true', spellcheck: 'false' },
    handleClick(view, _position, event) {
@@ -321,14 +333,16 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
     return editor?.commands.insertContent(text, { contentType: 'markdown' }) || false;
    },
   },
-  onUpdate({ editor, transaction }) {
+  onUpdate({ transaction }) {
    if (!transaction.docChanged) return;
-   const markdown = editor.getMarkdown();
-   const value = prefix.current + markdown + (markdown ? '\n' : '');
-   lastContent.current = value;
-   onChange(value);
+   dirty.current = true; callbacks.current.onDirty();
+   clearTimeout(serializationTimer.current);
+   serializationTimer.current = setTimeout(publish, 120);
+   deadline.current ??= setTimeout(publish, 500);
   },
  });
+ liveEditor.current = editor;
+ useLayoutEffect(() => () => publish(), [publish]);
  useEffect(() => {
   if (!editor || content === lastContent.current) return;
   const next = splitContent(content);
@@ -337,7 +351,7 @@ export default memo(function MarkdownEditor({ content, onChange, media, ref, onE
   editor.commands.setContent(next.body, { contentType: 'markdown', emitUpdate: false });
  }, [content, editor]);
  const searchAdapter = useMemo(() => editor ? richTextSearchAdapter(editor) : null, [editor]);
- useImperativeHandle(ref, () => ({ insertMarkdown: markdown => editor && !editor.isDestroyed ? editor.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run() : false }), [editor]);
+ useImperativeHandle(ref, () => ({ flush: publish, isDirty: () => dirty.current, insertMarkdown: markdown => editor && !editor.isDestroyed ? editor.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run() : false }), [editor, publish]);
  const state = useEditorState({ editor, selector: ({ editor }) => editor ? {
   bold: editor.isActive('bold'), italic: editor.isActive('italic'), heading: editor.isActive('heading') ? editor.getAttributes('heading').level as number : null,
   bullet: editor.isActive('bulletList'), ordered: editor.isActive('orderedList'), task: editor.isActive('taskList'),

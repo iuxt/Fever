@@ -60,6 +60,7 @@ test('keeps sorting across folders, full-text search, empty folders and reloads'
 
 test('autosave moves an edited note to the top and preserves the selection', async ({ page }) => {
  await page.locator('.note-card').filter({ hasText: '笔记10' }).click();
+ await page.getByRole('button', { name: /^全部笔记/ }).click();
  await page.locator('.wysiwyg-content').fill('修改后的正文');
  await expect(titles(page)).toHaveText(['笔记10', '笔记2', '笔记20', '笔记1']);
  await expect(page.locator('.note-card.selected .note-card-title strong')).toHaveText('笔记10');

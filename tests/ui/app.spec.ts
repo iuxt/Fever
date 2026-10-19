@@ -130,9 +130,10 @@ test('Obsidian compressed drawings, wiki embeds, code blocks and history preview
  await page.evaluate(({ legacy, scene }) => {
   const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
   const now = new Date().toISOString();
-  state.manifest.notes.push({ id: 'legacy', title: '旧图.excalidraw', category: '开始使用', filename: 'legacy.md', sourcePath: 'Excalidraw/旧图.excalidraw.md', createdAt: now, updatedAt: now });
+  const folderId = state.manifest.folders.find((folder: { name: string }) => folder.name === '开始使用').id;
+  state.manifest.notes.push({ id: 'legacy', title: '旧图.excalidraw', folderId, filename: 'legacy.md', sourcePath: 'Excalidraw/旧图.excalidraw.md', createdAt: now, updatedAt: now });
   state.contents.legacy = legacy;
-  state.manifest.notes.push({ id: 'embeds', title: '引用兼容', category: '开始使用', filename: 'embeds.md', createdAt: now, updatedAt: now });
+  state.manifest.notes.push({ id: 'embeds', title: '引用兼容', folderId, filename: 'embeds.md', createdAt: now, updatedAt: now });
   state.contents.embeds = '# 引用兼容\n\n![[旧图.excalidraw|旧图]]\n\n![旧图](../notes/legacy.md)\n\n```excalidraw\n' + scene + '\n```\n\n`![[旧图.excalidraw]]`\n\n```text\n![[旧图.excalidraw]]\n```';
   localStorage.setItem('fever-demo-v1', JSON.stringify(state));
  }, { legacy, scene });

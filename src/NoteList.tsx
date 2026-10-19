@@ -21,7 +21,7 @@ function summary(markdown: string) {
   .replace(/[*_`~|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 150);
 }
 type Props = {
- notes: Note[]; activeId: string; scope: string; api: Api; draftId: string; draft: string;
+ notes: Note[]; activeId: string; scope: string; api: Api; draftId: string; draft: string; revealRequest?: number;
  onSelect: (id: string) => void;
  onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
 };
@@ -37,15 +37,16 @@ const NoteCard = memo(function NoteCard({ note, active, draft, api, cache, onSel
   const cached = cache.get(note.id);
   if (cached?.updatedAt === note.updatedAt) { setPreview(cached.text); return; }
   let cancelled = false;
+  const requestId = crypto.randomUUID();
   setPreview('');
-  api.read(note.id).then(value => {
+  (api.preview ? api.preview(note.id, requestId) : api.read(note.id)).then(value => {
    if (cancelled) return;
    const text = summary(value);
    cache.delete(note.id); cache.set(note.id, { updatedAt: note.updatedAt, text });
    if (cache.size > 120) cache.delete(cache.keys().next().value!);
    setPreview(text);
   }).catch(() => { if (!cancelled) setPreview('暂时无法预览，点击打开笔记'); });
-  return () => { cancelled = true; };
+  return () => { cancelled = true; void api.cancelPreview?.(requestId).catch(() => {}); };
  }, [note.id, note.updatedAt, drawing, draft, api, cache]);
  return <button className={`note-row note-card ${active ? 'selected' : ''}`} aria-pressed={active} title={note.title} onClick={() => onSelect(note.id)} onContextMenu={event => onContextMenu(event, { kind: 'note', note })}>
   <span className="note-card-title">{drawing ? <Shapes size={15} /> : <FileText size={15} />}<strong>{note.title}</strong>{active && <span className="selected-dot" />}</span>
@@ -54,8 +55,9 @@ const NoteCard = memo(function NoteCard({ note, active, draft, api, cache, onSel
  </button>;
 });
 
-export default function NoteList({ notes, activeId, scope, api, draftId, draft, onSelect, onContextMenu }: Props) {
+export default function NoteList({ notes, activeId, scope, api, draftId, draft, onSelect, onContextMenu, revealRequest = 0 }: Props) {
  const container = useRef<HTMLDivElement>(null), cache = useRef<PreviewCache>(new Map());
+ const selection = useRef<{ activeId: string; revealRequest: number; scope: string } | null>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
  useLayoutEffect(() => {
   const element = container.current!;
@@ -68,13 +70,16 @@ export default function NoteList({ notes, activeId, scope, api, draftId, draft, 
   setViewport({ top: 0, height: element.clientHeight });
  }, [scope]);
  useLayoutEffect(() => {
+  const changed = selection.current?.activeId !== activeId || selection.current?.revealRequest !== revealRequest || selection.current?.scope !== scope;
+  selection.current = { activeId, revealRequest, scope };
+  if (!changed) return;
   const element = container.current!, index = notes.findIndex(note => note.id === activeId);
   if (index >= 0) {
    const top = index * ROW_HEIGHT;
    if (top < element.scrollTop || top + ROW_HEIGHT > element.scrollTop + element.clientHeight) element.scrollTop = top;
   }
   setViewport({ top: element.scrollTop, height: element.clientHeight });
- }, [activeId, notes]);
+ }, [activeId, notes, scope, revealRequest]);
  const start = Math.max(0, Math.floor(viewport.top / ROW_HEIGHT) - OVERSCAN);
  const end = Math.min(notes.length, Math.ceil((viewport.top + viewport.height) / ROW_HEIGHT) + OVERSCAN);
  return <div ref={container} className="note-tree note-list" aria-label="文件列表" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>

@@ -25,3 +25,23 @@ async function readBounded(file, { limit = MAX_NOTE_BYTES, message = '笔记最�
 }
 
 module.exports = { readBounded, MAX_NOTE_BYTES };
+
+// A list card only needs a prefix; do not read the rest of a large note.
+async function readPrefix(file, { limit = 32 * 1024, signal } = {}) {
+  signal?.throwIfAborted();
+  const handle = await fs.open(file, 'r');
+  try {
+    if (!(await handle.stat()).isFile()) throw new Error('请选择文件');
+    const buffer = Buffer.allocUnsafe(limit);
+    let size = 0;
+    while (size < limit) {
+      signal?.throwIfAborted();
+      const { bytesRead } = await handle.read(buffer, size, limit - size, null);
+      if (!bytesRead) break;
+      size += bytesRead;
+    }
+    signal?.throwIfAborted();
+    return new TextDecoder().decode(buffer.subarray(0, size), { stream: true }).slice(0, 8192);
+  } finally { await handle.close(); }
+}
+module.exports.readPrefix = readPrefix;

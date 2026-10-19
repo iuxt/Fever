@@ -9,6 +9,7 @@ const customData = process.argv.find(arg => arg.startsWith('--fever-data='))?.sl
 if (customData) app.setPath('userData', path.resolve(customData));
 protocol.registerSchemesAsPrivileged([{ scheme: 'fever-asset', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 const store = new VaultStore();
+store.onMetadataError = message => { if (window && !window.isDestroyed()) window.webContents.send('fever:save-error', message); };
 let window, preferences = {}, timer, pullTimer, reopening;
 const prefsFile = () => path.join(app.getPath('userData'), 'preferences.json');
 async function persistPrefs() { await fs.writeFile(prefsFile(), JSON.stringify(preferences, null, 2)); }
@@ -33,6 +34,9 @@ function scheduleBackup() {
   }, Math.max(1, Number(s.interval) || 10) * 60000);
 }
 async function boot() {
+  ipcMain.handle('fever:flushMetadata', () => store.flushMetadata());
+  ipcMain.handle('fever:preview', (_event, ...args) => store.preview(...args));
+  ipcMain.handle('fever:cancelPreview', (_event, requestId) => store.cancelPreview(requestId));
   if (process.platform === 'darwin') app.dock.setIcon(appIcon);
   preferences = await fs.readFile(prefsFile(), 'utf8').then(JSON.parse).catch(() => ({}));
   ipcMain.handle('fever:readClipboard', async () => {
@@ -123,6 +127,7 @@ async function createWindow() {
   });
   window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   window.webContents.on('will-navigate', (event, url) => { const current = window.webContents.getURL(); if (url.split('#')[0] !== current.split('#')[0]) event.preventDefault(); });
+  window.webContents.on('will-prevent-unload', () => { metadataFlushedForQuit = false; scheduleBackup(); schedulePull(); });
   if (app.isPackaged) await window.loadFile(path.join(__dirname, '../dist/index.html')); else await window.loadURL('http://127.0.0.1:5173');
   scheduleBackup();
   schedulePull();
@@ -131,4 +136,10 @@ async function createWindow() {
 app.whenReady().then(boot);
 app.on('window-all-closed', () => { clearInterval(timer); clearInterval(pullTimer); if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (!window) createWindow(); });
-app.on('before-quit', () => { clearInterval(timer); clearInterval(pullTimer); });
+let metadataFlushedForQuit = false;
+app.on('before-quit', event => {
+  clearInterval(timer); clearInterval(pullTimer);
+  if (metadataFlushedForQuit) return;
+  event.preventDefault();
+  store.flushMetadata().then(() => { metadataFlushedForQuit = true; app.quit(); }).catch(error => dialog.showErrorBox('保存更新时间失败', error.message));
+});

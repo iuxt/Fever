@@ -75,6 +75,8 @@ function discardPaths(paths: string[]) {
 persist();
 const imageImports = new Map<string, string[]>();
 export const demo: Api = {
+ preview: async id => (state.contents[id] || '').slice(0, 8192),
+ cancelPreview: async () => {},
  desktop: false, current: async () => snapshot(), open: async () => snapshot(),
  read: async (id, scope) => { if (!(scope === 'trash' ? state.manifest.trash || [] : state.manifest.notes).some(note => note.id === id)) throw new Error('笔记不存在'); return state.contents[id] || ''; },
  search: async (query, scope) => { const needle = query.toLowerCase(), paths = folderPaths(state.manifest); return query.trim() ? (scope === 'trash' ? state.manifest.trash || [] : state.manifest.notes).filter(note => note.title.toLowerCase().includes(needle) || noteCategory(state.manifest, note, paths).toLowerCase().includes(needle) || (state.contents[note.id] || '').toLowerCase().includes(needle)).map(note => note.id) : []; },

@@ -125,6 +125,7 @@ for (const mode of ['rich', 'source']) for (const savedBeforeRead of [false, tru
 test('switching to a new library leaves the workspace empty', async ({ page }) => {
  await desktopFixture(page);
  await page.getByTitle('设置', { exact: true }).click();
+ await page.getByRole('tab', { name: '笔记库', exact: true }).click();
  await page.getByRole('button', { name: '切换', exact: true }).click();
  await expect(page.locator('.note-row .note-card-title strong')).toHaveText('New vault note');
  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
@@ -166,6 +167,7 @@ test('each library restores its own last note even when note IDs overlap', async
  });
  async function switchLibrary() {
   await page.getByTitle('设置', { exact: true }).click();
+  await page.getByRole('tab', { name: '笔记库', exact: true }).click();
   await page.getByRole('button', { name: '切换', exact: true }).click();
  }
  await switchLibrary();

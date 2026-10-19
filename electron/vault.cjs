@@ -6,8 +6,9 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const exec = promisify(execFile);
 const { downloadImage } = require('./remote-images.cjs');
-const { readBounded } = require('./files.cjs');
+const { readBounded, readPrefix } = require('./files.cjs');
 const { RevisionImages } = require('./revision-images.cjs');
+const { MetadataJournal } = require('./metadata.cjs');
 const MANIFEST = 'fever.json';
 const notePath = note => `${note.directory || 'notes'}/${note.filename}`;
 const { readManifest, manifestView, noteView, noteCategory, folderPaths, validCategory, ensureFolder, moveCategory, removeCategory } = require('./manifest.mjs');
@@ -23,11 +24,24 @@ class VaultStore {
     this.root = null; this.manifest = null; this.lfs = false; this.tail = Promise.resolve();
     this.searchCache = null; this.statusTask = null; this.operationVersion = 0;
     this.imageImports = new Map();
+    this.previewRequests = new Map(); this.previewQueue = []; this.activePreviews = 0;
+    this.metadata = null; this.metadataTimer = null;
     this.environment = { ...process.env };
     // Finder-launched macOS apps do not inherit an interactive shell's Homebrew PATH.
     if (process.platform === 'darwin') this.environment.PATH = [...new Set([...(process.env.PATH || '').split(path.delimiter), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])].join(path.delimiter);
   }
-  queued(fn) { const next = this.tail.then(() => { ++this.operationVersion; return fn(); }); this.tail = next.catch(() => {}); return next; }
+  queued(fn, deferMetadata = false) { const next = this.tail.then(async () => { ++this.operationVersion; if (!deferMetadata) await this.flushMetadataInternal(); return fn(); }); this.tail = next.catch(() => {}); return next; }
+  async flushMetadataInternal() { if (this.metadata?.dirty) await this.persist(); }
+  flushMetadata() { return this.queued(async () => {}); }
+  scheduleMetadata() {
+    // A fixed deadline also bounds the journal during uninterrupted typing.
+    if (this.metadataTimer) return;
+    this.metadataTimer = setTimeout(() => {
+      this.metadataTimer = null;
+      this.flushMetadata().catch(error => this.onMetadataError?.(error.message));
+    }, 5000);
+    this.metadataTimer.unref?.();
+  }
   async git(args, allowedFailure = false) {
     if (!this.root) throw new Error('请先打开笔记库');
     try { return (await exec('git', args, { cwd: this.root, env: this.environment, windowsHide: true, timeout: 120000, maxBuffer: 12 * 1024 * 1024 })).stdout; }
@@ -45,6 +59,37 @@ class VaultStore {
     return target;
   }
   note(id, includeTrash = false) { const note = this.manifest?.notes.find(n => n.id === id) || (includeTrash && this.manifest?.trash?.find(n => n.id === id)); if (!note) throw new Error('笔记不存在'); return note; }
+  preview(id, requestId) {
+    if (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId)) return Promise.reject(new Error('摘要请求无效'));
+    this.cancelPreview(requestId);
+    const root = this.root, relative = notePath(this.note(id)), controller = new AbortController();
+    return new Promise((resolve, reject) => {
+      const task = { requestId, controller, reject, run: async () => {
+        if (this.root !== root) throw new Error('笔记库已变化');
+        const file = await this.safe(relative);
+        if (this.root !== root) throw new Error('笔记库已变化');
+        return readPrefix(file, { signal: controller.signal });
+      }, resolve };
+      this.previewRequests.set(requestId, task); this.previewQueue.push(task); this.drainPreviews();
+    });
+  }
+  drainPreviews() {
+    while (this.activePreviews < 4 && this.previewQueue.length) {
+      const task = this.previewQueue.shift(); ++this.activePreviews;
+      task.run().then(task.resolve, task.reject).finally(() => {
+        --this.activePreviews;
+        if (this.previewRequests.get(task.requestId) === task) this.previewRequests.delete(task.requestId);
+        this.drainPreviews();
+      });
+    }
+  }
+  cancelPreview(requestId) {
+    const task = this.previewRequests.get(requestId);
+    if (!task) return;
+    task.controller.abort(); this.previewRequests.delete(requestId);
+    const index = this.previewQueue.indexOf(task);
+    if (index >= 0) { this.previewQueue.splice(index, 1); task.reject(new Error('摘要读取已取消')); }
+  }
   cancelSearch() { this.searchController?.abort(); this.searchController = null; }
   async search(query, scope) {
     if (scope !== undefined && scope !== 'trash') throw new Error('搜索范围无效');
@@ -92,15 +137,21 @@ class VaultStore {
     try {
       await fs.writeFile(temp, text);
       await fs.rename(temp, await this.safe(MANIFEST));
+      clearTimeout(this.metadataTimer); this.metadataTimer = null;
+      // Once renamed, the new manifest is committed. A cleanup failure must not
+      // make a caller roll back its in-memory tree over the successfully saved file.
+      try { await this.metadata?.clear(); }
+      catch (error) { this.onMetadataError?.(error.message); this.scheduleMetadata(); }
     } finally { await fs.rm(temp, { force: true }); }
   }
   snapshot() { return { path: this.root, name: path.basename(this.root), manifest: manifestView(this.manifest), lfs: this.lfs }; }
   async open(folder) {
     return this.queued(async () => {
       this.cancelSearch();
+      for (const requestId of this.previewRequests.keys()) this.cancelPreview(requestId);
       this.searchCache = null;
       const root = await fs.realpath(folder);
-      const previous = { root: this.root, manifest: this.manifest, lfs: this.lfs };
+      const previous = { root: this.root, manifest: this.manifest, lfs: this.lfs, metadata: this.metadata };
       this.root = root;
       try {
         // Reject a parent repository before creating anything in the selection.
@@ -127,6 +178,8 @@ class VaultStore {
         await fs.mkdir(await this.safe('drawings'), { recursive: true });
         await fs.mkdir(await this.safe('images'), { recursive: true });
         if (!top) await this.git(['init', '-b', 'main']);
+        this.metadata = new MetadataJournal(path.resolve(root, (await this.git(['rev-parse', '--git-path', 'fever-updates.jsonl'])).trim()));
+        await this.metadata.recover(this.manifest);
         const attributesFile = await this.safe('.gitattributes');
         const attributes = await fs.readFile(attributesFile, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
         if (!attributes.includes('images/** filter=lfs')) await fs.writeFile(attributesFile, attributes + (attributes && !attributes.endsWith('\n') ? '\n' : '') + 'images/** filter=lfs diff=lfs merge=lfs -text\n');
@@ -164,7 +217,7 @@ class VaultStore {
     if (!note) throw new Error('回收站中找不到这篇笔记');
     return (await readBounded(await this.safe(notePath(note)))).toString('utf8');
   }
-  save(id, content) { return this.queued(() => this.saveInternal(id, content)); }
+  save(id, content) { return this.queued(() => this.saveInternal(id, content), true); }
   // Call only from a queued operation so lookup, content and metadata stay together.
   async saveInternal(id, content) {
     if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('笔记最大为 10 MB');
@@ -175,7 +228,10 @@ class VaultStore {
     finally { await fs.rm(temp, { force: true }); }
     const updatedAt = note.updatedAt;
     note.updatedAt = new Date().toISOString();
-    try { await this.persist(); }
+    try {
+      if (this.metadata) { await this.metadata.record(note, updatedAt); this.scheduleMetadata(); }
+      else await this.persist();
+    }
     catch (e) { note.updatedAt = updatedAt; throw e; }
     return { updatedAt: note.updatedAt };
   }
@@ -346,6 +402,12 @@ class VaultStore {
         for (const change of changes) if (whitespaceCandidates[side].has(change.path) && !meaningful.has(change.path)) change[`${side}WhitespaceOnly`] = true;
       }
     }
+    // The journal is private; expose the pending manifest edit until materialized.
+    if (this.metadata?.dirty) {
+      const manifest = changes.find(change => change.path === MANIFEST);
+      if (manifest) { manifest.unstaged = true; delete manifest.unstagedWhitespaceOnly; }
+      else changes.push({ path: MANIFEST, status: 'M', staged: false, unstaged: true });
+    }
     return { branch, head, changes, ahead, behind, remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim(), lfs: this.lfs };
   }
   async changeFile(relative) {
@@ -365,7 +427,7 @@ class VaultStore {
   saveFile(relative, content) {
     return this.queued(async () => {
       const note = this.manifest?.notes.find(n => notePath(n) === relative);
-      if (note) return this.saveInternal(note.id, content);
+      if (note) { const result = await this.saveInternal(note.id, content); await this.flushMetadataInternal(); return result; }
       this.assertNotTrashedFile(relative);
       const file = await this.changeFile(relative);
       if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');

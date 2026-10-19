@@ -162,6 +162,7 @@ for (const source of [false, true]) {
   await expect.poll(() => saved(page)).toContain('prefix apple apple apple');
   await page.getByTitle('设置', { exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
   await page.getByLabel('远程仓库（origin）').focus();
   await page.keyboard.press(`${await mod(page)}+f`);
   await expect(page.getByLabel('远程仓库（origin）')).toBeFocused();

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { folderPaths } from '../../electron/manifest.mjs';
 
 test('fixed Excalidraw category ignores legacy settings and applies to new and embedded drawings', async ({ page }) => {
  await page.goto('/');
@@ -16,7 +17,10 @@ test('fixed Excalidraw category ignores legacy settings and applies to new and e
  await expect(page.getByLabel('所属分类')).toHaveValue('Excalidraw');
  await page.getByLabel('绘图标题').fill('默认分类绘图');
  await page.getByRole('button', { name: '创建绘图', exact: true }).click();
- await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest.notes.find((note: { title: string }) => note.title === '默认分类绘图')?.category)).toBe('Excalidraw');
+ await expect.poll(async () => {
+  const manifest = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest);
+  return folderPaths(manifest).get(manifest.notes.find((note: { title: string }) => note.title === '默认分类绘图')?.folderId);
+ }).toBe('Excalidraw');
  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest.notes.find((note: { title: string }) => note.title === '默认分类绘图').directory)).toBe('drawings');
  await page.getByRole('button', { name: '新建笔记', exact: true }).first().click();
  await page.getByLabel('笔记标题').fill('嵌入文档');
@@ -29,7 +33,10 @@ test('fixed Excalidraw category ignores legacy settings and applies to new and e
  await page.getByLabel('所属分类').fill('临时绘图');
  await page.getByRole('button', { name: '插入绘图', exact: true }).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
- await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest.notes.find((note: { title: string }) => note.title === '自选分类绘图')?.category)).toBe('临时绘图');
+ await expect.poll(async () => {
+  const manifest = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest);
+  return folderPaths(manifest).get(manifest.notes.find((note: { title: string }) => note.title === '自选分类绘图')?.folderId);
+ }).toBe('临时绘图');
  expect(await page.evaluate(() => {
   const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
   const document = state.manifest.notes.find((note: { title: string }) => note.title === '嵌入文档');

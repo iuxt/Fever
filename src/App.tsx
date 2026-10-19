@@ -15,6 +15,7 @@ import ContextMenu, { useContextMenu, type MenuItem } from './ContextMenu';
 import { writeClipboard } from './clipboard';
 import { modifier } from './ContextMenu';
 import { useAppearance } from './appearance';
+import { useSettledValue } from './useSettledValue';
 const MarkdownEditor = lazy(() => import('./MarkdownEditor'));
 const SourceEditor = lazy(() => import('./SourceEditor'));
 import type { MarkdownEditorHandle } from './MarkdownEditor';
@@ -67,7 +68,7 @@ const collapsedFolders = (vault: Vault) => {
 export default function App() {
  const [vault, setVault] = useState<Vault | null>(null), [loading, setLoading] = useState(true);
  const [activeId, setActiveId] = useState(''), [tabs, setTabs] = useState<string[]>([]), [content, setContent] = useState('');
- const [mode, setMode] = useState<'edit' | 'split'>('edit');
+ const [mode, setEditorMode] = useState<'edit' | 'split'>('edit');
  const [articleFindRequest, setArticleFindRequest] = useState<string | null>(null);
  const [panel, setPanel] = useState<'outline' | 'history' | 'git'>('outline');
  const [rightOpen, setRightOpen] = useState(false), [leftOpen, setLeftOpen] = useState(true);
@@ -113,6 +114,8 @@ export default function App() {
  const currentDocument = useRef({ id: activeId, content });
  currentDocument.current = { id: activeId, content };
  const editorRef = useRef<MarkdownEditorHandle | null>(null);
+ const setMode = useCallback((value: 'edit' | 'split' | ((previous: 'edit' | 'split') => 'edit' | 'split')) => { editorRef.current?.flush(); setEditorMode(value); }, []);
+ const editorDirty = useCallback(() => { ++editVersion.current; setSaved(false); }, []);
  const moreMenuRef = useRef<HTMLDivElement>(null);
  const articleFindKey = activeEditor?.key ?? `${activeId}:${mode}:${editorVersion}`;
  const articleFind = { requested: articleFindRequest === articleFindKey, onHandled: () => setArticleFindRequest(null) };
@@ -125,6 +128,7 @@ export default function App() {
  const modalNote = vault?.manifest.notes.find(n => n.id === (modalNoteId ?? activeId));
  const drawing = Boolean(active && (isDrawingNote(active) || isLegacyDrawing(content)));
  const displayedContent = selectedCommit ? revision : content;
+ const settledContent = useSettledValue(displayedContent, `${activeId}:${selectedCommit?.hash || ''}`);
  const displayedDrawing = selectedCommit ? Boolean(active && (isDrawingNote(active) || isLegacyDrawing(revision))) : drawing;
  const drawings = vault?.manifest.notes.filter(isDrawingNote) || [];
  const notify = useCallback((message: string, error = false) => setNotice({ message, error }), []);
@@ -137,6 +141,7 @@ export default function App() {
   const v = await api.current(); vaultRef.current = v; setVault(v); if (v) await refreshStatus(); else setStatus(null);
  }, [refreshStatus]);
  const flush = useCallback((): Promise<void> => {
+  editorRef.current?.flush();
   if (saveTimer.current) clearTimeout(saveTimer.current);
   if (saving.current) return saving.current;
   // Share one drain across autosave, navigation and manual save. New edits made
@@ -152,6 +157,9 @@ export default function App() {
      const result = await api.save(id, value);
      if (result) setVault(previous => previous ? { ...previous, manifest: { ...previous.manifest, notes: previous.manifest.notes.map(note => note.id === id ? { ...note, updatedAt: result.updatedAt } : note) } } : previous);
     }
+    // A new transaction can arrive while IPC is writing the previous Markdown.
+    // Serialize it before deciding that this drain has reached the latest edit.
+    editorRef.current?.flush();
     setSearchVersion(version => version + 1);
     if (pending.current.get(id) === value) pending.current.delete(id);
    }
@@ -168,6 +176,7 @@ export default function App() {
    const inTrash = Boolean(vaultRef.current?.manifest.trash?.some(note => note.id === id));
    const value = await api.read(id, inTrash ? 'trash' : undefined);
    if (token !== readToken.current) return;
+   editorRef.current?.flush();
    // An autosave may already have cleared pending while this older read was in
    // flight. Preserve both the current text and undo history in that case.
    const editedDuringRead = version !== editVersion.current && currentDocument.current.id === id;
@@ -239,6 +248,7 @@ export default function App() {
  useEffect(() => { setHistory([]); }, [activeId]);
  useEffect(() => { if (modal !== 'discard') setDiscardChange(null); }, [modal]);
  useEffect(() => api.onBackupError?.(message => notify(`自动备份失败：${message}`, true)), [notify]);
+ useEffect(() => api.onSaveError?.(message => notify(`更新时间保存失败：${message}`, true)), [notify]);
  useEffect(() => {
   if (!vault) return;
   let cancelled = false, inFlight = false, timer: ReturnType<typeof setTimeout>;
@@ -277,7 +287,7 @@ export default function App() {
     if (key === ',') openSettings();
     if (key === 'k') { setLeftOpen(true); setTimeout(() => searchRef.current?.focus(), 0); }
     if (key === 'n') { setField(''); setCategory(selectedFolder ?? active?.category ?? vault.manifest.categories[0] ?? '收件箱'); setModal('note'); }
-    if (key === 's') flush().then(refreshStatus).then(() => notify('笔记已保存')).catch(err => notify(err.message, true));
+    if (key === 's') flush().then(() => api.flushMetadata?.()).then(refreshStatus).then(() => notify('笔记已保存')).catch(err => notify(err.message, true));
     if (key === 'e' && !trashed && !activeEditorKey && !selectedCommit) setMode(m => drawing || m === 'split' ? 'edit' : 'split');
    }
    if (e.key === 'Escape' && document.querySelector('.find-widget') && !modal) return;
@@ -288,9 +298,9 @@ export default function App() {
   window.addEventListener('keydown', keydown, true); return () => window.removeEventListener('keydown', keydown, true);
  }, [active, selectedFolder, vault, flush, refreshStatus, notify, activeEditorKey, drawing, selectedCommit, trashed, modal, loading, busy, openSettings]);
  useEffect(() => {
-  const unload = (e: BeforeUnloadEvent) => { if (pending.current.size || workspaceLock.current || importingImages.current) { e.preventDefault(); e.returnValue = ''; void flush(); } };
+  const unload = (e: BeforeUnloadEvent) => { if (editorRef.current?.isDirty() || pending.current.size || workspaceLock.current || importingImages.current) { e.preventDefault(); e.returnValue = ''; void flush().then(() => api.flushMetadata?.()).catch(error => notify(error.message, true)); } };
   window.addEventListener('beforeunload', unload); return () => window.removeEventListener('beforeunload', unload);
- }, [flush]);
+ }, [flush, notify]);
  const stageAll = () => void run(() => api.stageAll(), '已暂存全部变更');
  const unstageAll = () => void run(() => api.unstageAll(), '已取消全部暂存');
  async function runLocked(fn: () => Promise<void>, success?: string, refreshAfter = true) {
@@ -332,7 +342,7 @@ export default function App() {
   }, undefined, false);
  }
  async function pull(automatic = false) {
-  if (automatic && (!vault || loading || busy || modal || workspaceLock.current || importingImages.current || pending.current.size || saving.current)) return;
+  if (automatic && (!vault || loading || busy || modal || workspaceLock.current || importingImages.current || editorRef.current?.isDirty() || pending.current.size || saving.current)) return;
   await runLocked(async () => {
    try {
     const before = automatic ? await api.status() : null;
@@ -596,6 +606,7 @@ export default function App() {
  }
  async function exportCurrentNote(options: ExportOptions) {
   if (!active || !vault || busy) return;
+  editorRef.current?.flush();
   const note = active, value = currentDocument.current.content, notes = allNotes;
   setMenu(false); setBusy(true);
   try {
@@ -609,6 +620,7 @@ export default function App() {
  }
  async function localizeImages() {
   if (!activeId || trashed || !vault || busy) return;
+  editorRef.current?.flush();
   const targetId = activeId, vaultPath = vault.path;
   const urls = externalImageUrls(currentDocument.current.content);
   if (!urls.length) { notify('当前笔记没有外部图片'); return; }
@@ -702,16 +714,16 @@ export default function App() {
    setModal(null);
   });
  }
- const headings = useMemo(() => (displayedDrawing ? '' : displayedContent).split('\n').filter(l => /^#{1,3}\s/.test(l)).map(l => ({ level: l.match(/^#+/)![0].length, text: l.replace(/^#+\s+/, '').replace(/[*`]/g, '') })), [displayedContent, displayedDrawing]);
- const drawingCount = useMemo(() => { if (!displayedDrawing) return 0; try { return JSON.parse(drawingJSON(displayedContent)).elements.filter((element: { isDeleted?: boolean }) => !element.isDeleted).length; } catch { return 0; } }, [displayedContent, displayedDrawing]);
+ const headings = useMemo(() => (displayedDrawing ? '' : settledContent).split('\n').filter(l => /^#{1,3}\s/.test(l)).map(l => ({ level: l.match(/^#+/)![0].length, text: l.replace(/^#+\s+/, '').replace(/[*`]/g, '') })), [settledContent, displayedDrawing]);
+ const drawingCount = useMemo(() => { if (!displayedDrawing) return 0; try { return JSON.parse(drawingJSON(settledContent)).elements.filter((element: { isDeleted?: boolean }) => !element.isDeleted).length; } catch { return 0; } }, [settledContent, displayedDrawing]);
  const counts = useMemo(() => {
   if (displayedDrawing) return { chars: 0, words: 0 };
-  let chars = displayedContent.length, words = 0;
+  let chars = settledContent.length, words = 0;
   // Count without retaining an array for every word/Chinese character.
-  for (const match of displayedContent.matchAll(/\s+/g)) chars -= match[0].length;
-  for (const _match of displayedContent.matchAll(/[\u4e00-\u9fff]|[a-zA-Z0-9]+/g)) words++;
+  for (const match of settledContent.matchAll(/\s+/g)) chars -= match[0].length;
+  for (const _match of settledContent.matchAll(/[\u4e00-\u9fff]|[a-zA-Z0-9]+/g)) words++;
   return { chars, words };
- }, [displayedContent, displayedDrawing]);
+ }, [settledContent, displayedDrawing]);
  const filtered = useMemo(() => { const matches = new Set(textMatches), needle = query.toLowerCase(); const notes = trashView ? [...(vault?.manifest.trash || [])].reverse() : vault?.manifest.notes; return notes?.filter(n => n.title.toLowerCase().includes(needle) || n.category.toLowerCase().includes(needle) || matches.has(n.id)) || []; }, [vault, query, textMatches, trashView]);
 
  const folderNotes = useMemo(() => sortNotes(query.trim() ? filtered : (vault?.manifest.notes || []).filter(note => selectedFolder === null || note.category === selectedFolder || note.category.startsWith(`${selectedFolder}/`)), noteSort), [filtered, query, selectedFolder, vault?.manifest.notes, noteSort]);
@@ -739,17 +751,17 @@ export default function App() {
    <section className="file-list-panel" aria-label="笔记列表栏">
     <header className="file-list-header"><div><h2 title={selectedFolder || listTitle}>{listTitle}</h2><span>{trashView ? filtered.length : folderNotes.length} 篇笔记{!trashView && selectedFolder && !query ? ' · 含子文件夹' : ''}</span></div>{!trashView && <button className="icon-button" title="在当前文件夹新建笔记" onClick={() => showNew('note')}><FilePlus2 size={18} /></button>}</header>
     {!trashView && <NoteSort sort={noteSort} onChange={setNoteSort} />}
-    {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} notes={folderNotes} activeId={activeEditor ? '' : activeId} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
+    {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
     <footer className="file-list-footer">{query.trim() ? '搜索整个笔记库' : '选择笔记，开始阅读与记录'}</footer>
    </section>
   </>}
 
   <main className="workspace"><header className="tab-bar"><button className="icon-button toggle-left" title="切换侧栏" onClick={() => setLeftOpen(!leftOpen)}><PanelLeftClose size={17} /></button><div className="tabs">{tabs.map(id => { const n = allNotes.find(n => n.id === id); return n && <div key={id} className={`tab ${!activeEditor && id === activeId ? 'current' : ''}`}><button onClick={() => void select(id)}>{isDrawingNote(n) ? <Shapes size={14} /> : <FileText size={14} />}<span>{n.title}</span></button><button title="关闭标签" disabled={workspaceLocked} onClick={() => void closeNote(id)}><X size={13} /></button></div>; })}{editorTabs.map(tab => <div key={tab.key} className={`tab ${activeEditorKey === tab.key ? 'current' : ''}`}><button title={tab.path} disabled={busy} onClick={() => void activateEditor(tab)}>{tab.kind === 'diff' ? <GitBranch size={14} /> : <FileText size={14} />}<span>{vault.manifest.notes.find(note => notePath(note) === tab.path)?.title || tab.path.split('/').pop()}{tab.kind === 'diff' ? ` · ${tab.staged ? '已暂存' : '工作区'}对比` : ''}</span></button><button title={`关闭${tab.kind === 'diff' ? '对比' : '文件'}：${tab.path}`} disabled={workspaceLocked} onClick={() => void closeEditor(tab)}><X size={13} /></button></div>)}<button className="icon-button tab-add" title="新建笔记" onClick={() => showNew('note')}><Plus size={17} /></button></div>{!rightOpen && <div className="inspector-shortcuts"><button className="icon-button" aria-label="大纲" title="大纲" onClick={() => { setPanel('outline'); setRightOpen(true); }}><LayoutList size={16} /></button><button className="icon-button" aria-label="历史" title="历史" onClick={() => { setPanel('history'); setRightOpen(true); }}><History size={16} /></button><button className="icon-button" aria-label="Git" title="Git" onClick={() => { setPanel('git'); setRightOpen(true); }}><GitBranch size={16} /></button></div>}<button className="icon-button toggle-right" title="切换右侧面板" onClick={() => setRightOpen(!rightOpen)}><PanelRightClose size={17} /></button></header>
-   <div className="editor-toolbar"><div className="breadcrumbs"><Folder size={14} />{!activeEditor && active?.category.split('/').map(c => <span key={c}>{c}<ChevronRight size={12} /></span>)}<span className="breadcrumb-title">{activeEditor?.path || active?.title || (trashView ? '回收站' : '我的笔记')}</span></div>{!selectedCommit && !trashed && ((!activeEditor && active && !drawing) || (activeEditor?.kind === 'file' && !activeEditor.file.binary)) && <button className="icon-button article-find-button" title={`文章内查找 · ${modifier}F`} aria-label="文章内查找" onMouseDown={event => event.preventDefault()} onClick={() => setArticleFindRequest(articleFindKey)}><Search size={17} /></button>}{selectedCommit ? <div className="editor-actions revision-actions"><span className="revision-readonly">只读</span>{revisionMode === 'preview' && !displayedDrawing && <EditorWidthButton {...editorWidthProps} />}<button className="text-button" disabled={busy} onClick={() => setRevisionMode(value => value === 'diff' ? 'preview' : 'diff')}>{revisionMode === 'diff' ? <Eye size={14} /> : <GitBranch size={14} />}{revisionMode === 'diff' ? '预览此版本' : '查看 diff'}</button><button className="text-button" disabled={busy} onClick={leaveRevision}>返回当前版本</button>{!trashed && <button className="text-button" disabled={busy} onClick={() => void restoreRevision()}><History size={14} />恢复这个版本</button>}</div> : activeEditor ? <div className="editor-actions"><span className="editor-kind">{activeEditor.kind === 'diff' ? '文件变更对比' : activeEditor.file.binary ? '文件预览' : '源码编辑'}</span>{activeEditor.kind === 'diff' && <button className="text-button" disabled={busy} onClick={() => void openChangedFile({ path: activeEditor.path, status: '', staged: false, unstaged: false })}><PenLine size={14} />打开文件</button>}</div> : trashed ? <div className="editor-actions"><span className="revision-readonly">回收站 · 只读</span>{!drawing && <EditorWidthButton {...editorWidthProps} />}<button className="icon-button" title="笔记历史" onClick={() => { setPanel('history'); setRightOpen(true); }}><History size={17} /></button><button className="text-button" disabled={busy} onClick={() => void restoreTrashedNote(active!)}><History size={14} />还原到原位置</button></div> : <div className="editor-actions">{!drawing && <div className="mode-switch"><button className={mode === 'edit' ? 'chosen' : ''} title="编辑模式 · ⌘ E" onClick={() => setMode('edit')}><PenLine size={15} /></button><button className={mode === 'split' ? 'chosen' : ''} title="Markdown 源码与预览" onClick={() => setMode('split')}><Code2 size={16} /></button></div>}{!drawing && <EditorWidthButton {...editorWidthProps} />}<button className="icon-button" title="笔记历史" onClick={() => { setPanel('history'); setRightOpen(true); }}><History size={17} /></button><div className="more-wrap" ref={moreMenuRef}><button className="icon-button" title="更多笔记操作" onClick={() => setMenu(!menu)}><MoreHorizontal size={19} /></button>{menu && <div className="dropdown"><button disabled={!active} onClick={() => { if (active) showNoteAction('rename', active); }}><PenLine size={14} />重命名 / 移动笔记</button><button disabled={!active || drawing} onClick={() => imageRef.current?.click()}><ImagePlus size={14} />插入图片</button><button title="外部图片转为本地文件" disabled={!active || drawing || busy} onClick={() => { setMenu(false); void localizeImages(); }}><ArrowDownToLine size={14} />外部图片转为本地文件</button><button disabled={!active || drawing} onClick={() => { showNew('embed'); setMenu(false); }}><Shapes size={14} />插入 Excalidraw</button><button disabled={!active} onClick={() => { writeClipboard({ text: content }).then(() => notify(drawing ? '已复制绘图数据' : '已复制 Markdown')).catch(() => notify('复制失败', true)); setMenu(false); }}><Copy size={14} />{drawing ? '复制绘图数据' : '复制 Markdown'}</button><button disabled={!active || busy} onClick={() => { setMenu(false); setModal('export'); }}><ArrowDownToLine size={14} />导出…</button><button className="danger-text" disabled={!active} onClick={() => { if (active) showNoteAction('delete', active); }}><Trash2 size={14} />删除笔记</button></div>}</div></div>}</div>
+   <div className="editor-toolbar"><div className="breadcrumbs"><Folder size={14} />{!activeEditor && active?.category.split('/').map(c => <span key={c}>{c}<ChevronRight size={12} /></span>)}<span className="breadcrumb-title">{activeEditor?.path || active?.title || (trashView ? '回收站' : '我的笔记')}</span></div>{!selectedCommit && !trashed && ((!activeEditor && active && !drawing) || (activeEditor?.kind === 'file' && !activeEditor.file.binary)) && <button className="icon-button article-find-button" title={`文章内查找 · ${modifier}F`} aria-label="文章内查找" onMouseDown={event => event.preventDefault()} onClick={() => setArticleFindRequest(articleFindKey)}><Search size={17} /></button>}{selectedCommit ? <div className="editor-actions revision-actions"><span className="revision-readonly">只读</span>{revisionMode === 'preview' && !displayedDrawing && <EditorWidthButton {...editorWidthProps} />}<button className="text-button" disabled={busy} onClick={() => setRevisionMode(value => value === 'diff' ? 'preview' : 'diff')}>{revisionMode === 'diff' ? <Eye size={14} /> : <GitBranch size={14} />}{revisionMode === 'diff' ? '预览此版本' : '查看 diff'}</button><button className="text-button" disabled={busy} onClick={leaveRevision}>返回当前版本</button>{!trashed && <button className="text-button" disabled={busy} onClick={() => void restoreRevision()}><History size={14} />恢复这个版本</button>}</div> : activeEditor ? <div className="editor-actions"><span className="editor-kind">{activeEditor.kind === 'diff' ? '文件变更对比' : activeEditor.file.binary ? '文件预览' : '源码编辑'}</span>{activeEditor.kind === 'diff' && <button className="text-button" disabled={busy} onClick={() => void openChangedFile({ path: activeEditor.path, status: '', staged: false, unstaged: false })}><PenLine size={14} />打开文件</button>}</div> : trashed ? <div className="editor-actions"><span className="revision-readonly">回收站 · 只读</span>{!drawing && <EditorWidthButton {...editorWidthProps} />}<button className="icon-button" title="笔记历史" onClick={() => { setPanel('history'); setRightOpen(true); }}><History size={17} /></button><button className="text-button" disabled={busy} onClick={() => void restoreTrashedNote(active!)}><History size={14} />还原到原位置</button></div> : <div className="editor-actions">{!drawing && <div className="mode-switch"><button className={mode === 'edit' ? 'chosen' : ''} title="编辑模式 · ⌘ E" onClick={() => setMode('edit')}><PenLine size={15} /></button><button className={mode === 'split' ? 'chosen' : ''} title="Markdown 源码与预览" onClick={() => setMode('split')}><Code2 size={16} /></button></div>}{!drawing && <EditorWidthButton {...editorWidthProps} />}<button className="icon-button" title="笔记历史" onClick={() => { setPanel('history'); setRightOpen(true); }}><History size={17} /></button><div className="more-wrap" ref={moreMenuRef}><button className="icon-button" title="更多笔记操作" onClick={() => setMenu(!menu)}><MoreHorizontal size={19} /></button>{menu && <div className="dropdown"><button disabled={!active} onClick={() => { if (active) showNoteAction('rename', active); }}><PenLine size={14} />重命名 / 移动笔记</button><button disabled={!active || drawing} onClick={() => imageRef.current?.click()}><ImagePlus size={14} />插入图片</button><button title="外部图片转为本地文件" disabled={!active || drawing || busy} onClick={() => { setMenu(false); void localizeImages(); }}><ArrowDownToLine size={14} />外部图片转为本地文件</button><button disabled={!active || drawing} onClick={() => { showNew('embed'); setMenu(false); }}><Shapes size={14} />插入 Excalidraw</button><button disabled={!active} onClick={() => { editorRef.current?.flush(); writeClipboard({ text: currentDocument.current.content }).then(() => notify(drawing ? '已复制绘图数据' : '已复制 Markdown')).catch(() => notify('复制失败', true)); setMenu(false); }}><Copy size={14} />{drawing ? '复制绘图数据' : '复制 Markdown'}</button><button disabled={!active || busy} onClick={() => { setMenu(false); setModal('export'); }}><ArrowDownToLine size={14} />导出…</button><button className="danger-text" disabled={!active} onClick={() => { if (active) showNoteAction('delete', active); }}><Trash2 size={14} />删除笔记</button></div>}</div></div>}</div>
    <div className="document-area"><div className={`document-space ${selectedCommit ? 'revision-view' : activeEditor ? 'repository-document' : trashed ? 'trash-document-space' : mode}`} onPaste={e => { if (trashed || selectedCommit || activeEditor || drawing) return; const files = Array.from(e.clipboardData.files).filter(file => file.type.startsWith('image/')); if (files.length) { e.preventDefault(); void addImages(files); } }} onDragOver={e => { if (!trashed && !selectedCommit && !activeEditor && !drawing) e.preventDefault(); }} onDrop={e => { if (trashed || selectedCommit || activeEditor || drawing) return; e.preventDefault(); if (e.dataTransfer.files.length) void addImages(e.dataTransfer.files); }}>
     {selectedCommit && active ? <article key={`${selectedCommit.hash}:${revisionMode}`} className={`document revision-document ${revisionMode === 'diff' ? 'revision-diff-document' : ''}`} aria-label="历史版本（只读）" tabIndex={0}><div className="revision-meta"><GitCommitHorizontal size={15} /><strong title={selectedCommit.message}>{selectedCommit.message}</strong><code>{selectedCommit.hash.slice(0, 7)}</code><span>{selectedCommit.author} · {time(selectedCommit.date)}</span></div>{revisionMode === 'diff' && revisionComparison ? <RevisionDiff comparison={revisionComparison} hash={selectedCommit.hash} /> : <div className="prose"><Suspense fallback={<DrawingLoading />}>{displayedDrawing ? <DrawingPreview content={revision} label={active.title} /> : <Markdown onNavigate={navigateNote} content={revision} revision={{ id: active.id, hash: selectedCommit.hash }} notes={allNotes} />}</Suspense></div>}</article> : activeEditor ? activeEditor.kind === 'diff' ? <section className="diff-editor" aria-label="文件变更对比"><GitDiff diff={activeEditor.diff} staged={activeEditor.staged} ignoreWhitespace={ignoreWhitespace} /></section> : activeEditor.file.binary ? <div className="file-preview">{activeEditor.file.image ? <img src={activeEditor.file.image} alt={activeEditor.path} /> : <p>二进制文件，无法显示文本内容。</p>}</div> : <div className="source-editor file-editor"><div className="source-label"><span><Code2 size={13} />{activeEditor.path}</span><span>UTF-8</span></div><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><SourceEditor findRequest={articleFind} key={activeEditor.key} filename={activeEditor.path} content={activeEditor.file.content} dark={dark} onChange={value => editFile(activeEditor, value)} onError={message => notify(message, true)} /></Suspense></div> : !active ? <div className="empty-workspace"><BookOpen size={40} strokeWidth={1} /><h2>{trashView ? '选择回收站中的笔记' : '未打开笔记'}</h2>{trashView ? <p>查看正文和历史，或还原到原位置</p> : <button className="primary" onClick={() => showNew('note')}><Plus size={16} />新建笔记</button>}</div> : trashed ? <article className="document trash-document" aria-label="回收站笔记（只读）" tabIndex={0} onContextMenu={event => showTrashMenu(event, active)}><div className="document-meta"><span className="category-pill"><Folder size={12} />原位置：{active.category || '未分类'}</span><span>只读</span></div><div className="prose"><Suspense fallback={<DrawingLoading />}>{drawing ? <DrawingPreview content={content} label={active.title} /> : <Markdown onNavigate={navigateNote} content={content} notes={allNotes} />}</Suspense></div></article> : drawing ? <Suspense fallback={<DrawingLoading />}><DrawingEditor key={`${activeId}:${editorVersion}`} content={content} dark={dark} onChange={edit} /></Suspense> : <>
-     {mode === 'split' && <article className="document" tabIndex={-1} onContextMenu={showDocumentMenu}><div className="document-meta"><span className="category-pill"><Folder size={12} />{active.category || '未分类'}</span><span><Clock3 size={12} />更新于 {time(active.updatedAt)}</span></div><div className="prose"><Markdown onNavigate={navigateNote} content={content} notes={vault.manifest.notes} onOpen={openDrawing} /></div></article>}
-     {mode === 'edit' && <div className="wysiwyg-editor"><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><MarkdownEditor findRequest={articleFind} onNavigate={navigateNote} ref={editorRef} key={`${activeId}:${editorVersion}`} content={content} onChange={edit} media={editorMedia} onError={message => notify(message, true)} onInsertImage={() => imageRef.current?.click()} onInsertDrawing={() => showNew('embed')} /></Suspense></div>}
+     {mode === 'split' && <article className="document" tabIndex={-1} onContextMenu={showDocumentMenu}><div className="document-meta"><span className="category-pill"><Folder size={12} />{active.category || '未分类'}</span><span><Clock3 size={12} />更新于 {time(active.updatedAt)}</span></div><div className="prose"><Markdown onNavigate={navigateNote} content={settledContent} notes={vault.manifest.notes} onOpen={openDrawing} /></div></article>}
+     {mode === 'edit' && <div className="wysiwyg-editor"><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><MarkdownEditor findRequest={articleFind} onNavigate={navigateNote} ref={editorRef} key={`${activeId}:${editorVersion}`} content={content} onChange={edit} onDirty={editorDirty} media={editorMedia} onError={message => notify(message, true)} onInsertImage={() => imageRef.current?.click()} onInsertDrawing={() => showNew('embed')} /></Suspense></div>}
      {mode === 'split' && <div className="source-editor"><div className="source-label"><span><PenLine size={13} />MARKDOWN</span><span><button className="text-button" onClick={() => showNew('embed')}><Shapes size={14} />插入 Excalidraw</button><button className="text-button" onClick={() => imageRef.current?.click()}><ImagePlus size={14} />插入图片</button></span></div><Suspense fallback={<span className="drawing-placeholder">正在加载编辑器…</span>}><SourceEditor findRequest={articleFind} key={activeId} content={content} dark={dark} onChange={edit} onError={message => notify(message, true)} /></Suspense></div>}
     </>}
    </div></div><footer className="status-bar"><div><span className="saved-state">{saved ? <CheckCheck size={13} /> : <LoaderCircle className="spin" size={13} />}{saved ? '所有更改已保存' : '正在保存…'}</span>{!api.desktop && <span className="demo-label">浏览器演示</span>}</div><div>{activeEditor ? <span>{activeEditor.kind === 'diff' ? '文件变更对比' : activeEditor.path.split('/').pop()}</span> : displayedDrawing ? <span>{drawingCount} 个元素</span> : <><span>{counts.words.toLocaleString()} 字</span><span>{counts.chars.toLocaleString()} 字符</span></>}{!activeEditor && <span>{displayedDrawing ? 'Excalidraw' : 'Markdown'}</span>}<span>UTF-8</span><button title="Git 状态" onClick={() => { setPanel('git'); setRightOpen(true); }}><GitBranch size={12} />{status?.branch || 'main'}</button></div></footer>

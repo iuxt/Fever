@@ -20,6 +20,7 @@
     "test:desktop:history-images": "npm run build && node tests/electron-history-images.mjs",
     "test:desktop:auto-pull": "node tests/electron-auto-pull.mjs",
     "test:desktop:tabs": "node tests/electron-tabs.mjs",
+    "test:desktop:optimization": "npm run build && node tests/electron-optimization.mjs",
     "test:memory": "npm run build && node tests/memory-stress.mjs",
     "test:resources": "npm run build && node tests/resource-stress.mjs",
     "test:desktop:export": "node tests/electron-export.mjs"

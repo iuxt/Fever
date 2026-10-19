@@ -113,6 +113,7 @@ test('updates split preview from the latest source and isolates diagram markup',
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  const source = page.locator('.source-editor .cm-content');
  await source.fill(fence('flowchart LR\n    X[最终版本] --> Y[完成]\n    click X "javascript:alert(1)"'));
+ await expect.poll(async () => diagram(page.locator('.mermaid-preview img'))).toContain('最终版本');
  const svg = await diagram(page.locator('.mermaid-preview img'));
  expect(svg).toContain('最终版本');
  expect(svg).not.toContain('foreignObject');

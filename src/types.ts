@@ -35,9 +35,13 @@ export type Api = {
   current(): Promise<Vault | null>;
   open(): Promise<Vault | null>;
   read(id: string, scope?: 'trash'): Promise<string>;
+  preview?(id: string, requestId: string): Promise<string>;
+  cancelPreview?(requestId: string): Promise<void>;
   search(query: string, scope?: 'trash'): Promise<string[]>;
   cancelSearch(): Promise<void>;
   save(id: string, content: string): Promise<SaveResult | void>;
+  flushMetadata?(): Promise<void>;
+  onSaveError?: (callback: (message: string) => void) => () => void;
   create(title: string, category: string, format?: 'markdown' | 'excalidraw'): Promise<Note>;
   update(id: string, title: string, category: string): Promise<Note>;
   remove(id: string): Promise<void>;

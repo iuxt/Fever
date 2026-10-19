@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, CaseSensitive, ChevronDown, ChevronRight, Regex, Replace, ReplaceAll, TextSelect, WholeWord, X } from 'lucide-react';
-import { findMatches, matchLimit, replacementText, type SearchAdapter, type SearchOptions, type SearchRange, type SearchRequest } from './articleSearch';
+import { matchLimit, replacementText, type SearchAdapter, type SearchOptions, type SearchRange, type SearchRequest } from './articleSearch';
+import { useArticleSearch } from './useArticleSearch';
 import { modifier } from './ContextMenu';
 
 export default function FindReplace({ adapter, request }: { adapter: SearchAdapter | null; request?: SearchRequest }) {
@@ -14,7 +15,7 @@ export default function FindReplace({ adapter, request }: { adapter: SearchAdapt
  const input = useRef<HTMLTextAreaElement>(null), panel = useRef<HTMLDivElement>(null);
  const reveal = useRef(false);
  const segments = useMemo(() => open ? adapter?.segments() ?? [] : [], [adapter, open, version]);
- const { matches, error, limited } = useMemo(() => findMatches(segments, query, options, scope), [segments, query, options, scope]);
+ const { matches, error, limited, searching } = useArticleSearch(segments, open ? query : '', options, scope);
  const nearest = matches.findIndex(match => match.from >= anchor);
  const index = matches.length ? nearest < 0 ? 0 : nearest : -1;
  const mac = modifier === '⌘';
@@ -33,8 +34,8 @@ export default function FindReplace({ adapter, request }: { adapter: SearchAdapt
  useLayoutEffect(() => {
   if (!adapter) return;
   adapter.highlight(open ? matches : [], open ? index : -1, open && reveal.current);
-  reveal.current = false;
- }, [adapter, open, matches, index, navigation]);
+  if (!searching) reveal.current = false;
+ }, [adapter, open, matches, index, navigation, searching]);
  useEffect(() => () => { adapter?.highlight([], -1, false); }, [adapter]);
 
  function focusSearch() { requestAnimationFrame(() => { input.current?.focus(); input.current?.select(); }); }
@@ -102,7 +103,7 @@ export default function FindReplace({ adapter, request }: { adapter: SearchAdapt
  });
  const host = adapter?.element.closest('.document-area');
  if (!open || !host) return null;
- const count = !query ? '输入关键词' : error ? '' : matches.length ? `${index + 1} / ${matches.length}${limited ? '+' : ''}` : '无结果';
+ const count = !query ? '输入关键词' : searching ? '查找中…' : error ? '' : matches.length ? `${index + 1} / ${matches.length}${limited ? '+' : ''}` : '无结果';
  return createPortal(<div ref={panel} className={`find-widget${error || (query && !matches.length) ? ' no-results' : ''}`} role="region" aria-label="文章内查找和替换">
   <div className="find-main">
    <button className="find-toggle" aria-label={expanded ? '收起替换' : '展开替换'} title={`替换 · ${replaceShortcut}`} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>

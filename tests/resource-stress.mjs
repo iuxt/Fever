@@ -49,6 +49,7 @@ require(${JSON.stringify(path.join(root,'electron/main.cjs'))});
   await expect(page.locator('.saved-state')).toContainText('所有更改已保存');
  });
  const saves = report.stages.at(-1); expect(saves.calls.save).toBe(3); expect(saves.readFiles).toBe(3); expect(saves.readBytes).toBeLessThan(1024);
+ await page.evaluate(() => window.fever.flushMetadata());
  await search.fill(''); await page.waitForTimeout(300);
  const invalidImport = await stage('invalid-image-batch', async () => {
   await page.evaluate(() => {
