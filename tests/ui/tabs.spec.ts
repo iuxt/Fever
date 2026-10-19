@@ -26,6 +26,7 @@ for (const desktop of [false, true]) {
       await new Promise<void>(resolve => { controls.waiting = true; controls.release = resolve; });
       controls.waiting = false;
       if (fail) throw new Error('测试提交失败');
+      return { committed: true, restoredPaths: [] };
      },
     } as typeof window.fever;
    }, { desktop, fail });

@@ -1,5 +1,65 @@
 import { test, expect } from '@playwright/test';
 
+for (const variant of ['all', 'staged', 'disabled'] as const) {
+ test(`commit ${variant} restores only whitespace-only files when filtering is enabled`, async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(variant => {
+   const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
+   state.baseFiles['notes/demo-1.md'] = 'alpha beta\nsecond line\n';
+   state.contents['demo-1'] = 'alpha  beta  \n\nsecond line\n\n';
+   state.baseFiles['notes/demo-2.md'] = 'original content\n';
+   state.contents['demo-2'] = 'actual content edit\n';
+   if (variant === 'staged') for (const id of ['demo-1', 'demo-2']) state.stagedFiles[`notes/${id}.md`] = state.contents[id];
+   localStorage.setItem('fever-demo-v1', JSON.stringify(state));
+  }, variant);
+  await page.reload();
+  await page.getByPlaceholder('搜索你的笔记…').fill('欢迎使用 Fever');
+  await page.locator('.note-row').click();
+  await page.getByPlaceholder('搜索你的笔记…').fill('');
+  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  await page.getByRole('switch', { name: '忽略空格和空行' }).setChecked(variant !== 'disabled');
+  await page.getByPlaceholder('这次记录了什么？').fill('commit with whitespace preference');
+  await page.getByRole('button', { name: variant === 'staged' ? '提交已暂存变更 (2)' : '提交所有笔记变更', exact: true }).click();
+  await expect(page.getByText(variant === 'disabled' ? '已创建 Git 提交' : '已创建 Git 提交，并还原 1 个文件的空白变更', { exact: true })).toBeVisible();
+  const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
+  const expected = variant === 'disabled' ? 'alpha  beta  \n\nsecond line\n\n' : 'alpha beta\nsecond line\n';
+  expect(state.contents['demo-1']).toBe(expected);
+  expect(state.baseFiles['notes/demo-1.md']).toBe(expected);
+  expect(state.baseFiles['notes/demo-2.md']).toBe('actual content edit\n');
+  await expect.poll(() => page.locator('.source-editor .cm-line').first().textContent()).toBe(variant === 'disabled' ? 'alpha  beta  ' : 'alpha beta');
+  await page.getByRole('switch', { name: '忽略空格和空行' }).uncheck();
+  await expect(page.locator('.git-changes .change')).toHaveCount(0);
+ });
+}
+
+test('a whitespace-only commit restores the active editor and skips creating history', async ({ page }) => {
+ await page.goto('/');
+ const previousHashes = await page.evaluate(() => {
+  const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
+  state.baseFiles['notes/demo-1.md'] = 'alpha beta\n';
+  state.contents['demo-1'] = 'alpha  beta  \n\n';
+  localStorage.setItem('fever-demo-v1', JSON.stringify(state));
+  return state.versions['demo-1'].map((version: { commit: { hash: string } }) => version.commit.hash);
+ });
+ await page.reload();
+ await page.getByPlaceholder('搜索你的笔记…').fill('欢迎使用 Fever');
+ await page.locator('.note-row').click();
+ await page.getByPlaceholder('搜索你的笔记…').fill('');
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await page.getByPlaceholder('这次记录了什么？').fill('only whitespace');
+ await page.getByRole('button', { name: '提交所有笔记变更', exact: true }).click();
+ await expect(page.getByText('已还原空白变更，本次未创建提交', { exact: true })).toBeVisible();
+ await expect.poll(() => page.locator('.source-editor .cm-line').first().textContent()).toBe('alpha beta');
+ const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
+ expect(state.contents['demo-1']).toBe('alpha beta\n');
+ expect(state.versions['demo-1'].map((version: { commit: { hash: string } }) => version.commit.hash)).toEqual(previousHashes);
+ await page.getByRole('switch', { name: '忽略空格和空行' }).uncheck();
+ await expect(page.locator('.git-changes .change')).toHaveCount(0);
+ await expect(page.getByRole('button', { name: '提交所有笔记变更', exact: true })).toBeDisabled();
+});
+
 test('Git comparisons ignore whitespace by default and can show the full patch', async ({ page }) => {
  await page.goto('/');
  // Use a committed note with separate whitespace-only and meaningful hunks.
@@ -14,7 +74,7 @@ test('Git comparisons ignore whitespace by default and can show the full patch',
  await page.reload();
  await page.getByRole('button', { name: 'Git', exact: true }).click();
  await page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever' }).click();
- const toggle = page.getByRole('checkbox', { name: '忽略空格和空行' });
+ const toggle = page.getByRole('switch', { name: '忽略空格和空行' });
  const diff = page.locator('.diff-editor');
  await expect(toggle).toBeChecked();
  await expect(diff).toContainText('+actual edit');
@@ -44,11 +104,69 @@ test('whitespace-only comparisons explain the filter and retain access to origin
  });
  await page.reload();
  await page.getByRole('button', { name: 'Git', exact: true }).click();
+ const toggle = page.getByRole('switch', { name: '忽略空格和空行' });
+ const row = page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever' });
+ const working = page.getByRole('region', { name: '工作区变更', exact: true });
+ await expect(toggle).toBeChecked();
+ await expect(row).toHaveCount(0);
+ await expect(working.locator('.changes-count')).toHaveText('0');
+ await expect(page.getByText('已隐藏 1 项空白变更')).toBeVisible();
+ await toggle.uncheck();
  await page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever' }).click();
+ await toggle.check();
  await expect(page.locator('.diff-editor')).toContainText('已忽略空格和空行变化，没有其他文本差异。');
- await page.getByRole('checkbox', { name: '忽略空格和空行' }).uncheck();
+ await expect(row).toHaveCount(0);
+ await toggle.uncheck();
  await expect(page.locator('.diff-editor .diff-add').filter({ hasText: 'alpha  beta' })).toHaveCount(1);
- await expect(page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever' })).toBeVisible();
+ await expect(row).toBeVisible();
+ await expect(working.locator('.changes-count')).toHaveText('1');
+ await page.reload();
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await expect(toggle).not.toBeChecked();
+ await expect(row).toBeVisible();
+ await toggle.check();
+ await page.locator('.inspector').screenshot({ path: 'test-results/git-hidden-whitespace.png' });
+ await page.reload();
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await expect(toggle).toBeChecked();
+ await expect(row).toHaveCount(0);
+});
+
+test('the panel filters staged and working sides independently and refreshes when edits become meaningful', async ({ page }) => {
+ await page.goto('/');
+ await page.evaluate(() => {
+  const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
+  for (const id of ['demo-1', 'demo-2']) state.baseFiles[`notes/${id}.md`] = 'alpha beta\n';
+  state.stagedFiles['notes/demo-1.md'] = 'actual edit\n';
+  state.contents['demo-1'] = 'actual  edit\n\n';
+  state.stagedFiles['notes/demo-2.md'] = 'alpha  beta\n\n';
+  state.contents['demo-2'] = 'another actual edit\n';
+  localStorage.setItem('fever-demo-v1', JSON.stringify(state));
+ });
+ await page.reload();
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ const staged = page.getByRole('region', { name: '已暂存变更', exact: true });
+ const working = page.getByRole('region', { name: '工作区变更', exact: true });
+ await expect(staged.locator('.changes-count')).toHaveText('1');
+ await expect(working.locator('.changes-count')).toHaveText('1');
+ await expect(staged.getByRole('button', { name: '查看已暂存差异：欢迎使用 Fever' })).toBeVisible();
+ await expect(working.getByRole('button', { name: '查看工作区差异：Markdown 语法指南' })).toBeVisible();
+ await expect(working.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever' })).toHaveCount(0);
+ const toggle = page.getByRole('switch', { name: '忽略空格和空行' });
+ await toggle.uncheck();
+ await expect(staged.locator('.changes-count')).toHaveText('2');
+ await expect(working.locator('.changes-count')).toHaveText('2');
+ await toggle.check();
+ await page.getByPlaceholder('搜索你的笔记…').fill('欢迎使用 Fever');
+ await page.locator('.note-row').click();
+ await page.getByPlaceholder('搜索你的笔记…').fill('');
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await page.locator('.cm-content').fill('a newly meaningful edit\n');
+ await expect(page.getByText('所有更改已保存')).toBeVisible();
+ await expect(working.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever' })).toBeVisible();
+ // Saving also changes the note's timestamp in the manifest.
+ await expect(working.getByRole('button', { name: '查看工作区差异：fever.json' })).toBeVisible();
+ await expect(working.locator('.changes-count')).toHaveText('3');
 });
 
 test('Git file rows show differences, stage snapshots, open notes and confirm discard', async ({ page }) => {

@@ -7,11 +7,12 @@ export type Manifest = Omit<StoredManifest, 'notes' | 'trash'> & { categories: s
 export type RevisionAsset = { id: string; hash: string; wiki?: boolean };
 export type Vault = { path: string; name: string; manifest: Manifest; lfs: boolean };
 export type SaveResult = { updatedAt: string };
-export type Change = { status: string; path: string; staged: boolean; unstaged: boolean; originalPath?: string };
+export type Change = { status: string; path: string; staged: boolean; unstaged: boolean; originalPath?: string; stagedWhitespaceOnly?: boolean; unstagedWhitespaceOnly?: boolean };
 export type FileDiff = { path: string; patch: string; whitespaceIgnoredPatch?: string };
 export type VaultFile = { path: string; content: string; binary: boolean; image?: string };
 export type GitStatus = { branch: string; head?: string; changes: Change[]; ahead: number; behind: number; remote: string; lfs: boolean };
 export type Commit = { hash: string; author: string; date: string; message: string };
+export type CommitResult = { committed: boolean; restoredPaths: string[] };
 export type RevisionComparison = { content: string; previousContent: string; previousHash?: string };
 export type Settings = { autoCommit: boolean; interval: number; autoPull: boolean; pullInterval: number; author: string; email: string; remote: string };
 export type ExportFormat = 'pdf' | 'html' | 'md' | 'excalidraw';
@@ -49,7 +50,7 @@ export type Api = {
   completeImageImport(importId: string, keep: boolean): Promise<void>;
   localizeImages(urls: string[], noteId: string): Promise<{ replacements: Record<string, string>; failed: { url: string; message: string }[] }>;
   asset(src: string, revision?: RevisionAsset): string;
-  status(): Promise<GitStatus>;
+  status(inspectWhitespace?: boolean): Promise<GitStatus>;
   diff(path: string, staged?: boolean): Promise<FileDiff>;
   stage(path: string): Promise<void>;
   unstage(path: string): Promise<void>;
@@ -59,7 +60,7 @@ export type Api = {
   discardAll(): Promise<string[]>;
   openFile(path: string): Promise<VaultFile>;
   saveFile(path: string, content: string): Promise<SaveResult | void>;
-  commit(message: string, stagedOnly?: boolean): Promise<void>;
+  commit(message: string, stagedOnly?: boolean, ignoreWhitespace?: boolean): Promise<CommitResult>;
   pull(): Promise<void>;
   push(): Promise<void>;
   history(id?: string): Promise<Commit[]>;

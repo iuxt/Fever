@@ -88,6 +88,136 @@ test('filtered diff keeps blank file additions, deletions and mode changes visib
  assert.match((await store.diff(file)).whitespaceIgnoredPatch, /deleted file mode/);
 });
 
+test('status identifies whitespace-only changes separately for the index and working tree in batches', async t => {
+ const { store, dir } = await fixture(t);
+ const stagedBlank = 'notes/暂存 [1].txt', workingBlank = 'notes/工作区 [2].txt';
+ const binary = 'images/changed.bin', renamed = 'notes/renamed.txt', mode = 'notes/mode.txt';
+ for (const file of [stagedBlank, workingBlank, renamed, mode]) await fs.writeFile(path.join(dir, file), 'alpha beta\n');
+ await fs.writeFile(path.join(dir, binary), Buffer.from([0, 1, 2]));
+ await store.commit('filter fixtures');
+ await fs.writeFile(path.join(dir, stagedBlank), 'alpha  beta\n\n \n'); await store.stage(stagedBlank);
+ await fs.writeFile(path.join(dir, stagedBlank), 'actual edit\n');
+ await fs.writeFile(path.join(dir, workingBlank), 'actual edit\n'); await store.stage(workingBlank);
+ await fs.writeFile(path.join(dir, workingBlank), '\tactual  edit  \n\n');
+ await fs.writeFile(path.join(dir, binary), Buffer.from([0, 2, 3]));
+ await store.git(['mv', '--', renamed, 'notes/new name.txt']);
+ await store.git(['update-index', '--chmod=+x', '--', mode]);
+ await fs.writeFile(path.join(dir, 'notes/new blank.txt'), '\n \n');
+ const git = store.git.bind(store), calls = [];
+ store.git = async (...args) => { calls.push(args[0]); return git(...args); };
+ const status = await store.status(true), changes = new Map(status.changes.map(change => [change.path, change]));
+ assert.equal(calls.filter(args => args[0] === 'diff').length, 2);
+ assert.equal(changes.get(stagedBlank).stagedWhitespaceOnly, true);
+ assert.equal(changes.get(stagedBlank).unstagedWhitespaceOnly, undefined);
+ assert.equal(changes.get(workingBlank).stagedWhitespaceOnly, undefined);
+ assert.equal(changes.get(workingBlank).unstagedWhitespaceOnly, true);
+ for (const file of [binary, 'notes/new name.txt', mode, 'notes/new blank.txt']) {
+  assert.ok(changes.has(file));
+  assert.equal(changes.get(file).stagedWhitespaceOnly, undefined);
+  assert.equal(changes.get(file).unstagedWhitespaceOnly, undefined);
+ }
+ const raw = await store.status();
+ assert.ok(raw.changes.every(change => !change.stagedWhitespaceOnly && !change.unstagedWhitespaceOnly));
+ assert.equal(raw.changes.length, status.changes.length);
+ // Content can become meaningful while the porcelain status remains M.
+ await fs.writeFile(path.join(dir, workingBlank), 'another actual edit\n');
+ assert.equal((await store.status(true)).changes.find(change => change.path === workingBlank).unstagedWhitespaceOnly, undefined);
+ assert.equal(await store.git(['show', `:${stagedBlank}`]), 'alpha  beta\n\n \n');
+});
+
+test('filtered commit restores whole whitespace-only files including CRLF and final newlines without creating an empty commit', async t => {
+ const { store, dir } = await fixture(t);
+ const files = ['notes/中文 [1].txt', 'notes/crlf.txt', 'notes/no-final-newline.txt'];
+ if (process.platform !== 'win32') files.push('notes/换行\n:(glob)*.txt');
+ for (const file of files) await fs.writeFile(path.join(dir, file), 'alpha beta\nsecond line\n');
+ await store.commit('whitespace fixtures');
+ const head = await store.git(['rev-parse', 'HEAD']);
+ for (const [index, file] of files.entries()) await fs.writeFile(path.join(dir, file), index === 1 ? 'alpha beta\r\nsecond line\r\n' : index === 2 ? 'alpha beta\nsecond line' : '\nalpha  beta  \n\t\nsecond line\n\n');
+ const result = await store.commit('ignore whitespace', false, true);
+ assert.equal(result.committed, false);
+ assert.deepEqual(new Set(result.restoredPaths), new Set(files));
+ assert.equal(await store.git(['rev-parse', 'HEAD']), head);
+ for (const file of files) {
+  assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), 'alpha beta\nsecond line\n');
+  assert.equal(await store.git(['show', `:${file}`]), 'alpha beta\nsecond line\n');
+ }
+ assert.equal((await store.status()).changes.length, 0);
+});
+
+test('filtered staged commit removes whitespace on either side and preserves meaningful staged and working snapshots', async t => {
+ const { store, dir } = await fixture(t);
+ const unstagedReal = 'notes/working.txt', stagedReal = 'notes/staged.txt';
+ for (const file of [unstagedReal, stagedReal]) await fs.writeFile(path.join(dir, file), 'base text\n');
+ await store.commit('separate snapshots');
+ await fs.writeFile(path.join(dir, unstagedReal), 'base  text  \n\n'); await store.stage(unstagedReal);
+ await fs.writeFile(path.join(dir, unstagedReal), 'keep actual working edit\n');
+ await fs.writeFile(path.join(dir, stagedReal), 'keep actual staged edit\n'); await store.stage(stagedReal);
+ await fs.writeFile(path.join(dir, stagedReal), 'keep  actual staged edit  \n\n');
+ const result = await store.commit('selected real edit', true, true);
+ assert.equal(result.committed, true);
+ assert.deepEqual(new Set(result.restoredPaths), new Set([unstagedReal, stagedReal]));
+ assert.equal(await store.git(['show', `HEAD:${unstagedReal}`]), 'base text\n');
+ assert.equal(await fs.readFile(path.join(dir, unstagedReal), 'utf8'), 'keep actual working edit\n');
+ assert.equal(await store.git(['show', `HEAD:${stagedReal}`]), 'keep actual staged edit\n');
+ assert.equal(await fs.readFile(path.join(dir, stagedReal), 'utf8'), 'keep actual staged edit\n');
+ const remaining = (await store.status()).changes;
+ assert.equal(remaining.length, 1); assert.equal(remaining[0].path, unstagedReal);
+ assert.equal(remaining[0].staged, false); assert.equal(remaining[0].unstaged, true);
+});
+
+test('a whitespace-only staged selection is reset without committing later real working edits', async t => {
+ const { store, dir, file } = await fixture(t);
+ const original = await fs.readFile(path.join(dir, file), 'utf8');
+ const head = await store.git(['rev-parse', 'HEAD']);
+ await fs.writeFile(path.join(dir, file), original + '\n \n'); await store.stage(file);
+ await fs.writeFile(path.join(dir, file), 'later real edit\n');
+ assert.deepEqual(await store.commit('blank selection', true, true), { committed: false, restoredPaths: [file] });
+ assert.equal(await store.git(['rev-parse', 'HEAD']), head);
+ assert.equal(await store.git(['show', `:${file}`]), original);
+ assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), 'later real edit\n');
+});
+
+test('filtered full commits keep mixed content changes and file lifecycle changes intact', async t => {
+ const { store, dir } = await fixture(t);
+ const blank = 'notes/blank.txt', mixed = 'notes/mixed.txt', deleted = 'notes/deleted.txt', renamed = 'notes/old.txt';
+ for (const file of [blank, mixed, deleted, renamed]) await fs.writeFile(path.join(dir, file), 'base text\n');
+ await store.commit('content and lifecycle fixtures');
+ await fs.writeFile(path.join(dir, blank), '\nbase  text\n\n');
+ const content = '\nbase  text\n\nactual addition  \n';
+ await fs.writeFile(path.join(dir, mixed), content);
+ await fs.unlink(path.join(dir, deleted));
+ await store.git(['mv', '--', renamed, 'notes/new.txt']);
+ await fs.writeFile(path.join(dir, 'notes/new blank.txt'), '\n \n');
+ const result = await store.commit('keep substantive changes', false, true);
+ assert.equal(result.committed, true); assert.deepEqual(result.restoredPaths, [blank]);
+ assert.equal(await fs.readFile(path.join(dir, blank), 'utf8'), 'base text\n');
+ assert.equal(await store.git(['show', `HEAD:${mixed}`]), content);
+ assert.equal(await store.git(['show', 'HEAD:notes/new blank.txt']), '\n \n');
+ assert.equal(await store.git(['show', 'HEAD:notes/new.txt']), 'base text\n');
+ assert.equal(await store.git(['ls-tree', '--name-only', 'HEAD', '--', deleted, renamed]), '');
+ assert.equal((await store.status()).changes.length, 0);
+});
+
+test('disabling the commit filter retains whitespace-only changes exactly', async t => {
+ const { store, dir, file } = await fixture(t);
+ const original = await fs.readFile(path.join(dir, file), 'utf8'), content = original + '\n \n';
+ await fs.writeFile(path.join(dir, file), content);
+ assert.deepEqual(await store.commit('keep whitespace', false, false), { committed: true, restoredPaths: [] });
+ assert.equal(await store.git(['show', `HEAD:${file}`]), content);
+ assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), content);
+});
+
+test('whitespace restoration validates every path before touching earlier files', async t => {
+ const { store, dir, file } = await fixture(t);
+ await fs.symlink('target', path.join(dir, 'notes/link.txt')); await store.commit('link fixture');
+ const original = await fs.readFile(path.join(dir, file), 'utf8');
+ await fs.writeFile(path.join(dir, file), original + '\n \n');
+ await fs.unlink(path.join(dir, 'notes/link.txt')); await fs.symlink('target ', path.join(dir, 'notes/link.txt'));
+ await assert.rejects(store.commit('invalid restoration', false, true), /符号链接/);
+ assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), original + '\n \n');
+ assert.equal(await fs.readlink(path.join(dir, 'notes/link.txt')), 'target ');
+});
+
 test('unstage works before the first commit and preserves untracked file contents', async t => {
  const { store, dir, file } = await fixture(t, false);
  const nested = 'notes/nested/中文 [1].md';

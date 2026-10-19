@@ -37,12 +37,17 @@ state.baseFiles ||= {
  ...Object.fromEntries(Object.entries(state.images).filter(([file]) => !state.dirty.includes(file.slice(3))).map(([file, data]) => [file.slice(3), data])),
 };
 state.stagedFiles ||= {};
-const fileChanges = () => {
+const withoutWhitespace = (text: string) => text.split('\n').map(line => line.replace(/[ \t\r\v\f]/g, '')).filter(Boolean).join('\n');
+const fileChanges = (inspectWhitespace = false) => {
  const files = workingFiles(), base = state.baseFiles!, staged = state.stagedFiles!;
  return [...new Set([...Object.keys(base), ...Object.keys(files), ...Object.keys(staged)])].flatMap(path => {
   const before = base[path] ?? null, index = Object.hasOwn(staged, path) ? staged[path] : before, after = files[path] ?? null;
   const isStaged = index !== before, unstaged = after !== index;
-  return isStaged || unstaged ? [{ path, staged: isStaged, unstaged, status: before === null ? (isStaged ? 'A' : '??') : after === null ? 'D' : 'M' }] : [];
+  const text = inspectWhitespace && !path.startsWith('images/');
+  return isStaged || unstaged ? [{ path, staged: isStaged, unstaged, status: before === null ? (isStaged ? 'A' : '??') : after === null ? 'D' : 'M',
+   ...(text && isStaged && before !== null && index !== null && withoutWhitespace(before) === withoutWhitespace(index) ? { stagedWhitespaceOnly: true } : {}),
+   ...(text && unstaged && index !== null && after !== null && withoutWhitespace(index) === withoutWhitespace(after) ? { unstagedWhitespaceOnly: true } : {}),
+  }] : [];
  });
 };
 const noteIdFor = (path: string) => Object.keys(state.filenames!).find(id => state.paths![id] === path);
@@ -116,7 +121,7 @@ export const demo: Api = {
   imageImports.delete(importId); persist();
  },
  asset: src => state.images[src] || '',
- status: async () => ({ branch: 'main', head: Object.values(state.versions).flat().reduce((latest, version) => !latest || version.commit.date >= latest.date ? version.commit : latest, null as Commit | null)?.hash || '', changes: fileChanges(), ahead: 0, behind: 0, remote: state.settings.remote, lfs: true }),
+ status: async (inspectWhitespace = false) => ({ branch: 'main', head: Object.values(state.versions).flat().reduce((latest, version) => !latest || version.commit.date >= latest.date ? version.commit : latest, null as Commit | null)?.hash || '', changes: fileChanges(inspectWhitespace), ahead: 0, behind: 0, remote: state.settings.remote, lfs: true }),
  diff: async (path, staged = false) => {
   const beforeFile = (staged ? state.baseFiles![path] : Object.hasOwn(state.stagedFiles!, path) ? state.stagedFiles![path] : state.baseFiles![path]) ?? null;
   const afterFile = (staged ? state.stagedFiles![path] : workingFiles()[path]) ?? null;
@@ -163,9 +168,31 @@ export const demo: Api = {
   state.paths = { ...state.paths, ...Object.fromEntries(notes.map(note => [note.id, notePath(note)])) };
   dirty(path);
  },
- commit: async (message, stagedOnly = false) => {
+ commit: async (message, stagedOnly = false, ignoreWhitespace = false) => {
+  if (!message.trim()) throw new Error('请填写提交说明');
+  const restoredPaths: string[] = [];
+  if (ignoreWhitespace) {
+   if (!stagedOnly) for (const change of fileChanges()) state.stagedFiles![change.path] = workingFiles()[change.path] ?? null;
+   const changes = fileChanges(true).filter(change => change.stagedWhitespaceOnly || change.unstagedWhitespaceOnly);
+   const trashPaths = new Set((state.manifest.trash || []).map(notePath));
+   if (changes.some(change => trashPaths.has(change.path))) throw new Error('回收站中的笔记为只读，请先还原到原位置');
+   for (const change of changes) {
+    const base = state.baseFiles![change.path], id = noteIdFor(change.path);
+    if (change.unstagedWhitespaceOnly || (change.stagedWhitespaceOnly && !change.unstaged)) {
+     const content = change.stagedWhitespaceOnly ? base : state.stagedFiles![change.path] ?? base;
+     if (change.path === 'fever.json') state.manifest = readManifest(JSON.parse(content), state.manifest);
+     else if (id) state.contents[id] = content;
+    }
+    if (change.stagedWhitespaceOnly) delete state.stagedFiles![change.path];
+    restoredPaths.push(change.path);
+   }
+   state.dirty = fileChanges().map(change => change.path); persist();
+  }
   const files = stagedOnly ? { ...state.stagedFiles! } : Object.fromEntries(fileChanges().map(change => [change.path, workingFiles()[change.path] ?? null]));
-  if (!Object.keys(files).length) throw new Error('没有需要提交的变更');
+  if (!Object.keys(files).length) {
+   if (restoredPaths.length) return { committed: false, restoredPaths };
+   throw new Error('没有需要提交的变更');
+  }
   const commit = { hash: crypto.randomUUID().replaceAll('-', '') + '12345678', author: state.settings.author, date: new Date().toISOString(), message };
   for (const [path, content] of Object.entries(files)) {
    const id = noteIdFor(path);
@@ -174,6 +201,7 @@ export const demo: Api = {
    delete state.stagedFiles![path];
   }
   state.dirty = fileChanges().map(change => change.path); persist();
+  return { committed: true, restoredPaths };
  },
  pull: async () => { throw new Error('浏览器演示不连接远程仓库，请使用 Electron 桌面应用'); },
  push: async () => { throw new Error('浏览器演示不连接远程仓库，请使用 Electron 桌面应用'); },

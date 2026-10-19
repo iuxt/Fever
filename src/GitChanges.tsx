@@ -9,6 +9,7 @@ type Props = {
  notes: Note[];
  trash?: Note[];
  busy: boolean;
+ ignoreWhitespace: boolean;
  onDiff: (change: Change, staged: boolean) => void;
  onStage: (change: Change) => void;
  onUnstage: (change: Change) => void;
@@ -19,12 +20,16 @@ type Props = {
 };
 const emptyChanges: Change[] = [];
 
-export default function GitChanges({ status, notes, trash = [], busy, onDiff, onStage, onUnstage, onDiscard, onStageAll, onDiscardAll, onOpen }: Props) {
+export default function GitChanges({ status, notes, trash = [], busy, ignoreWhitespace, onDiff, onStage, onUnstage, onDiscard, onStageAll, onDiscardAll, onOpen }: Props) {
  const container = useRef<HTMLDivElement>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
  const titles = useMemo(() => new Map(notes.map(note => [notePath(note), note.title])), [notes]);
  const trashedPaths = useMemo(() => new Set(trash.map(note => notePath(note))), [trash]);
- const changes = status?.changes || emptyChanges;
+ const changes = useMemo(() => {
+  const raw = status?.changes || emptyChanges;
+  return ignoreWhitespace ? raw.map(change => ({ ...change, staged: change.staged && !change.stagedWhitespaceOnly, unstaged: change.unstaged && !change.unstagedWhitespaceOnly })).filter(change => change.staged || change.unstaged) : raw;
+ }, [status?.changes, ignoreWhitespace]);
+ const hiddenCount = (status?.changes || emptyChanges).reduce((count, change) => count + Number(change.staged && Boolean(change.stagedWhitespaceOnly)) + Number(change.unstaged && Boolean(change.unstagedWhitespaceOnly)), 0);
  const groups = [
   { title: '已暂存变更', staged: true, changes: changes.filter(c => c.staged) },
   { title: '工作区变更', staged: false, changes: changes.filter(c => c.unstaged) },
@@ -59,11 +64,10 @@ export default function GitChanges({ status, notes, trash = [], busy, onDiff, on
     </div>
    </div>;
   })}</div>
- </section>; })}{!changes.length && <div className="clean-state"><CheckCheck size={26} /><span>无待提交变更</span></div>}</div>;
+ </section>; })}{!changes.length && <div className="clean-state"><CheckCheck size={26} /><span>{ignoreWhitespace && hiddenCount ? `已隐藏 ${hiddenCount} 项空白变更` : '无待提交变更'}</span></div>}{changes.length > 0 && ignoreWhitespace && hiddenCount > 0 && <p className="git-filter-summary">已隐藏 {hiddenCount} 项空白变更</p>}</div>;
 }
 
-export function GitDiff({ diff, staged }: { diff: FileDiff; staged: boolean }) {
- const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
+export function GitDiff({ diff, staged, ignoreWhitespace }: { diff: FileDiff; staged: boolean; ignoreWhitespace: boolean }) {
  const patch = ignoreWhitespace ? diff.whitespaceIgnoredPatch ?? diff.patch : diff.patch;
- return <><div className="diff-meta"><code>{diff.path}</code><span>{staged ? '上次提交 → 暂存版本' : '暂存版本（或上次提交）→ 工作区'}</span><label className="diff-whitespace-toggle"><input type="checkbox" checked={ignoreWhitespace} onChange={event => setIgnoreWhitespace(event.target.checked)} />忽略空格和空行</label></div><PagedText key={`${staged}:${diff.path}:${ignoreWhitespace}`} text={patch} label="文件变更对比" patch /></>;
+ return <><div className="diff-meta"><code>{diff.path}</code><span>{staged ? '上次提交 → 暂存版本' : '暂存版本（或上次提交）→ 工作区'}</span></div><PagedText key={`${staged}:${diff.path}:${ignoreWhitespace}`} text={patch} label="文件变更对比" patch /></>;
 }

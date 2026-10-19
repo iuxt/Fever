@@ -310,16 +310,17 @@ class VaultStore {
     }
     return { replacements, failed };
   }
-  status() {
+  status(inspectWhitespace = false) {
     const root = this.root, version = this.operationVersion;
-    if (this.statusTask?.root === root && this.statusTask.version === version) return this.statusTask.promise;
-    const task = { root, version };
-    task.promise = this.readStatus().then(status => { if (this.root !== root) throw new Error('笔记库已变化'); return status; }).finally(() => { if (this.statusTask === task) this.statusTask = null; });
+    if (this.statusTask?.root === root && this.statusTask.version === version && this.statusTask.inspectWhitespace === inspectWhitespace) return this.statusTask.promise;
+    const task = { root, version, inspectWhitespace };
+    task.promise = this.readStatus(inspectWhitespace).then(status => { if (this.root !== root) throw new Error('笔记库已变化'); return status; }).finally(() => { if (this.statusTask === task) this.statusTask = null; });
     this.statusTask = task; return task.promise;
   }
-  async readStatus() {
+  async readStatus(inspectWhitespace = false) {
     const raw = await this.git(['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all']);
     const fields = raw.split('\0').filter(Boolean), changes = [];
+    const whitespaceCandidates = { staged: new Set(), unstaged: new Set() };
     let branch = 'HEAD', head = '', ahead = 0, behind = 0;
     for (let i = 0; i < fields.length; i++) {
       const field = fields[i];
@@ -332,6 +333,18 @@ class VaultStore {
       const file = kind === '?' ? field.slice(2) : parts.slice(kind === '2' ? 9 : kind === 'u' ? 10 : 8).join(' ');
       const originalPath = kind === '2' ? fields[++i] : undefined;
       changes.push({ status: code.trim(), path: file, staged: code !== '??' && code[0] !== ' ', unstaged: code === '??' || code[1] !== ' ', ...(originalPath ? { originalPath } : {}) });
+      if (kind === '1') {
+        if (code[0] === 'M') whitespaceCandidates.staged.add(file);
+        if (code[1] === 'M') whitespaceCandidates.unstaged.add(file);
+      }
+    }
+    if (inspectWhitespace) {
+      // Scan each side once, rather than spawning a diff for every changed file.
+      for (const side of ['staged', 'unstaged']) {
+        if (!whitespaceCandidates[side].size) continue;
+        const meaningful = new Set((await this.git(['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--name-only', '-z', '--ignore-all-space', '--ignore-blank-lines', ...(side === 'staged' ? ['--cached'] : []), '--'])).split('\0').filter(Boolean));
+        for (const change of changes) if (whitespaceCandidates[side].has(change.path) && !meaningful.has(change.path)) change[`${side}WhitespaceOnly`] = true;
+      }
     }
     return { branch, head, changes, ahead, behind, remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim(), lfs: this.lfs };
   }
@@ -512,15 +525,47 @@ class VaultStore {
     }
     return paths;
   }); }
-  commit(message, stagedOnly = false) { return this.queued(async () => {
+  async resetWhitespaceChanges() {
+    // Staging may have changed since a concurrent UI status request began.
+    const changes = (await this.readStatus(true)).changes;
+    const selected = changes.filter(change => change.stagedWhitespaceOnly || change.unstagedWhitespaceOnly);
+    // Validate all restoration targets before changing either snapshot.
+    for (const change of selected) {
+      await this.validateChange(change);
+      this.assertNotTrashedFile(change.path);
+    }
+    const worktree = selected.filter(change => change.unstagedWhitespaceOnly && !change.stagedWhitespaceOnly).map(change => change.path);
+    const both = selected.filter(change => change.stagedWhitespaceOnly && (!change.unstaged || change.unstagedWhitespaceOnly)).map(change => change.path);
+    const index = selected.filter(change => change.stagedWhitespaceOnly && change.unstaged && !change.unstagedWhitespaceOnly).map(change => change.path);
+    let manifest;
+    if (both.includes(MANIFEST) || worktree.includes(MANIFEST)) {
+      const source = both.includes(MANIFEST) ? `HEAD:${MANIFEST}` : `:${MANIFEST}`;
+      manifest = readManifest(JSON.parse(await this.git(['show', source])), this.manifest);
+    }
+    // Restore hidden working edits to the index, which may contain real staged edits.
+    await this.gitPaths(['restore', '--worktree'], worktree);
+    await this.gitPaths(['restore', '--source=HEAD', '--staged', '--worktree'], both);
+    // A meaningful working edit must survive removing a whitespace-only staged edit.
+    await this.gitPaths(['restore', '--source=HEAD', '--staged'], index);
+    if (manifest) this.manifest = manifest;
+    if (selected.length) this.cancelSearch();
+    return selected.map(change => change.path);
+  }
+  commit(message, stagedOnly = false, ignoreWhitespace = false) { return this.queued(async () => {
     if (typeof message !== 'string' || !message.trim()) throw new Error('请填写提交说明');
     if (!(await this.git(['config', 'user.name'], true)).trim() || !(await this.git(['config', 'user.email'], true)).trim()) throw new Error('请先在设置中配置 Git 用户名和邮箱');
     if (!this.lfs && (await fs.readdir(await this.safe('images'))).length) throw new Error('图片提交需要安装 Git LFS');
     if (!stagedOnly) await this.git(['add', '--', MANIFEST, 'notes', 'drawings', 'images', '.gitattributes']);
-    const staged = await this.git(['diff', '--cached', '--name-only', '-z']);
-    if (!staged.trim()) throw new Error('没有需要提交的变更');
+    let staged = await this.git(['diff', '--cached', '--name-only', '-z']);
     if (!stagedOnly && staged.split('\0').filter(Boolean).some(p => ![MANIFEST, '.gitattributes'].includes(p) && !p.startsWith('notes/') && !p.startsWith('drawings/') && !p.startsWith('images/'))) throw new Error('仓库中有其他已暂存文件，请先处理它们再提交笔记');
+    const restoredPaths = ignoreWhitespace ? await this.resetWhitespaceChanges() : [];
+    if (restoredPaths.length) staged = await this.git(['diff', '--cached', '--name-only', '-z']);
+    if (!staged.trim()) {
+      if (restoredPaths.length) return { committed: false, restoredPaths };
+      throw new Error('没有需要提交的变更');
+    }
     await this.git(['commit', '-m', message.trim()]);
+    return { committed: true, restoredPaths };
   }); }
   pull() { return this.queued(async () => {
     const status = await this.status();
