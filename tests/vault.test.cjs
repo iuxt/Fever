@@ -400,13 +400,12 @@ test('equivalent file paths cannot bypass manifest validation or trash protectio
  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), store.manifest);
 });
 
-test('manifest fields reject coercible filenames, reserved IDs and invalid asset metadata', async t => {
+test('manifest fields reject coercible filenames, reserved IDs and invalid note metadata', async t => {
  const { store, dir } = await fixture(t), before = store.snapshot().manifest;
  for (const fields of [{ filename: [before.notes[0].filename] }, { id: 'file:fever.json' }, { id: '' }, { sourcePath: {} }, { directory: '../outside' }, { directory: '/tmp' }, { directory: ['drawings'] }, { directory: null }]) {
   const content = JSON.stringify({ ...before, notes: [{ ...before.notes[0], ...fields }] });
   await assert.rejects(store.saveFile('fever.json', content), /无效/);
  }
- for (const assets of [[], 'invalid', { image: 123 }]) await assert.rejects(store.saveFile('fever.json', JSON.stringify({ ...before, assets })), /无效/);
  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), before);
 });
 

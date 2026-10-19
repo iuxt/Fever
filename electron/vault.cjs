@@ -7,6 +7,7 @@ const { promisify } = require('node:util');
 const exec = promisify(execFile);
 const { downloadImage } = require('./remote-images.cjs');
 const { readBounded } = require('./files.cjs');
+const { RevisionImages } = require('./revision-images.cjs');
 const MANIFEST = 'fever.json';
 const UUID_FILE = /^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/;
 const notePath = note => `${note.directory || 'notes'}/${note.filename}`;
@@ -20,7 +21,8 @@ function validateManifest(manifest) {
     ids.add(n.id); files.add(n.filename);
   }
   if (!manifest.categories.every(c => typeof c === 'string')) throw new Error('分类格式无效');
-  if (manifest.assets != null && (typeof manifest.assets !== 'object' || Array.isArray(manifest.assets) || !Object.values(manifest.assets).every(value => typeof value === 'string'))) throw new Error('图片映射格式无效');
+  // Old vaults may contain migration aliases. References now live in Markdown/Git only.
+  delete manifest.assets;
 }
 function validateDrawing(content) {
   let scene;
@@ -366,7 +368,9 @@ class VaultStore {
       let manifest;
       if (relative === MANIFEST) {
         const parsed = JSON.parse(content);
+        const hadAssets = parsed != null && Object.hasOwn(parsed, 'assets');
         validateManifest(parsed); manifest = parsed;
+        if (hadAssets) content = JSON.stringify(parsed, null, 2) + '\n';
       }
       if (relative.endsWith('.excalidraw')) validateDrawing(content);
       const temp = await this.safe(`${path.dirname(relative)}/.fever-${randomUUID()}.tmp`);
@@ -541,20 +545,39 @@ class VaultStore {
   async revisionPath(id, hash) {
     if (!/^[0-9a-f]{40,64}$/.test(hash)) throw new Error('提交标识无效');
     const currentPath = notePath(this.note(id, true));
-    const exists = await this.git(['ls-tree', '--name-only', hash, '--', currentPath]);
+    const exists = await this.git(['--literal-pathspecs', 'ls-tree', '--name-only', '-z', hash, '--', currentPath]);
     if (exists.trim()) return currentPath;
     // A migrated note keeps its Git lineage even though its original filename changed.
-    const lineage = await this.git(['-c', 'core.quotepath=false', 'log', '--follow', '--format=%H', '--name-only', '--', currentPath]);
-    let commit;
-    for (const line of lineage.split('\n').filter(Boolean)) {
-      if (/^[0-9a-f]{40,64}$/.test(line)) commit = line;
-      else if (commit === hash && /\.(md|markdown|txt|fountain|excalidraw)$/i.test(line)) return line;
+    const lineage = await this.git(['--literal-pathspecs', 'log', '--follow', '--format=%H', '--name-status', '-z', '--', currentPath]);
+    const records = lineage.split('\0');
+    let file = currentPath;
+    for (let index = 0; index < records.length;) {
+      const commit = records[index++];
+      if (!/^[0-9a-f]{40,64}$/.test(commit)) continue;
+      const status = records[index++]?.replace(/^\n/, '');
+      const before = records[index++];
+      const after = status?.startsWith('R') ? records[index++] : before;
+      if (commit === hash) return after;
+      if (status?.startsWith('R')) {
+        // A selected commit may only change an image, between two note commits.
+        const present = await this.git(['--literal-pathspecs', 'ls-tree', '--name-only', '-z', hash, '--', file]);
+        if (present) return file;
+        file = before;
+      }
     }
+    if (file !== currentPath && await this.git(['--literal-pathspecs', 'ls-tree', '--name-only', '-z', hash, '--', file])) return file;
     throw new Error('这个版本中找不到笔记文件');
   }
   async revision(id, hash) {
     const file = await this.revisionPath(id, hash);
     return this.git(['show', `${hash}:${file}`]);
+  }
+  async revisionImage(id, hash, source, wiki = false) {
+    const root = this.root;
+    const file = await this.revisionPath(id, hash);
+    if (this.root !== root) throw new Error('笔记库已变化，请重新打开历史版本');
+    if (this.revisionImages?.root !== root) this.revisionImages = new RevisionImages(root, this.environment);
+    return this.revisionImages.read(hash, file, source, wiki);
   }
   async revisionComparison(id, hash) {
     const file = await this.revisionPath(id, hash);
@@ -567,10 +590,34 @@ class VaultStore {
     return { content, previousContent, previousHash };
   }
   restore(id, hash) { return this.queued(async () => {
-    this.note(id);
-    const content = await this.revision(id, hash);
-    await this.saveInternal(id, content);
-    return content;
+    const note = this.note(id), created = [], resolved = new Map();
+    let content = await this.revision(id, hash);
+    try {
+      if (!note.filename.endsWith('.excalidraw')) {
+        const { rewriteImageReferences } = await import('./markdown-images.mjs');
+        content = await rewriteImageReferences(content, async (source, wiki) => {
+          if (/^https?:\/\//i.test(source) || /\.excalidraw(?:\.md)?$/i.test(source)) return source;
+          const key = `${wiki}:${source}`;
+          if (resolved.has(key)) return resolved.get(key);
+          const image = await this.revisionImage(id, hash, source, wiki);
+          // Reuse only an identical current file at a path supported by the editor.
+          if (/^\.\.\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif)$/i.test(source)) {
+            const current = await readBounded(await this.safe(source.slice(3)), { limit: 20 * 1024 * 1024 }).catch(() => null);
+            if (current?.equals(image.bytes)) { resolved.set(key, source); return source; }
+          }
+          const target = await this.writeImage(image.bytes, image.path, id);
+          created.push(target); resolved.set(key, target);
+          return target;
+        });
+      }
+      await this.saveInternal(id, content);
+      return content;
+    } catch (error) {
+      // saveInternal may have written the body before a metadata failure. Keep referenced files.
+      const saved = await this.read(id).catch(() => '');
+      for (const source of created) if (!saved.includes(source)) await fs.rm(await this.safe(source.slice(3)), { force: true });
+      throw error;
+    }
   }); }
   async settings() { return { ...defaults, author: (await this.git(['config', 'user.name'], true)).trim(), email: (await this.git(['config', 'user.email'], true)).trim(), remote: (await this.git(['remote', 'get-url', 'origin'], true)).trim() }; }
   configure(settings) { return this.queued(async () => {

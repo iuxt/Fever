@@ -2,12 +2,12 @@ import { lazy, memo, Suspense, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { HighlightedCode } from './codeHighlight';
-import remarkLegacyImages, { resolveAsset } from './legacyImages';
+import remarkLegacyImages from './legacyImages';
 import { resolveNoteLink } from './noteLinks';
 import { parseImageAlt } from './imageSize';
 import remarkDrawingEmbeds, { resolveDrawing } from './drawings';
 import { demo } from './demo';
-import type { Note } from './types';
+import type { Note, RevisionAsset } from './types';
 import Mermaid from './Mermaid';
 const api = window.fever || demo;
 const headingId = (text: string) => `heading-${text.replace(/[^\p{L}\p{N}]/gu, '-')}`;
@@ -27,16 +27,16 @@ export function DrawingReference({ source, notes, onOpen }: { source: string; no
  return value !== null ? <Suspense fallback={<DrawingLoading />}><DrawingPreview content={value} label={note?.title} onEdit={onOpen && note ? () => onOpen(note.id) : undefined} /></Suspense> : <DrawingLoading />;
 }
 
-export default memo(function Markdown({ content, assets, notes = [], onOpen, onNavigate }: { content: string; assets?: Record<string, string>; notes?: Note[]; onOpen?: (id: string) => void; onNavigate?: (href: string) => boolean }) {
- const plugins = useMemo(() => [remarkGfm, [remarkDrawingEmbeds, notes], [remarkLegacyImages, assets || {}]] as import('unified').PluggableList, [notes, assets]);
+export default memo(function Markdown({ content, revision, notes = [], onOpen, onNavigate }: { content: string; revision?: RevisionAsset; notes?: Note[]; onOpen?: (id: string) => void; onNavigate?: (href: string) => boolean }) {
+ const plugins = useMemo(() => [remarkGfm, [remarkDrawingEmbeds, notes], remarkLegacyImages] as import('unified').PluggableList, [notes]);
  const components = useMemo<import('react-markdown').Components>(() => ({
   h1: ({ children }) => <h1 id={headingId(String(children))}>{children}</h1>,
   h2: ({ children }) => <h2 id={headingId(String(children))}>{children}</h2>,
   h3: ({ children }) => <h3 id={headingId(String(children))}>{children}</h3>,
-  img: ({ src, alt, title }) => {
+  img: ({ src, alt, title, node }) => {
    if (/\.excalidraw(?:\.md)?$/i.test(src || '') || resolveDrawing(src || '', notes)) return <DrawingReference source={src || ''} notes={notes} onOpen={onOpen} />;
    const image = parseImageAlt(alt || '');
-   return <img src={api.asset(resolveAsset(src || '', assets)) || undefined} alt={image.alt || '笔记图片'} title={title} style={image.width ? { width: image.width, height: 'auto' } : undefined} loading="lazy" decoding="async" />;
+   return <img src={api.asset(src || '', revision ? { ...revision, wiki: node?.properties['data-wiki'] === 'true' } : undefined) || undefined} alt={image.alt || '笔记图片'} title={title} style={image.width ? { width: image.width, height: 'auto' } : undefined} loading="lazy" decoding="async" />;
   },
   pre: ({ node, children }) => {
    const code = node?.children[0];
@@ -57,6 +57,6 @@ export default memo(function Markdown({ content, assets, notes = [], onOpen, onN
    const internal = Boolean(href && onNavigate && resolveNoteLink(href, notes));
    return <a href={internal || /^(https?:|mailto:|#)/.test(href || '') ? href : undefined} target={internal || href?.startsWith('#') ? undefined : '_blank'} rel="noreferrer" onClick={event => { if (internal) { event.preventDefault(); onNavigate?.(href!); } }}>{children}</a>;
   },
- }), [notes, assets, onOpen, onNavigate]);
+ }), [notes, revision, onOpen, onNavigate]);
  return <ReactMarkdown remarkPlugins={plugins} components={components}>{content}</ReactMarkdown>;
 });

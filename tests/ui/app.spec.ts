@@ -50,6 +50,7 @@ test('outline, themes, settings and responsive layout', async ({ page }) => {
  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
  await page.getByTitle('设置', { exact: true }).click();
  await expect(page.getByRole('dialog')).toBeVisible();
+ await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
  await expect(page.getByLabel('远程仓库（origin）')).toBeVisible();
  await page.getByRole('button', { name: '取消', exact: true }).click();
  await page.setViewportSize({ width: 1100, height: 800 });

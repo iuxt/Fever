@@ -105,13 +105,13 @@ async function printDocument(html: string) {
  } catch (error) { frame.remove(); throw error; }
 }
 
-export async function exportNote(api: Api, note: Note, content: string, options: ExportOptions, notes: Note[], assets?: Record<string, string>) {
+export async function exportNote(api: Api, note: Note, content: string, options: ExportOptions, notes: Note[]) {
  const { format } = options;
  const filename = exportFilename(options.filename, format);
  const html = format === 'md' ? content : format === 'excalidraw' ? drawingJSON(content) : await renderDocument(
   isDrawingNote(note) || isLegacyDrawing(content)
    ? <><h1>{note.title}</h1><DrawingPreview content={content} label={note.title} /></>
-   : <Markdown content={content} notes={notes} assets={assets} />, note.title, options);
+   : <Markdown content={content} notes={notes} />, note.title, options);
  if (api.exportNote) return api.exportNote({ format, filename, content: html, pageSize: options.pageSize, landscape: options.landscape });
  if (format === 'pdf') { await printDocument(html); return 'print' as const; }
  download(filename, html, format === 'md' ? 'text/markdown;charset=utf-8' : format === 'excalidraw' ? 'application/json' : 'text/html;charset=utf-8');

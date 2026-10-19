@@ -135,7 +135,7 @@ Obsidian 的 `excalidraw-plugin` Markdown 文件支持 `json` 和 `compressed-js
 
 Git 拉取采用 `--ff-only`，有未提交修改时拒绝拉取。首次推送会设置上游分支。分支分叉、冲突需要在系统 Git 工具中处理；当前应用没有内置冲突编辑器、分支切换或远程仓库克隆向导。打开或克隆已有仓库可先用系统 Git 操作，再从应用选择该仓库根目录。
 
-导入 Markdown 保留原文并分配 UUID；导入文件中的相对图片不会自动复制，需重新导入附件。Git 历史预览使用当前工作区的图片附件。
+导入 Markdown 保留原文并分配 UUID；导入文件中的相对图片不会自动复制，需重新导入附件。Git 历史预览从所选提交读取当时的图片附件。
 
 ## 迁移现有 Obsidian 笔记库
 
@@ -143,11 +143,13 @@ Git 拉取采用 `--ff-only`，有未提交修改时拒绝拉取。首次推送�
 node scripts/notebook-migration.mjs /path/to/notebook /path/to/new-vault
 ```
 
-原笔记库必须已提交全部改动，目标目录必须不存在。迁移会创建独立 Git 仓库，保留全部原始提交和本地 LFS 对象；先提交文件的纯重命名，再提交引用转换，确保只有图片的短笔记也能继续追踪历史。原目录不改动，目标仓库不自动关联原来的远程。
+原笔记库必须已提交全部改动，目标目录必须不存在。迁移会创建独立 Git 仓库，保留全部原始提交和本地 LFS 对象；通过正文不变的重命名提交保留笔记沿革，确保只有图片的短笔记也能继续追踪历史。原目录不改动，目标仓库不自动关联原来的远程。
 
 Markdown 和图片分配 UUID，原目录层级转为分类。转换 `![[图片]]` 和 Markdown 图片引用，外链图片下载到本地并使用 LFS。代码块、行内代码及其格式保留；缺失的引用会阻止迁移完成。图片逐张检查 SHA-256 和 Git LFS 指针。其他附件保存在 `attachments/`。
 
-`fever.json` 中的 `sourcePath` 和 `assets` 保留来源和图片名称映射，应用可以读取重命名前的历史版本，并显示历史中原有的 Obsidian 图片语法。完整映射和校验值记录在笔记库的 `.fever-migration.json`。Excalidraw Markdown 原文保留，可直接预览和编辑其 JSON / compressed-json 绘图数据，并保留 Markdown 文件格式。项目内的 `vault/` 已加入 `.gitignore`，个人笔记与应用源码分开管理。
+`fever.json` 中的 `sourcePath` 保留笔记来源。历史预览根据提交 ID、当时的笔记路径和图片引用，从对应 Git 提交读取图片，支持历史 Obsidian 图片语法。Git LFS 图片按指针的对象 ID 读取，本地缺失时通过 Git LFS 从远程下载并校验，不依赖当前工作目录或图片名称映射。历史正文中的 HTTP(S) 图片仍使用原网址，Git 无法还原未提交到仓库的远程图片内容。恢复历史版本时，会将对应版本的图片保存到当前图片目录并更新正文引用，避免覆盖当前图片。旧版笔记库中的 `assets` 字段在打开时自动移除。迁移报告与校验值记录在笔记库的 `.fever-migration.json`，仅用于审计，不参与渲染。
+
+迁移时先在原笔记位置规范化图片引用，再以正文不变的方式移动笔记，最后写入相对路径。这样既能让 Git 跟踪改名前的笔记，也能让新迁移过程中的每个提交独立显示图片。Excalidraw Markdown 原文保留，可直接预览和编辑其 JSON / compressed-json 绘图数据，并保留 Markdown 文件格式。项目内的 `vault/` 已加入 `.gitignore`，个人笔记与应用源码分开管理。
 
 ## 快捷键
 
@@ -178,6 +180,7 @@ npx playwright install chromium
 npm run test:ui          # 浏览器中的交互流程与布局
 npm run test:desktop:export # 原生导出集成测试（先启动 dev:web）
 npm run test:desktop     # 原生 Electron 集成测试（先启动 dev:web）
+npm run test:desktop:history-images # 历史图片 / LFS 桌面回归，使用临时库，不需要 dev:web
 npm run test:memory      # 生产版内存压测，使用临时库，不需要 dev:web
 npm run test:resources   # 生产版读写量、Git 列表、历史 Worker 与后台轮询回归
 npm run build           # TypeScript 检查和前端生产构建

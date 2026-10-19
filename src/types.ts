@@ -1,5 +1,6 @@
 export type Note = { id: string; title: string; category: string; filename: string; createdAt: string; updatedAt: string; sourcePath?: string; directory?: 'notes' | 'drawings' };
-export type Manifest = { version: 1; categories: string[]; notes: Note[]; trash?: Note[]; assets?: Record<string, string> };
+export type Manifest = { version: 1; categories: string[]; notes: Note[]; trash?: Note[] };
+export type RevisionAsset = { id: string; hash: string; wiki?: boolean };
 export type Vault = { path: string; name: string; manifest: Manifest; lfs: boolean };
 export type SaveResult = { updatedAt: string };
 export type Change = { status: string; path: string; staged: boolean; unstaged: boolean; originalPath?: string };
@@ -42,7 +43,7 @@ export type Api = {
   image(bytes: Uint8Array | number[], name: string, noteId: string, importId?: string): Promise<string>;
   completeImageImport(importId: string, keep: boolean): Promise<void>;
   localizeImages(urls: string[], noteId: string): Promise<{ replacements: Record<string, string>; failed: { url: string; message: string }[] }>;
-  asset(src: string): string;
+  asset(src: string, revision?: RevisionAsset): string;
   status(): Promise<GitStatus>;
   diff(path: string, staged?: boolean): Promise<FileDiff>;
   stage(path: string): Promise<void>;

@@ -10,6 +10,7 @@ import remarkGfm from 'remark-gfm';
 import { visit } from 'unist-util-visit';
 import { parse, preprocess, postprocess } from 'micromark';
 import { downloadImage } from '../electron/remote-images.cjs';
+import { rewriteImageReferences } from '../electron/markdown-images.mjs';
 
 const exec = promisify(execFile);
 const parser = unified().use(remarkParse).use(remarkGfm);
@@ -121,7 +122,7 @@ export async function migrateNotebook(source, destination) {
   const url = file.split('/').map(segment => encodeURIComponent(segment).replace(/[()]/g, char => `%${char.charCodeAt(0).toString(16)}`)).join('/');
   mapping.paths.set(file, `../attachments/${url}`);
  }
- const manifest = { version: 1, categories: [], notes: [], assets: {} };
+ const manifest = { version: 1, categories: [], notes: [] };
  const report = { version: 1, source, destination, sourceHead, createdAt: new Date().toISOString(), originalCommits: Number((await git(source, ['rev-list', '--count', 'HEAD'])).trim()), notes: [], images: [], rewrittenReferences: 0, unresolved: [], externalImageFailures: [], additionalFiles: [] };
  const contents = new Map();
  for (const notePath of notes) {
@@ -141,7 +142,6 @@ export async function migrateNotebook(source, destination) {
   const bytes = await fs.readFile(path.join(source, imagePath));
   if (bytes.subarray(0, 80).toString().startsWith('version https://git-lfs.github.com/spec/v1')) throw new Error('Source images must be hydrated with git lfs pull before migration');
   mapping.paths.set(imagePath, `../images/${filename}`);
-  manifest.assets[imagePath] = `../images/${filename}`;
   report.images.push({ sourcePath: imagePath, filename, sha256: sha256(bytes), bytes: bytes.length });
  }
  const urls = new Set();
@@ -152,7 +152,6 @@ export async function migrateNotebook(source, destination) {
    const { bytes, extension } = await downloadImage(url);
    const filename = stableId(`remote:${url}`) + extension;
    remoteBytes.set(filename, bytes); mapping.external.set(url, `../images/${filename}`);
-   manifest.assets[url] = `../images/${filename}`;
    report.images.push({ externalUrl: url, filename, sha256: sha256(bytes), bytes: bytes.length });
   } catch { report.externalImageFailures.push({ host: new URL(url).hostname, url }); }
  }
@@ -168,26 +167,41 @@ export async function migrateNotebook(source, destination) {
   await git(path.dirname(destination), ['clone', '--no-hardlinks', '--no-checkout', source, stage]);
   await git(stage, ['remote', 'remove', 'origin']);
   await git(stage, ['checkout', '--force']);
+  for (const key of ['user.name', 'user.email']) {
+   const value = (await git(source, ['config', key], true)).trim();
+   await git(stage, ['config', '--local', key, value || (key === 'user.name' ? 'Fever Migration' : 'migration@fever.local')]);
+  }
+  const objectDir = path.join(source, '.git', 'lfs', 'objects');
+  try { await fs.cp(objectDir, path.join(stage, '.git', 'lfs', 'objects'), { recursive: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  await git(stage, ['lfs', 'install', '--local']);
+  // Normalize at the original note locations first. Root-relative image references
+  // remain valid in both trees when the notes are subsequently moved byte-for-byte.
+  // Every new migration commit can then render its own images without aliases.
+  await fs.mkdir(path.join(stage, 'images'), { recursive: true });
+  for (const image of report.images) await fs.writeFile(path.join(stage, 'images', image.filename), image.sourcePath ? await fs.readFile(path.join(source, image.sourcePath)) : remoteBytes.get(image.filename));
+  const relocatedContents = new Map();
+  for (const note of manifest.notes) {
+   const content = await rewriteImageReferences(contents.get(note.sourcePath), async url => url.startsWith('../images/') ? url.slice(2) : url);
+   relocatedContents.set(note.sourcePath, content);
+   await fs.writeFile(path.join(stage, note.sourcePath), content);
+  }
+  const attributes = await fs.readFile(path.join(stage, '.gitattributes'), 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
+  await fs.writeFile(path.join(stage, '.gitattributes'), attributes + (attributes && !attributes.endsWith('\n') ? '\n' : '') + 'images/** filter=lfs diff=lfs merge=lfs -text\n');
+  await git(stage, ['add', '--all']);
+  if ((await git(stage, ['diff', '--cached', '--name-only'])).trim()) await git(stage, ['commit', '-m', 'Normalize image references before moving Fever notes']);
   // Keep the complete original history but replace its working tree with the Fever layout.
   for (const entry of await fs.readdir(stage)) if (entry !== '.git') await fs.rm(path.join(stage, entry), { recursive: true, force: true });
   await fs.mkdir(path.join(stage, 'notes')); await fs.mkdir(path.join(stage, 'images'));
-  // Commit byte-identical moves first so Git can follow even image-only notes.
-  for (const note of manifest.notes) await fs.copyFile(path.join(source, note.sourcePath), path.join(stage, 'notes', note.filename));
+  // Commit byte-identical moves so Git can follow even image-only notes.
+  for (const note of manifest.notes) await fs.writeFile(path.join(stage, 'notes', note.filename), relocatedContents.get(note.sourcePath));
   for (const image of report.images) await fs.writeFile(path.join(stage, 'images', image.filename), image.sourcePath ? await fs.readFile(path.join(source, image.sourcePath)) : remoteBytes.get(image.filename));
   // Preserve unrelated user attachments too, without exposing them in the application source tree.
   for (const file of attachments) {
    const target = path.join(stage, 'attachments', file); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.copyFile(path.join(source, file), target); report.additionalFiles.push({ sourcePath: file, destinationPath: posix(path.relative(stage, target)) });
   }
-  const objectDir = path.join(source, '.git', 'lfs', 'objects');
-  try { await fs.cp(objectDir, path.join(stage, '.git', 'lfs', 'objects'), { recursive: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   await fs.writeFile(path.join(stage, '.gitattributes'), 'images/** filter=lfs diff=lfs merge=lfs -text\n');
   await fs.writeFile(path.join(stage, 'fever.json'), JSON.stringify(manifest, null, 2) + '\n');
   await fs.writeFile(path.join(stage, '.fever-migration.json'), JSON.stringify(report, null, 2) + '\n');
-  for (const key of ['user.name', 'user.email']) {
-   const value = (await git(source, ['config', key], true)).trim();
-   await git(stage, ['config', '--local', key, value || (key === 'user.name' ? 'Fever Migration' : 'migration@fever.local')]);
-  }
-  await git(stage, ['lfs', 'install', '--local']);
   await git(stage, ['add', '--all']);
   await git(stage, ['commit', '-m', `Migrate ${notes.length} notes and ${report.images.length} images to Fever vault layout`]);
   for (const note of manifest.notes) await fs.writeFile(path.join(stage, 'notes', note.filename), contents.get(note.sourcePath));

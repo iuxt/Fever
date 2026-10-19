@@ -20,20 +20,18 @@ test('migration preserves Markdown formatting, converts attachments and leaves f
  assert.ok(output.content.includes('`![[photo.png]]`'));
 });
 
-test('legacy Git images render through aliases without changing inline or fenced code', async () => {
+test('legacy Git images retain original references without changing inline or fenced code', async () => {
  const { unified } = await import('unified');
  const { default: remarkParse } = await import('remark-parse');
  const { visit } = await import('unist-util-visit');
- const { default: remarkLegacyImages, resolveAsset } = await import('../src/legacyImages.ts');
- const assets = { 'images/photo.png': '../images/uuid.png', 'https://example.com/photo.jpeg': '../images/remote.jpeg' };
+ const { default: remarkLegacyImages } = await import('../src/legacyImages.ts');
  const tree = unified().use(remarkParse).parse('![[photo.png|旧图]]\n\n`![[photo.png]]`\n\n```text\n![[photo.png]]\n```\n');
- remarkLegacyImages(assets)(tree);
+ remarkLegacyImages()(tree);
  const images = [], code = [];
  visit(tree, node => { if (node.type === 'image') images.push(node); if (node.type === 'code' || node.type === 'inlineCode') code.push(node.value); });
- assert.equal(images.length, 1); assert.equal(images[0].url, '../images/uuid.png'); assert.equal(images[0].alt, '旧图');
+ assert.equal(images.length, 1); assert.equal(images[0].url, 'photo.png'); assert.equal(images[0].alt, '旧图');
  assert.deepEqual(code, ['![[photo.png]]', '![[photo.png]]']);
- assert.equal(resolveAsset('../images/photo.png', assets), '../images/uuid.png');
- assert.equal(resolveAsset('https://example.com/photo.jpeg', assets), '../images/remote.jpeg');
+ assert.equal(images[0].data.hProperties['data-wiki'], 'true');
 });
 
 test('migration rewrites only URL destinations, preserving repeated labels, titles and escaped Markdown', async () => {
@@ -91,7 +89,7 @@ test('migrated vault retains Git lineage, resolves old revisions, and commits im
  await fs.mkdir(path.join(source, '分类'), { recursive: true }); await fs.mkdir(path.join(source, 'images'));
  const git = async args => (await exec('git', args, { cwd: source })).stdout;
  await git(['init', '-b', 'main']); await git(['config', 'user.name', 'Test']); await git(['config', 'user.email', 'test@example.com']);
- const first = '# Article\n\n![[photo.png]]\n';
+ const first = '![[photo.png]]\n';
  await fs.writeFile(path.join(source, '分类', 'A.md'), first);
  for (const folder of ['.claude', '.superpowers', '.obsidian']) {
   await fs.mkdir(path.join(source, folder), { recursive: true });
@@ -107,6 +105,9 @@ test('migrated vault retains Git lineage, resolves old revisions, and commits im
  const result = await migrateNotebook(source, destination);
  assert.equal(result.notes, 1); assert.equal(result.localImages, 1); assert.equal(result.preservedCommits, 2);
  const store = new VaultStore(); const vault = await store.open(destination), note = vault.manifest.notes[0];
+ assert.equal(Object.hasOwn(vault.manifest, 'assets'), false);
+ assert.equal(Object.hasOwn(JSON.parse(await fs.readFile(path.join(destination, 'fever.json'), 'utf8')), 'assets'), false);
+ assert.deepEqual((await store.revisionImage(note.id, original, 'photo.png', true)).bytes, png);
  assert.equal(note.title, 'B'); assert.equal(note.category, '分类');
  const history = await store.history(note.id);
  assert.ok(history.some(h => h.hash === original));
@@ -115,7 +116,14 @@ test('migrated vault retains Git lineage, resolves old revisions, and commits im
  assert.deepEqual(await store.revisionComparison(note.id, head), { content: first, previousContent: first, previousHash: original });
  const comparison = await store.revisionComparison(note.id, history[0].hash);
  assert.equal(comparison.content, await store.read(note.id));
- assert.equal(comparison.previousContent, first);
+ assert.match(comparison.previousContent, /!\[photo\]\(\/images\/[a-z0-9-]+\.png\)/);
+ // Both the normalization and byte-identical rename commits must have valid images.
+ for (const commit of history) {
+  const content = await store.revision(note.id, commit.hash);
+  const target = content.match(/!\[[^\]]*\]\(([^)]+)\)/)?.[1];
+  const image = await store.revisionImage(note.id, commit.hash, target || 'photo.png', !target);
+  assert.deepEqual(image.bytes, png, commit.message);
+ }
  assert.equal((await git(['rev-parse', 'HEAD'])).trim(), head);
  assert.equal(await git(['status', '--porcelain']), '');
  assert.deepEqual(await fs.readFile(path.join(source, '分类', 'B.md')), Buffer.from(first));
