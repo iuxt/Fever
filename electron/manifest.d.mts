@@ -1,0 +1,12 @@
+import type { StoredManifest, StoredNote, Manifest, Note } from '../src/types';
+export function validCategory(path: string, root?: boolean): string;
+export function withinCategory(path: string, parent: string): boolean;
+export function remapCategory(path: string, from: string, to: string): string;
+export function readManifest(input: unknown, previous?: StoredManifest): StoredManifest;
+export function folderPaths(manifest: StoredManifest): Map<string, string>;
+export function ensureFolder(manifest: StoredManifest, path: string): string | null;
+export function noteCategory(manifest: StoredManifest, note: StoredNote, paths?: Map<string, string>): string;
+export function noteView(manifest: StoredManifest, note: StoredNote, paths?: Map<string, string>): Note;
+export function manifestView(manifest: StoredManifest): Manifest;
+export function moveCategory(manifest: StoredManifest, from: string, to: string): StoredManifest;
+export function removeCategory(manifest: StoredManifest, path: string): StoredManifest;

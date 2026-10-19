@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
+const { ensureFolder } = require('../electron/manifest.mjs');
 const { VaultStore } = require('../electron/vault.cjs');
 
 function watchReads(t, delay = 0) {
@@ -25,7 +26,7 @@ async function fixture(t) {
  t.after(() => fs.rm(folder, { recursive: true, force: true }));
  const store = new VaultStore(); await store.open(folder);
  for (let i = 0; i < 24; i++) {
-  store.manifest.notes.push({ id: `search-${i}`, filename: `search-${i}.md`, title: i === 1 ? 'Title Needle' : `笔记 ${i}`, category: i === 2 ? 'Category Needle' : '测试', createdAt: '', updatedAt: '' });
+  store.manifest.notes.push({ id: `search-${i}`, filename: `search-${i}.md`, title: i === 1 ? 'Title Needle' : `笔记 ${i}`, folderId: ensureFolder(store.manifest, i === 2 ? 'Category Needle' : '测试'), createdAt: '', updatedAt: '' });
   await fs.writeFile(path.join(folder, 'notes', `search-${i}.md`), 'x'.repeat(65535) + (i === 3 ? 'NEEDLE 中文 ΩΣ\n' : `token-${i}\n`));
  }
  await store.persist(); return { store, folder };

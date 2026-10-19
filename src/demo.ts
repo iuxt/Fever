@@ -1,5 +1,7 @@
+import { createTwoFilesPatch } from 'diff';
 import { notePath } from './notePaths.ts';
-import type { Api, Commit, Manifest, Note, Settings } from './types';
+import { readManifest, manifestView, noteView, noteCategory, folderPaths, ensureFolder, moveCategory, removeCategory } from '../electron/manifest.mjs';
+import type { Api, Commit, StoredManifest, StoredNote, Settings } from './types';
 const welcome = `# 让每一个想法，都有迹可循。\n\n欢迎来到 **Fever**，一个安静、自由、属于你的知识空间。\n\n在这里，零散的灵感可以慢慢长成系统。用 Markdown 记录，用文件夹整理，用 Git 留住每一次思考的轨迹。\n\n## 一个为长期思考准备的地方\n\n好的笔记工具应该让你专注于内容，而不是工具本身。Fever 把熟悉的编辑体验和可靠的版本管理放在一起，让记录成为一件自然的事。\n\n> 写下来，是思考的开始。\n> 每一次修改，都是理解向前的一小步。\n\n## 从一个小小的想法开始\n\n- [x] 创建你的第一个笔记库\n- [x] 认识 Markdown 的基本语法\n- [ ] 写下今天值得记住的一个想法\n- [ ] 提交一次 Git 备份\n\n### 你的笔记，始终属于你\n\n所有内容都保存在本地，没有专有格式，也没有迁移的负担。\n\n| 内容 | 存储位置 | 管理方式 |\n| --- | --- | --- |\n| 笔记正文 | \`notes/\` | Markdown · UUID 文件名 |\n| 图片附件 | \`images/\` | Git LFS |\n| 标题与分类 | \`fever.json\` | JSON 清单 |\n\n---\n\n不必一次整理好所有东西。先写下第一行，剩下的交给时间。\n`;
 const seeds = [
  ['欢迎使用 Fever', '开始使用', welcome],
@@ -12,14 +14,15 @@ const seeds = [
  ['值得反复阅读的书', '阅读', '# 值得反复阅读的书\n\n| 书籍 | 一句话收获 |\n| --- | --- |\n| 原子习惯 | 让改变小到无法拒绝 |\n| 深度工作 | 把注意力放在真正重要的事情上 |\n| 如何阅读一本书 | 带着问题阅读 |\n'],
 ];
 const key = 'fever-demo-v1';
-type State = { manifest: Manifest; contents: Record<string, string>; versions: Record<string, { commit: Commit; content: string }[]>; settings: Settings; dirty: string[]; images: Record<string, string>; baseFiles?: Record<string, string>; stagedFiles?: Record<string, string | null>; filenames?: Record<string, string>; paths?: Record<string, string> };
-const initial: State = { manifest: { version: 1, categories: ['开始使用', '知识管理', '项目/Fever', '日记/2026', '阅读'], notes: [] }, contents: {}, versions: {}, settings: { autoCommit: false, interval: 10, autoPull: false, pullInterval: 10, author: 'Fever', email: 'hello@example.com', remote: '' }, dirty: [], images: {} };
+type State = { manifest: StoredManifest; contents: Record<string, string>; versions: Record<string, { commit: Commit; content: string }[]>; settings: Settings; dirty: string[]; images: Record<string, string>; baseFiles?: Record<string, string>; stagedFiles?: Record<string, string | null>; filenames?: Record<string, string>; paths?: Record<string, string> };
+const initial: State = { manifest: readManifest({ version: 1, categories: ['开始使用', '知识管理', '项目/Fever', '日记/2026', '阅读'], notes: [] }), contents: {}, versions: {}, settings: { autoCommit: false, interval: 10, autoPull: false, pullInterval: 10, author: 'Fever', email: 'hello@example.com', remote: '' }, dirty: [], images: {} };
 seeds.forEach(([title, category, content], i) => {
- const id = `demo-${i + 1}`; initial.manifest.notes.push({ id, title, category, filename: `${id}.md`, createdAt: '2026-10-06T08:00:00Z', updatedAt: '2026-10-06T10:24:00Z' }); initial.contents[id] = content;
+ const id = `demo-${i + 1}`; initial.manifest.notes.push({ id, title, folderId: ensureFolder(initial.manifest, category), filename: `${id}.md`, createdAt: '2026-10-06T08:00:00Z', updatedAt: '2026-10-06T10:24:00Z' }); initial.contents[id] = content;
  initial.versions[id] = [{ commit: { hash: 'a83c2d4' + '0'.repeat(33), author: 'Fever', date: '2026-10-06T10:24:00Z', message: '完善笔记内容与目录结构' }, content }, { commit: { hash: '7f6b91e' + '0'.repeat(33), author: 'Fever', date: '2026-10-05T08:30:00Z', message: '创建笔记，记录最初的想法' }, content: `# ${title}\n\n从一个想法开始。\n` }];
 });
 let state: State;
 try { state = JSON.parse(localStorage.getItem(key) || 'null') || initial; } catch { state = initial; }
+state.manifest = readManifest(state.manifest);
 state.settings = { ...initial.settings, ...state.settings };
 state.filenames = { ...state.filenames, ...Object.fromEntries([...initial.manifest.notes, ...state.manifest.notes, ...(state.manifest.trash || [])].map(note => [note.id, note.filename])) };
 state.paths = { ...Object.fromEntries(Object.entries(state.filenames).map(([id, filename]) => [id, `notes/${filename}`])), ...state.paths, ...Object.fromEntries([...state.manifest.notes, ...(state.manifest.trash || [])].map(note => [note.id, notePath(note)])) };
@@ -45,11 +48,11 @@ const fileChanges = () => {
 const noteIdFor = (path: string) => Object.keys(state.filenames!).find(id => state.paths![id] === path);
 const persist = () => localStorage.setItem(key, JSON.stringify(state));
 const dirty = (file: string) => { if (!state.dirty.includes(file)) state.dirty.push(file); persist(); };
-const snapshot = () => ({ path: '浏览器演示 / 我的知识库', name: '我的知识库', manifest: structuredClone(state.manifest), lfs: true });
+const snapshot = () => ({ path: '浏览器演示 / 我的知识库', name: '我的知识库', manifest: manifestView(state.manifest), lfs: true });
 function discardPaths(paths: string[]) {
  const selected = new Set(paths), trashPaths = new Set((state.manifest.trash || []).map(notePath));
  if (paths.some(path => trashPaths.has(path))) throw new Error('回收站中的笔记为只读，请先还原到原位置');
- const manifest = selected.has('fever.json') ? JSON.parse(state.baseFiles!['fever.json']) as Manifest : undefined;
+ const manifest = selected.has('fever.json') ? readManifest(JSON.parse(state.baseFiles!['fever.json']), state.manifest) : undefined;
  for (const path of paths) {
   const before = state.baseFiles![path], id = noteIdFor(path);
   if (path === 'fever.json') continue;
@@ -64,28 +67,30 @@ function discardPaths(paths: string[]) {
  for (const path of paths) delete state.stagedFiles![path];
  state.dirty = state.dirty.filter(file => !selected.has(file)); persist();
 }
+persist();
 const imageImports = new Map<string, string[]>();
 export const demo: Api = {
  desktop: false, current: async () => snapshot(), open: async () => snapshot(),
  read: async (id, scope) => { if (!(scope === 'trash' ? state.manifest.trash || [] : state.manifest.notes).some(note => note.id === id)) throw new Error('笔记不存在'); return state.contents[id] || ''; },
- search: async (query, scope) => { const needle = query.toLowerCase(); return query.trim() ? (scope === 'trash' ? state.manifest.trash || [] : state.manifest.notes).filter(note => note.title.toLowerCase().includes(needle) || note.category.toLowerCase().includes(needle) || (state.contents[note.id] || '').toLowerCase().includes(needle)).map(note => note.id) : []; },
+ search: async (query, scope) => { const needle = query.toLowerCase(), paths = folderPaths(state.manifest); return query.trim() ? (scope === 'trash' ? state.manifest.trash || [] : state.manifest.notes).filter(note => note.title.toLowerCase().includes(needle) || noteCategory(state.manifest, note, paths).toLowerCase().includes(needle) || (state.contents[note.id] || '').toLowerCase().includes(needle)).map(note => note.id) : []; },
  cancelSearch: async () => {},
  save: async (id, content) => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.contents[id] = content; note.updatedAt = new Date().toISOString(); dirty(notePath(note)); return { updatedAt: note.updatedAt }; },
- create: async (title, category, format = 'markdown') => { const id = crypto.randomUUID(), now = new Date().toISOString(); const note: Note = { id, title, category, ...(format === 'excalidraw' ? { directory: 'drawings' } : {}), filename: `${id}.${format === 'excalidraw' ? 'excalidraw' : 'md'}`, createdAt: now, updatedAt: now }; state.manifest.notes.push(note); state.filenames![id] = note.filename; state.paths![id] = notePath(note); state.contents[id] = format === 'excalidraw' ? JSON.stringify({ type: 'excalidraw', version: 2, source: 'Fever', elements: [], appState: { viewBackgroundColor: '#ffffff' }, files: {} }, null, 2) : `# ${title}\n\n`; if (!state.manifest.categories.includes(category)) state.manifest.categories.push(category); dirty('fever.json'); dirty(notePath(note)); return note; },
- update: async (id, title, category) => { const note = state.manifest.notes.find(n => n.id === id)!; Object.assign(note, { title, category }); if (!state.manifest.categories.includes(category)) state.manifest.categories.push(category); dirty('fever.json'); return { ...note }; },
- remove: async id => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.manifest.notes = state.manifest.notes.filter(n => n.id !== id); (state.manifest.trash ||= []).push(note); dirty('fever.json'); },
- restoreTrash: async id => { const note = state.manifest.trash?.find(n => n.id === id); if (!note) throw new Error('回收站中找不到这篇笔记'); if (!Object.hasOwn(state.contents, id)) throw new Error('笔记正文文件不存在'); state.manifest.trash = state.manifest.trash!.filter(n => n.id !== id); state.manifest.notes.push(note); if (note.category && !state.manifest.categories.includes(note.category)) state.manifest.categories.push(note.category); dirty('fever.json'); return { ...note }; },
- category: async path => { if (!state.manifest.categories.includes(path)) state.manifest.categories.push(path); dirty('fever.json'); },
+ create: async (title, category, format = 'markdown') => { const id = crypto.randomUUID(), now = new Date().toISOString(); const note: StoredNote = { id, title, folderId: ensureFolder(state.manifest, category), ...(format === 'excalidraw' ? { directory: 'drawings' } : {}), filename: `${id}.${format === 'excalidraw' ? 'excalidraw' : 'md'}`, createdAt: now, updatedAt: now }; state.manifest.notes.push(note); state.filenames![id] = note.filename; state.paths![id] = notePath(note); state.contents[id] = format === 'excalidraw' ? JSON.stringify({ type: 'excalidraw', version: 2, source: 'Fever', elements: [], appState: { viewBackgroundColor: '#ffffff' }, files: {} }, null, 2) : `# ${title}\n\n`; dirty('fever.json'); dirty(notePath(note)); return noteView(state.manifest, note); },
+ update: async (id, title, category) => { const note = state.manifest.notes.find(n => n.id === id)!; Object.assign(note, { title, folderId: ensureFolder(state.manifest, category) }); dirty('fever.json'); return noteView(state.manifest, note); },
+ remove: async id => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.manifest.notes = state.manifest.notes.filter(n => n.id !== id); (state.manifest.trash ||= []).push({ ...note, originalCategory: noteCategory(state.manifest, note) }); dirty('fever.json'); },
+ restoreTrash: async id => { const note = state.manifest.trash?.find(n => n.id === id); if (!note) throw new Error('回收站中找不到这篇笔记'); if (!Object.hasOwn(state.contents, id)) throw new Error('笔记正文文件不存在'); state.manifest.trash = state.manifest.trash!.filter(n => n.id !== id); note.folderId = ensureFolder(state.manifest, noteCategory(state.manifest, note)); delete note.originalCategory; state.manifest.notes.push(note); dirty('fever.json'); return noteView(state.manifest, note); },
+ category: async path => { ensureFolder(state.manifest, path); dirty('fever.json'); },
+ moveCategory: async (from, to) => {
+  const previous = state.manifest;
+  state.manifest = moveCategory(previous, from, to);
+  try { dirty('fever.json'); }
+  catch (error) { state.manifest = previous; throw error; }
+ },
  removeCategory: async path => {
-  if (typeof path !== 'string' || !path.trim() || path.length > 200 || path.split('/').some(part => !part.trim())) throw new Error('分类无效');
-  path = path.trim();
-  const contains = (category: string) => category === path || category.startsWith(`${path}/`);
-  if (!state.manifest.categories.some(contains) && !state.manifest.notes.some(note => contains(note.category))) throw new Error('分类不存在');
-  const removed = state.manifest.notes.filter(note => contains(note.category));
-  state.manifest.categories = state.manifest.categories.filter(category => !contains(category));
-  state.manifest.notes = state.manifest.notes.filter(note => !contains(note.category));
-  if (removed.length) (state.manifest.trash ||= []).push(...removed);
-  dirty('fever.json');
+  const previous = state.manifest;
+  state.manifest = removeCategory(previous, path);
+  try { dirty('fever.json'); }
+  catch (error) { state.manifest = previous; throw error; }
  },
  importNotes: async () => [],
  localizeImages: async () => { throw new Error('请在桌面版中转换外部图片'); },
@@ -116,9 +121,7 @@ export const demo: Api = {
   const before = (staged ? state.baseFiles![path] : Object.hasOwn(state.stagedFiles!, path) ? state.stagedFiles![path] : state.baseFiles![path]) ?? '';
   const after = (staged ? state.stagedFiles![path] : workingFiles()[path]) ?? '';
   if (path.startsWith('images/')) return { path, patch: '二进制文件发生变化，无法显示文本差异。' };
-  const lines = (content: string) => content ? content.replace(/\n$/, '').split('\n') : [];
-  const oldLines = lines(before), newLines = lines(after);
-  return { path, patch: `--- a/${path}\n+++ b/${path}\n@@ -1,${oldLines.length} +1,${newLines.length} @@\n${[...oldLines.map(line => '-' + line), ...newLines.map(line => '+' + line)].join('\n')}\n` };
+  return { path, patch: createTwoFilesPatch(`a/${path}`, `b/${path}`, before, after, '', '', { context: 3, timeout: 250 }) || '差异过大，无法显示。' };
  },
  stage: async path => { state.stagedFiles![path] = workingFiles()[path] ?? null; persist(); },
  unstage: async path => { delete state.stagedFiles![path]; persist(); },
@@ -143,10 +146,8 @@ export const demo: Api = {
   const id = noteIdFor(path);
   if (id) return demo.save(id, content);
   if (path !== 'fever.json') throw new Error('文件不存在或不支持文本编辑');
-  const manifest = JSON.parse(content) as Manifest;
-  if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.notes) || !Array.isArray(manifest.categories) || (manifest.trash != null && !Array.isArray(manifest.trash))) throw new Error('笔记清单无效');
+  const manifest = readManifest(JSON.parse(content), state.manifest);
   const notes = [...manifest.notes, ...(manifest.trash || [])];
-  if (!manifest.categories.every(category => typeof category === 'string') || notes.some(note => !note || typeof note.id !== 'string' || typeof note.title !== 'string' || typeof note.category !== 'string' || !/^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/.test(note.filename) || (note.directory !== undefined && !['notes', 'drawings'].includes(note.directory))) || new Set(notes.map(note => note.id)).size !== notes.length || new Set(notes.map(note => note.filename)).size !== notes.length) throw new Error('笔记清单无效');
   state.manifest = manifest;
   state.filenames = { ...state.filenames, ...Object.fromEntries(notes.map(note => [note.id, note.filename])) };
   state.paths = { ...state.paths, ...Object.fromEntries(notes.map(note => [note.id, notePath(note)])) };

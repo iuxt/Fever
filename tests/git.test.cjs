@@ -302,7 +302,7 @@ test('the file editor reads and saves text, validates manifests and keeps cached
  await store.saveFile(file, '# edited note');
  assert.equal(await store.read(note.id), '# edited note');
  const manifest = JSON.parse((await store.openFile('fever.json')).content);
- manifest.notes[0].title = 'renamed in JSON'; manifest.categories.push('editor category');
+ manifest.notes[0].title = 'renamed in JSON'; manifest.folders.push({ id: 'editor-folder', name: 'editor category', parentId: null });
  await store.saveFile('fever.json', JSON.stringify(manifest));
  assert.equal(store.note(note.id).title, 'renamed in JSON');
  assert.ok(store.snapshot().manifest.categories.includes('editor category'));

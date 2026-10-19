@@ -84,12 +84,15 @@ flowchart LR
 
 ```json
 {
-  "version": 1,
-  "categories": ["收件箱", "项目/Fever"],
+  "version": 2,
+  "folders": [
+    { "id": "d1c5cc4f-154e-42a9-915c-e3cbd6952635", "name": "项目", "parentId": null },
+    { "id": "7cf97a91-4699-4825-8f77-c398f8826278", "name": "Fever", "parentId": "d1c5cc4f-154e-42a9-915c-e3cbd6952635" }
+  ],
   "notes": [{
     "id": "9746b2d9-1029-4caf-8c0d-b1021ed2a16f",
     "title": "一个新想法",
-    "category": "项目/Fever",
+    "folderId": "7cf97a91-4699-4825-8f77-c398f8826278",
     "filename": "9746b2d9-1029-4caf-8c0d-b1021ed2a16f.md",
     "createdAt": "2026-10-07T00:00:00.000Z",
     "updatedAt": "2026-10-07T00:00:00.000Z"
@@ -97,7 +100,7 @@ flowchart LR
 }
 ```
 
-标题和分类由清单管理。重命名、移动笔记不会改变 UUID 文件名。分类使用 `/` 表示层级，界面递归生成文件夹树。清单和笔记通过临时文件写入后替换；写操作排队，避免快速输入导致保存顺序错乱。
+标题和分类由清单管理。重命名、移动笔记不会改变 UUID 文件名。文件夹用稳定 UUID 标识，`parentId` 保存层级，笔记通过 `folderId` 引用文件夹（`null` 为根目录）。完整路径只在运行时计算；文件夹重命名只修改 `name`，移动只修改 `parentId`，子文件夹和笔记记录保持不变。首次打开 v1 清单会自动迁移，保留隐式父文件夹、空文件夹和笔记文件；旧 Git 清单仍可读取、撤销或编辑，后续保存使用 v2。回收站使用 `originalCategory` 保留删除时的位置。清单和笔记通过临时文件写入后替换；写操作排队，避免快速输入导致保存顺序错乱。
 
 图片可通过拖放、粘贴或「更多 → 插入图片」导入，外部图片转存也使用同一规则：保存为 `images/<文章UUID>/<日期>.<原始扩展名>`，Markdown 引用 `../images/<文章UUID>/<日期>.<原始扩展名>`。日期采用本地时间 `YYYY-MM-DD-HHmmss-SSS`，重名时追加序号，保留原始图片字节和格式。`.gitattributes` 的 `images/**` 使用 LFS。Git LFS 未安装时禁止导入图片，防止图片作为普通 Git blob 提交。支持 PNG、JPEG、GIF、WebP、AVIF，单张最多 20 MB。已有图片路径仍可正常读取。
 

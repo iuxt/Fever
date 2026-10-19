@@ -76,7 +76,7 @@ test('falls back to recent updates when the stored preference is invalid', async
 test('sorting a large list resets scrolling and keeps rendering virtualized', async ({ page }) => {
  await page.evaluate(() => {
   const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
-  state.manifest.notes = Array.from({ length: 1200 }, (_, i) => ({ id: `large-${i}`, title: `笔记${i}`, category: '', filename: `${i}.md`, createdAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(), updatedAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString() }));
+  state.manifest.notes = Array.from({ length: 1200 }, (_, i) => ({ id: `large-${i}`, title: `笔记${i}`, folderId: null, filename: `${i}.md`, createdAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(), updatedAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString() }));
   state.contents = Object.fromEntries(state.manifest.notes.map((note: { id: string; title: string }) => [note.id, `# ${note.title}`]));
   localStorage.setItem('fever-demo-v1', JSON.stringify(state));
  });

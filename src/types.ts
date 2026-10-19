@@ -1,5 +1,9 @@
-export type Note = { id: string; title: string; category: string; filename: string; createdAt: string; updatedAt: string; sourcePath?: string; directory?: 'notes' | 'drawings' };
-export type Manifest = { version: 1; categories: string[]; notes: Note[]; trash?: Note[] };
+export type Folder = { id: string; name: string; parentId: string | null };
+export type StoredNote = { id: string; title: string; folderId: string | null; filename: string; createdAt: string; updatedAt: string; sourcePath?: string; directory?: 'notes' | 'drawings'; originalCategory?: string };
+// Paths are derived for rendering and never written into the v2 manifest.
+export type Note = StoredNote & { category: string };
+export type StoredManifest = { version: 2; folders: Folder[]; notes: StoredNote[]; trash?: StoredNote[] };
+export type Manifest = Omit<StoredManifest, 'notes' | 'trash'> & { categories: string[]; notes: Note[]; trash?: Note[] };
 export type RevisionAsset = { id: string; hash: string; wiki?: boolean };
 export type Vault = { path: string; name: string; manifest: Manifest; lfs: boolean };
 export type SaveResult = { updatedAt: string };
@@ -38,6 +42,7 @@ export type Api = {
   remove(id: string): Promise<void>;
   restoreTrash(id: string): Promise<Note>;
   category(path: string): Promise<void>;
+  moveCategory(from: string, to: string): Promise<void>;
   removeCategory(path: string): Promise<void>;
   importNotes(): Promise<Note[]>;
   image(bytes: Uint8Array | number[], name: string, noteId: string, importId?: string): Promise<string>;

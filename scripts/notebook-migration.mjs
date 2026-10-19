@@ -1,3 +1,4 @@
+import { readManifest } from '../electron/manifest.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -200,7 +201,7 @@ export async function migrateNotebook(source, destination) {
    const target = path.join(stage, 'attachments', file); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.copyFile(path.join(source, file), target); report.additionalFiles.push({ sourcePath: file, destinationPath: posix(path.relative(stage, target)) });
   }
   await fs.writeFile(path.join(stage, '.gitattributes'), 'images/** filter=lfs diff=lfs merge=lfs -text\n');
-  await fs.writeFile(path.join(stage, 'fever.json'), JSON.stringify(manifest, null, 2) + '\n');
+  await fs.writeFile(path.join(stage, 'fever.json'), JSON.stringify(readManifest(manifest), null, 2) + '\n');
   await fs.writeFile(path.join(stage, '.fever-migration.json'), JSON.stringify(report, null, 2) + '\n');
   await git(stage, ['add', '--all']);
   await git(stage, ['commit', '-m', `Migrate ${notes.length} notes and ${report.images.length} images to Fever vault layout`]);

@@ -88,7 +88,7 @@ test('deleting saves pending edits and restores the original note after reload',
   return { note, content: state.contents[note.id] };
  });
  expect(original.content).toContain('尚未提交的修改。');
- expect(original.note.category).toBe('测试/原分类');
+ expect(original.note.originalCategory).toBe('测试/原分类');
  await page.getByPlaceholder('搜索你的笔记…').fill('保留未提交正文');
  await expect(page.locator('.note-tree .note-row')).toHaveCount(0);
  await page.reload();
@@ -102,7 +102,8 @@ test('deleting saves pending edits and restores the original note after reload',
  await expect(page.locator('.wysiwyg-content')).toContainText('尚未提交的修改。');
  const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest);
  expect(restored.trash).toEqual([]);
- expect(restored.notes.find((note: { id: string }) => note.id === original.note.id)).toEqual(original.note);
+ const { originalCategory, ...record } = original.note;
+ expect(restored.notes.find((note: { id: string }) => note.id === original.note.id)).toEqual(record);
  await page.reload();
  await expect(page.locator('.wysiwyg-content')).toContainText('尚未提交的修改。');
  await page.getByRole('button', { name: /^回收站/ }).click();

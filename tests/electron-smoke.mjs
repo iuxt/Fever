@@ -156,7 +156,7 @@ try {
  await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('桌面集成测试');
  await expect(page.locator('.wysiwyg-content')).toContainText('真实文件保存成功。');
  const restoredManifest = JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8'));
- if (!restoredManifest.notes.some(n => n.id === note.id && n.filename === note.filename && n.category === note.category) || restoredManifest.trash.length) throw new Error('Trash restore did not preserve note identity and category');
+ if (!restoredManifest.notes.some(n => n.id === note.id && n.filename === note.filename && n.folderId === note.folderId) || restoredManifest.trash.length) throw new Error('Trash restore did not preserve note identity and category');
 
  if (errors.length) throw new Error(errors.join('\n'));
  console.log('PASS: native onboarding, IPC, metadata, autosave, Git commit, history, LFS images, Excalidraw import/edit/save, production fonts');

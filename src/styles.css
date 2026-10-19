@@ -458,6 +458,9 @@ button.category-expand:hover:not(:disabled) { color: var(--green); background: v
 .folder-toggle:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .folder-tree-row .folder-row { flex: 1; min-width: 0; height: 33px; padding: 0 7px; border-radius: 5px; }
 .folder-row > svg { flex-shrink: 0; }
+.folder-tree-row.dragging { opacity: .45; }
+.folder-drop-target { background: var(--selected); outline: 2px solid var(--green); outline-offset: -2px; border-radius: 5px; }
+.folder-root-drop { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; margin-top: 8px; border: 1px dashed var(--green); border-radius: 5px; color: var(--green); background: var(--sidebar); font-size: .75rem; }
 .folder-row small { padding: 0; }
 .folder-row:focus-visible, .all-notes:focus-visible, .note-card:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .sidebar-foot { align-items: center; justify-content: flex-start; gap: 7px; }

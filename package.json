@@ -16,6 +16,7 @@
     "dist:win": "npm run build && electron-builder --win",
     "dist:linux": "npm run build && electron-builder --linux",
     "test:desktop": "node tests/electron-smoke.mjs",
+    "test:desktop:folders": "npm run build && node tests/electron-folders.mjs",
     "test:desktop:history-images": "npm run build && node tests/electron-history-images.mjs",
     "test:desktop:auto-pull": "node tests/electron-auto-pull.mjs",
     "test:desktop:tabs": "node tests/electron-tabs.mjs",

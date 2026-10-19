@@ -62,7 +62,7 @@ try {
  await expect(page.getByRole('dialog')).toHaveCount(0);
  assert.deepEqual(await app.evaluate(() => globalThis.feverGitOpenedFiles), []);
  const manifest = JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8'));
- manifest.categories.push('raw editor category');
+ manifest.folders.push({ id: 'raw-editor-folder', name: 'raw editor category', parentId: null });
  await page.locator('.file-editor .cm-content').fill(JSON.stringify(manifest, null, 2));
  await expect(page.getByText('所有更改已保存')).toBeVisible();
  await expect.poll(async () => JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8')).categories).toContain('raw editor category');

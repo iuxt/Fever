@@ -131,14 +131,14 @@ test('repository text files open as editable tabs and save before switching to n
  await page.getByTitle('打开文件：fever.json', { exact: true }).click();
  await expect(page.locator('.tab.current')).toContainText('fever.json');
  await expect(page.getByRole('dialog')).toHaveCount(0);
- await expect(page.locator('.file-editor .cm-content')).toContainText('demo-1.md');
+ await expect(page.locator('.file-editor .cm-content')).toContainText('\"folders\"');
  const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
- state.manifest.categories.push('源码文件编辑');
+ state.manifest.folders.unshift({ id: 'source-editor-folder', name: '源码文件编辑', parentId: null });
  await page.locator('.file-editor .cm-content').fill(JSON.stringify(state.manifest, null, 2));
  // Switching immediately must flush the file's pending edit, just like note edits.
  await page.locator('.tab').filter({ hasText: '欢迎使用 Fever' }).getByRole('button', { name: '欢迎使用 Fever', exact: true }).click();
  await expect(page.locator('.cm-content')).toContainText('unsaved note');
- await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest.categories)).toContain('源码文件编辑');
+ await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest.folders.map((folder: { name: string }) => folder.name))).toContain('源码文件编辑');
  await page.locator('.tab').getByRole('button', { name: 'fever.json', exact: true }).click();
  await expect(page.locator('.file-editor .cm-content')).toContainText('源码文件编辑');
  await page.screenshot({ path: 'test-results/git-file-editor.png' });

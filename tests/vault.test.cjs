@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { promisify } = require('node:util');
 const exec = promisify(require('node:child_process').execFile);
+const { manifestView, noteView } = require('../electron/manifest.mjs');
 const { VaultStore } = require('../electron/vault.cjs');
 async function fixture(t) {
  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-test-'));
@@ -39,7 +40,7 @@ test('trash can be read, searched and inspected through Git history without allo
  assert.equal(await reopened.read(note.id, 'trash'), '# uncommitted\n\nbody needle');
  await reopened.restoreTrash(note.id);
  assert.equal(await reopened.read(note.id), '# uncommitted\n\nbody needle');
- assert.equal(reopened.note(note.id).category, '原位置/分类');
+ assert.equal(noteView(reopened.manifest, reopened.note(note.id)).category, '原位置/分类');
  await assert.rejects(reopened.read(note.id, 'trash'), /找不到/);
  assert.deepEqual(await reopened.search('body needle', 'trash'), []);
 });
@@ -157,7 +158,7 @@ test('trash retains uncommitted content, attachments, identity and category acro
  await fs.mkdir(path.join(dir, 'images', note.id));
  await fs.writeFile(path.join(dir, 'images', note.id, 'attachment.png'), 'attachment retained');
  await store.save(note.id, '# 最新内容\n\n尚未提交的正文');
- const before = structuredClone(store.note(note.id));
+ const before = noteView(store.manifest, store.note(note.id));
  await store.remove(note.id);
  assert.deepEqual(store.snapshot().manifest.trash, [before]);
  assert.equal(await fs.readFile(path.join(dir, 'notes', note.filename), 'utf8'), '# 最新内容\n\n尚未提交的正文');
@@ -174,7 +175,7 @@ test('trash retains uncommitted content, attachments, identity and category acro
  assert.deepEqual(reopened.snapshot().manifest.trash, [before]);
  assert.deepEqual(await reopened.restoreTrash(note.id), before);
  assert.deepEqual(reopened.snapshot().manifest.trash, []);
- assert.deepEqual(reopened.note(note.id), before);
+ assert.deepEqual(noteView(reopened.manifest, reopened.note(note.id)), before);
  assert.deepEqual(await reopened.search('尚未提交'), [note.id]);
  await assert.rejects(reopened.restoreTrash(note.id), /找不到/);
  const again = new VaultStore(); await again.open(dir);
@@ -214,18 +215,19 @@ test('deleting a category trashes its subtree, preserves similarly named sibling
  await store.category('项目/空分类/子分类');
  await store.save(child.id, '尚未提交的正文');
  await fs.writeFile(path.join(dir, 'images', 'retained.png'), 'attachment');
- const notes = [structuredClone(store.note(parent.id)), structuredClone(store.note(child.id))];
+ const notes = [noteView(store.manifest, store.note(parent.id)), noteView(store.manifest, store.note(child.id))];
  await store.removeCategory('项目');
- assert.ok(!store.manifest.categories.some(category => category === '项目' || category.startsWith('项目/')));
- assert.deepEqual(store.manifest.trash, notes);
- assert.equal(store.note(sibling.id).category, '项目备份');
+ assert.ok(!store.snapshot().manifest.categories.some(category => category === '项目' || category.startsWith('项目/')));
+ assert.deepEqual(store.snapshot().manifest.trash, notes.map(note => ({ ...note, folderId: null })));
+ assert.equal(noteView(store.manifest, store.note(sibling.id)).category, '项目备份');
  assert.equal(await fs.readFile(path.join(dir, 'notes', child.filename), 'utf8'), '尚未提交的正文');
  assert.equal(await fs.readFile(path.join(dir, 'images', 'retained.png'), 'utf8'), 'attachment');
  assert.deepEqual(await store.search('尚未提交'), []);
  const reopened = new VaultStore(); await reopened.open(dir);
- assert.deepEqual(reopened.manifest.trash, notes);
- assert.deepEqual(await reopened.restoreTrash(child.id), notes[1]);
- assert.ok(reopened.manifest.categories.includes('项目/Fever'));
+ assert.deepEqual(reopened.manifest.trash, store.manifest.trash);
+ assert.equal((await reopened.restoreTrash(child.id)).category, '项目/Fever');
+ assert.equal(reopened.note(child.id).filename, notes[1].filename);
+ assert.ok(reopened.snapshot().manifest.categories.includes('项目/Fever'));
  assert.equal(await reopened.read(child.id), '尚未提交的正文');
 });
 test('empty and implicit parent categories can be deleted and invalid targets leave the manifest intact', async t => {
@@ -237,6 +239,64 @@ test('empty and implicit parent categories can be deleted and invalid targets le
  assert.deepEqual(store.snapshot().manifest, before);
  const reopened = new VaultStore(); await reopened.open(dir);
  assert.deepEqual(reopened.snapshot().manifest, before);
+});
+test('category rename and move preserve complete subtrees, note files and trash across reopen', async t => {
+ const { store, dir } = await fixture(t);
+ const parent = await store.create('父笔记', '项目'), child = await store.create('子笔记', '项目/子分类');
+ const sibling = await store.create('相似分类', '项目备份');
+ const trashed = await store.create('已删除', '项目/子分类'); await store.remove(trashed.id);
+ await store.save(child.id, '未提交的正文');
+ await store.category('项目/空分类/空子分类'); await store.category('目标');
+ await store.moveCategory('项目', '新项目');
+ assert.equal(noteView(store.manifest, store.note(parent.id)).category, '新项目');
+ await store.moveCategory('新项目', '目标/新项目');
+ assert.equal(noteView(store.manifest, store.note(parent.id)).category, '目标/新项目');
+ assert.equal(noteView(store.manifest, store.note(child.id)).category, '目标/新项目/子分类');
+ assert.equal(store.note(child.id).filename, child.filename);
+ assert.equal(noteView(store.manifest, store.note(sibling.id)).category, '项目备份');
+ assert.equal(store.snapshot().manifest.trash[0].category, '项目/子分类');
+ assert.ok(store.snapshot().manifest.categories.includes('目标/新项目/空分类/空子分类'));
+ assert.ok(!store.snapshot().manifest.categories.some(path => path === '项目' || path.startsWith('项目/')));
+ assert.equal(await fs.readFile(path.join(dir, 'notes', child.filename), 'utf8'), '未提交的正文');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.deepEqual(reopened.manifest, store.manifest);
+ await reopened.moveCategory('目标/新项目', '新项目');
+ assert.equal(noteView(reopened.manifest, reopened.note(child.id)).category, '新项目/子分类');
+ assert.ok(reopened.snapshot().manifest.categories.includes('目标'));
+});
+test('moving implicit and empty folders retains their original parent', async t => {
+ const { store } = await fixture(t);
+ await store.category('隐式父分类/子分类/空文件夹');
+ await store.moveCategory('隐式父分类/子分类', '子分类');
+ assert.ok(store.snapshot().manifest.categories.includes('隐式父分类'));
+ assert.ok(store.snapshot().manifest.categories.includes('子分类/空文件夹'));
+ await store.moveCategory('子分类/空文件夹', '重命名空文件夹');
+ assert.ok(store.snapshot().manifest.categories.includes('子分类'));
+ assert.ok(store.snapshot().manifest.categories.includes('重命名空文件夹'));
+});
+test('category moves reject collisions, cycles, invalid paths and overlong descendant paths atomically', async t => {
+ const { store, dir } = await fixture(t);
+ await store.category('项目/子分类'); await store.category('占用/隐式文件夹');
+ const before = store.snapshot().manifest;
+ for (const [from, to] of [
+  ['项目', '项目/子分类/项目'], ['项目', '占用'], ['项目', '占用/隐式文件夹'],
+  ['不存在', '新名字'], ['项目', ''], ['项目', '/'], ['项目', '无效//分类'],
+  [null, '名字'], ['项目', null], ['项目', '长'.repeat(198)],
+ ]) {
+  await assert.rejects(store.moveCategory(from, to), /分类|文件夹|200/);
+  assert.deepEqual(store.snapshot().manifest, before);
+ }
+ await store.moveCategory('项目', '项目');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.deepEqual(reopened.snapshot().manifest, before);
+});
+test('category moves roll back the whole tree when persistence fails', async t => {
+ const { store } = await fixture(t);
+ await store.create('保护数据', '项目/子分类'); await store.category('项目/空分类');
+ const before = store.snapshot().manifest;
+ store.persist = async () => { throw new Error('write failed'); };
+ await assert.rejects(store.moveCategory('项目', '重命名'), /write failed/);
+ assert.deepEqual(store.snapshot().manifest, before);
 });
 test('category deletion rolls back every record when persistence fails', async t => {
  const { store, dir } = await fixture(t);
@@ -385,7 +445,7 @@ test('failed creation, rename and category writes do not leak into later saves',
  const reopened = new VaultStore(); await reopened.open(dir);
  assert.equal(reopened.manifest.notes.length, before.notes.length);
  assert.equal(reopened.note(before.notes[0].id).title, before.notes[0].title);
- assert.deepEqual(reopened.manifest.categories, before.categories);
+ assert.deepEqual(reopened.snapshot().manifest.categories, before.categories);
 });
 
 test('equivalent file paths cannot bypass manifest validation or trash protection', async t => {
@@ -406,7 +466,7 @@ test('manifest fields reject coercible filenames, reserved IDs and invalid note 
   const content = JSON.stringify({ ...before, notes: [{ ...before.notes[0], ...fields }] });
   await assert.rejects(store.saveFile('fever.json', content), /无效/);
  }
- assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), before);
+ assert.deepEqual(manifestView(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'))), before);
 });
 
 test('rejecting a nested Git directory leaves it untouched and preserves the open vault', async t => {
@@ -445,7 +505,7 @@ test('file saves resolve note identity after preceding manifest writes', async t
  assert.equal(await store.read('replacement-id'), 'latest content');
  const persisted = JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'));
  assert.notEqual(persisted.notes[0].updatedAt, manifest.notes[0].updatedAt);
- assert.deepEqual(persisted, store.snapshot().manifest);
+ assert.deepEqual(persisted, store.manifest);
 });
 
 test('history restore finishes in its original vault before a queued library switch', async t => {
@@ -457,7 +517,7 @@ test('history restore finishes in its original vault before a queued library swi
  const other = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-restore-'));
  t.after(() => fs.rm(other, { recursive: true, force: true }));
  const second = new VaultStore(); await second.open(other);
- second.manifest = store.snapshot().manifest;
+ second.manifest = structuredClone(store.manifest);
  await second.persist();
  await fs.writeFile(path.join(other, 'notes', note.filename), 'other library content');
  const revision = store.revision.bind(store);
@@ -476,4 +536,63 @@ test('history restore finishes in its original vault before a queued library swi
  await Promise.all([restoring, switching]);
  assert.equal(await fs.readFile(path.join(dir, 'notes', note.filename), 'utf8'), 'historical content');
  assert.equal(await store.read(note.id), 'other library content');
+});
+
+test('v1 vaults migrate on open, retain stable UUIDs on reopen and produce single-line folder diffs', async t => {
+ const { store, dir } = await fixture(t);
+ const note = await store.create('旧版笔记', '项目/子分类');
+ await store.category('项目/空分类'); await store.category('目标');
+ const view = store.snapshot().manifest;
+ const old = { version: 1, categories: view.categories, notes: view.notes.map(({ folderId, ...note }) => note) };
+ const oldText = JSON.stringify(old, null, 2) + '\n';
+ await fs.writeFile(path.join(dir, 'fever.json'), oldText);
+ await store.commit('v1 snapshot');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ const migrated = JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'));
+ assert.equal(migrated.version, 2); assert.equal(migrated.categories, undefined);
+ assert.ok(migrated.notes.every(note => note.category === undefined));
+ assert.equal(await reopened.read(note.id), '# 旧版笔记\n\n');
+ const again = new VaultStore(); await again.open(dir);
+ assert.deepEqual(again.manifest, migrated);
+ await reopened.commit('migrate v2');
+ await reopened.moveCategory('项目', '新项目');
+ assert.deepEqual(reopened.manifest.notes, migrated.notes);
+ assert.match((await reopened.git(['diff', '--numstat', '--', 'fever.json'])).trim(), /^1\s+1\s+fever\.json$/);
+ await reopened.commit('rename folder');
+ await reopened.moveCategory('新项目', '目标/新项目');
+ assert.deepEqual(reopened.manifest.notes, migrated.notes);
+ assert.match((await reopened.git(['diff', '--numstat', '--', 'fever.json'])).trim(), /^1\s+1\s+fever\.json$/);
+});
+
+test('old Git manifests remain readable after discard and file edits upgrade them without changing note history', async t => {
+ const { store, dir } = await fixture(t);
+ const note = await store.create('历史兼容', '项目/子分类');
+ const view = store.snapshot().manifest;
+ const oldText = JSON.stringify({ version: 1, categories: view.categories, notes: view.notes.map(({ folderId, ...note }) => note) }, null, 2) + '\n';
+ await fs.writeFile(path.join(dir, 'fever.json'), oldText); await store.commit('v1 baseline');
+ const hash = (await store.history(note.id))[0].hash;
+ const reopened = new VaultStore(); await reopened.open(dir);
+ await reopened.moveCategory('项目', '重命名');
+ await reopened.discard('fever.json');
+ assert.equal(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'), oldText);
+ assert.equal(reopened.snapshot().manifest.notes.find(item => item.id === note.id).category, '项目/子分类');
+ assert.equal(await reopened.revision(note.id, hash), '# 历史兼容\n\n');
+ await reopened.saveFile('fever.json', oldText);
+ assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')).version, 2);
+ const before = await fs.readFile(path.join(dir, 'fever.json'), 'utf8');
+ const invalid = structuredClone(reopened.manifest); invalid.folders[0].parentId = invalid.folders[0].id;
+ await assert.rejects(reopened.saveFile('fever.json', JSON.stringify(invalid)), /循环/);
+ assert.equal(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'), before);
+});
+
+test('failed v1 migration preserves the original manifest and the previously open vault', async t => {
+ const { store } = await fixture(t), before = store.snapshot();
+ const other = await fs.mkdtemp(path.join(os.tmpdir(), 'fever-v1-migration-failure-'));
+ t.after(() => fs.rm(other, { recursive: true, force: true }));
+ const legacy = JSON.stringify({ version: 1, categories: ['隐式/空文件夹'], notes: [] });
+ await fs.writeFile(path.join(other, 'fever.json'), legacy);
+ store.persist = async () => { throw new Error('write failed'); };
+ await assert.rejects(store.open(other), /write failed/);
+ assert.equal(await fs.readFile(path.join(other, 'fever.json'), 'utf8'), legacy);
+ assert.deepEqual(store.snapshot(), before);
 });

@@ -1,4 +1,5 @@
 import { notePath } from './notePaths.ts';
+import { remapCategory } from '../electron/manifest.mjs';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Circle, Clock3, Code2, Copy, FilePlus2, FileText, Flame, Folder, FolderOpen, FolderPlus, GitBranch, GitCommitHorizontal, History, ImagePlus, Eye, LayoutList, LoaderCircle, MoreHorizontal, PanelLeftClose, PanelRightClose, PenLine, Shapes, Plus, Minus, RefreshCw, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
 import GitChanges, { GitDiff } from './GitChanges';
@@ -31,7 +32,7 @@ const DrawingLoading = () => <span className="drawing-placeholder">正在加载�
 import type { Change, Commit, FileDiff, GitStatus, Note, RevisionComparison, Settings, Vault, VaultFile } from './types';
 
 const api = window.fever || demo;
-type Modal = 'export' | 'drawing' | 'embed' | 'note' | 'folder' | 'rename' | 'delete' | 'deleteFolder' | 'settings' | 'discard' | 'discardAll' | null;
+type Modal = 'export' | 'drawing' | 'embed' | 'note' | 'folder' | 'renameFolder' | 'rename' | 'delete' | 'deleteFolder' | 'settings' | 'discard' | 'discardAll' | null;
 type EditorTab = { key: string; path: string } & ({ kind: 'diff'; diff: FileDiff; staged: boolean } | { kind: 'file'; file: VaultFile });
 const time = (date: string) => new Date(date).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const sameStatus = (a: GitStatus | null, b: GitStatus) => Boolean(a && a.branch === b.branch && a.head === b.head && a.ahead === b.ahead && a.behind === b.behind && a.remote === b.remote && a.lfs === b.lfs && a.changes.length === b.changes.length && a.changes.every((change, index) => {
@@ -290,7 +291,7 @@ export default function App() {
   try { await run(fn, success, refreshAfter); }
   finally { workspaceLock.current = false; setWorkspaceLocked(false); }
  }
- async function run(fn: () => Promise<void>, success?: string, refreshAfter = true) { setBusy(true); try { await flush(); await fn(); if (refreshAfter) await refresh(); if (success) notify(success); } catch (e) { notify((e as Error).message, true); } finally { setBusy(false); } }
+ const run = useCallback(async (fn: () => Promise<void>, success?: string, refreshAfter = true) => { setBusy(true); try { await flush(); await fn(); if (refreshAfter) await refresh(); if (success) notify(success); } catch (e) { notify((e as Error).message, true); } finally { setBusy(false); } }, [flush, refresh, notify]);
  async function pull(automatic = false) {
   if (automatic && (!vault || loading || busy || modal || workspaceLock.current || importingImages.current || pending.current.size || saving.current)) return;
   await runLocked(async () => {
@@ -485,6 +486,7 @@ export default function App() {
    { label: target.kind === 'folder' ? '新建子分类' : '新建分类', icon: <FolderPlus size={14} />, disabled: busy, action: () => { setField(target.kind === 'folder' ? `${path}/` : ''); setModal('folder'); } },
   );
   if (target.kind === 'folder') items.push(
+   { label: '重命名文件夹', icon: <PenLine size={14} />, disabled: busy, action: () => { setCategory(path); setField(path.split('/').at(-1)!); setModal('renameFolder'); } },
    { label: collapsed.has(path) ? '展开分类' : '折叠分类', icon: <Folder size={14} />, action: () => toggleFolder(path) },
    { separator: true },
    { label: '删除文件夹', icon: <Trash2 size={14} />, danger: true, disabled: busy, action: () => { setCategory(path); setModal('deleteFolder'); } },
@@ -589,6 +591,22 @@ export default function App() {
    notify(result.failed.length ? `已转换 ${downloaded} 张图片，${result.failed.length} 张失败，原链接已保留：${result.failed[0].message}` : `已将 ${downloaded} 张外部图片保存到 images/`, result.failed.length > 0);
   });
  }
+ const relocateFolder = useCallback(async (from: string, to: string) => {
+  await api.moveCategory(from, to);
+  setSelectedFolder(previous => previous === null ? null : remapCategory(previous, from, to));
+  setCollapsed(previous => {
+   const next = new Set([...previous].map(path => remapCategory(path, from, to)));
+   const parts = to.split('/');
+   for (let i = 1; i < parts.length; i++) next.delete(parts.slice(0, i).join('/'));
+   return next;
+  });
+ }, []);
+ const moveFolder = useCallback(async (from: string, parent: string) => {
+  if (busy) return;
+  const to = [parent, from.split('/').at(-1)].filter(Boolean).join('/');
+  if (from === to) return;
+  await run(() => relocateFolder(from, to), '文件夹已移动');
+ }, [busy, run, relocateFolder]);
  async function submitModal() {
   await run(async () => {
    if (modal === 'note' || modal === 'drawing') { const note = await api.create(field.trim(), category.trim(), modal === 'drawing' ? 'excalidraw' : 'markdown'); await refresh(); await select(note.id); setMode('edit'); }
@@ -601,6 +619,12 @@ export default function App() {
     await flush();
    }
    if (modal === 'folder') { await api.category(field.trim()); setSelectedFolder(field.trim()); setCollapsed(previous => new Set([...previous].filter(path => !field.trim().startsWith(`${path}/`)))); }
+   if (modal === 'renameFolder') {
+    if (!field.trim() || field.includes('/')) throw new Error('请输入不含 / 的文件夹名称');
+    const parent = category.split('/').slice(0, -1).join('/');
+    await relocateFolder(category, [parent, field.trim()].filter(Boolean).join('/'));
+    notify('文件夹已重命名');
+   }
    if (modal === 'deleteFolder') {
     await api.removeCategory(category);
     setSelectedFolder(previous => previous === category || previous?.startsWith(`${category}/`) ? null : previous);
@@ -669,7 +693,7 @@ export default function App() {
     <button className="new-note" onClick={() => showNew('note')}><Plus size={17} /><span>新建笔记</span><kbd>⌘ N</kbd></button>
     <button className={`all-notes ${!trashView && selectedFolder === null && !query ? 'selected' : ''}`} aria-pressed={!trashView && selectedFolder === null && !query} onClick={() => selectFolder(null)}><BookOpen size={16} /><span>全部笔记</span><small>{vault.manifest.notes.length}</small></button>
     <div className="tree-label"><span>文件夹</span><div><button title="新建绘图" onClick={() => showNew('drawing')}><Shapes size={15} /></button><button title="新建分类" onClick={() => showNew('folder')}><FolderPlus size={15} /></button><button title="导入 Markdown / Excalidraw" onClick={() => void run(async () => { const notes = await api.importNotes(); if (notes.length) { await refresh(); await select(notes[0].id); } else if (!api.desktop) notify('Markdown / Excalidraw 导入请使用桌面应用'); })}><Upload size={15} /></button></div></div>
-    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView || query ? null : selectedFolder} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} />
+    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView || query ? null : selectedFolder} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} onMove={moveFolder} disabled={busy} />
     {vault.manifest.notes.some(note => !note.category) && <button className={`all-notes ${selectedFolder === '' && !trashView ? 'selected' : ''}`} onClick={() => selectFolder('')}><Folder size={16} /><span>未分类</span><small>{vault.manifest.notes.filter(note => !note.category).length}</small></button>}
     <div className="sidebar-bottom"><button className={`trash-entry ${trashView ? 'selected' : ''}`} disabled={busy} onClick={() => void openTrash()}><Trash2 size={16} /><span>回收站</span><span className="trash-count">{vault.manifest.trash?.length || 0}</span></button><div className="sidebar-foot"><FolderOpen size={13} /><span title={vault.path}>{vault.name}</span></div></div>
    </aside>
@@ -713,13 +737,13 @@ export default function App() {
   <input ref={imageRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" multiple hidden onChange={e => { if (e.target.files) void addImages(e.target.files); e.target.value = ''; }} />
   {notice && <div className={`toast ${notice.error ? 'error' : ''}`}>{notice.error ? <Circle size={16} /> : <CheckCheck size={17} />}<span>{notice.message}</span><button onClick={() => setNotice(null)}><X size={14} /></button></div>}
   {modal === 'export' && active && <ExportDialog key={active.id} title={active.title} drawing={drawing} busy={busy} returnFocusRef={moreMenuRef} onClose={() => setModal(null)} onExport={options => void exportCurrentNote(options)} />}
-  {modal && modal !== 'export' && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setModal(null); }}><section className={`modal ${modal === 'rename' ? 'move-note-modal' : modal === 'settings' ? 'settings-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><span className="modal-icon">{modal === 'settings' ? <Settings2 size={20} /> : modal === 'folder' ? <FolderPlus size={20} /> : modal === 'delete' || modal === 'deleteFolder' ? <Trash2 size={20} /> : <FilePlus2 size={20} />}</span><h2 id="modal-title">{{ drawing: '新建 Excalidraw 绘图', embed: '插入 Excalidraw', note: '新建笔记', folder: '新建分类', rename: '重命名 / 移动笔记', delete: '将这篇笔记移入回收站？', deleteFolder: '删除这个文件夹？', settings: '笔记库设置', discard: '撤销这个文件的变更？', discardAll: '还原全部工作区变更？' }[modal]}</h2></div><button className="icon-button" disabled={busy} onClick={() => setModal(null)}><X size={18} /></button></div>
-   <div className="modal-body">{modal === 'discardAll' && <p className="delete-description">将工作区列表中的所有文件恢复到上次提交，并取消这些文件的暂存。新增文件会被删除，未提交的修改无法恢复。</p>}{modal === 'discard' && discardChange && <p className="delete-description">将「{discardChange.path}」恢复到上次提交，并取消该文件的暂存。新增文件会被删除，未提交的修改无法恢复。</p>}{['note', 'folder', 'rename', 'drawing'].includes(modal) && <><label>{modal === 'folder' ? '分类名称' : modal === 'drawing' ? '绘图标题' : '笔记标题'}<input autoFocus value={field} placeholder={modal === 'folder' ? '例如：项目/Fever' : modal === 'drawing' ? '绘图标题' : '笔记标题'} onChange={e => setField(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && field.trim()) void submitModal(); }} maxLength={200} /></label>{modal === 'rename' ? <CategoryPicker categories={vault.manifest.categories} notes={vault.manifest.notes} value={category} current={modalNote?.category || ''} onChange={setCategory} disabled={busy} /> : modal !== 'folder' && <label>所属分类<input list="category-options" value={category} onChange={e => setCategory(e.target.value)} placeholder="收件箱" maxLength={200} /><datalist id="category-options">{vault.manifest.categories.map(c => <option key={c}>{c}</option>)}</datalist></label>}</>}
+  {modal && modal !== 'export' && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setModal(null); }}><section className={`modal ${modal === 'rename' ? 'move-note-modal' : modal === 'settings' ? 'settings-modal' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><span className="modal-icon">{modal === 'settings' ? <Settings2 size={20} /> : modal === 'folder' || modal === 'renameFolder' ? <FolderPlus size={20} /> : modal === 'delete' || modal === 'deleteFolder' ? <Trash2 size={20} /> : <FilePlus2 size={20} />}</span><h2 id="modal-title">{{ drawing: '新建 Excalidraw 绘图', embed: '插入 Excalidraw', note: '新建笔记', folder: '新建分类', renameFolder: '重命名文件夹', rename: '重命名 / 移动笔记', delete: '将这篇笔记移入回收站？', deleteFolder: '删除这个文件夹？', settings: '笔记库设置', discard: '撤销这个文件的变更？', discardAll: '还原全部工作区变更？' }[modal]}</h2></div><button className="icon-button" disabled={busy} onClick={() => setModal(null)}><X size={18} /></button></div>
+   <div className="modal-body">{modal === 'renameFolder' && <><label>文件夹名称<input autoFocus value={field} onChange={e => setField(e.target.value)} maxLength={200} onKeyDown={e => { if (e.key === 'Enter' && field.trim() && !busy) void submitModal(); }} /></label><p className="delete-description">将同步更新「{category}」下的子文件夹和笔记分类。</p></>}{modal === 'discardAll' && <p className="delete-description">将工作区列表中的所有文件恢复到上次提交，并取消这些文件的暂存。新增文件会被删除，未提交的修改无法恢复。</p>}{modal === 'discard' && discardChange && <p className="delete-description">将「{discardChange.path}」恢复到上次提交，并取消该文件的暂存。新增文件会被删除，未提交的修改无法恢复。</p>}{['note', 'folder', 'rename', 'drawing'].includes(modal) && <><label>{modal === 'folder' ? '分类名称' : modal === 'drawing' ? '绘图标题' : '笔记标题'}<input autoFocus value={field} placeholder={modal === 'folder' ? '例如：项目/Fever' : modal === 'drawing' ? '绘图标题' : '笔记标题'} onChange={e => setField(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && field.trim()) void submitModal(); }} maxLength={200} /></label>{modal === 'rename' ? <CategoryPicker categories={vault.manifest.categories} notes={vault.manifest.notes} value={category} current={modalNote?.category || ''} onChange={setCategory} disabled={busy} /> : modal !== 'folder' && <label>所属分类<input list="category-options" value={category} onChange={e => setCategory(e.target.value)} placeholder="收件箱" maxLength={200} /><datalist id="category-options">{vault.manifest.categories.map(c => <option key={c}>{c}</option>)}</datalist></label>}</>}
     {modal === 'embed' && <><label>选择绘图<select value={embedId} onChange={e => setEmbedId(e.target.value)}><option value="">新建绘图并插入</option>{drawings.map(note => <option key={note.id} value={note.id}>{note.category ? `${note.category} / ` : ''}{note.title}</option>)}</select></label>{!embedId && <><label>绘图标题<input autoFocus value={field} onChange={e => setField(e.target.value)} maxLength={200} placeholder="给绘图起个名字" /></label><label>所属分类<input value={category} onChange={e => setCategory(e.target.value)} maxLength={200} /></label></>}</>}
     {modal === 'deleteFolder' && <p className="delete-description">将删除「{category}」及其所有子文件夹，其中的 {vault.manifest.notes.filter(note => note.category === category || note.category.startsWith(`${category}/`)).length} 篇笔记将移入回收站。正文和图片会保留，恢复笔记时会重建原分类。</p>}
     {modal === 'delete' && <p className="delete-description">「{modalNote?.title}」将移入回收站，正文、图片和原分类会保留，可随时恢复。</p>}
     {modal === 'settings' && <SettingsPanel vault={vault} settings={settings} onSettingsChange={setSettings} appearance={{ themeMode, fontSize, editorWidth, editorFullWidth, setThemeMode, setFontSize, setEditorWidth, setEditorFullWidth }} desktop={api.desktop} lfs={Boolean(status?.lfs)} busy={busy} onSwitchVault={() => { setModal(null); void openVault(); }} />}
-   </div><div className="modal-footer">{modal === 'discard' || modal === 'discardAll' ? <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className="danger" disabled={busy} onClick={() => void discardFile(modal === 'discardAll')}>{modal === 'discardAll' ? '全部还原' : '撤销变更'}</button></> : <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className={modal === 'delete' || modal === 'deleteFolder' ? 'danger' : 'primary'} disabled={busy || (['note', 'folder', 'rename', 'drawing'].includes(modal) && !field.trim()) || (modal === 'embed' && !embedId && !field.trim())} onClick={() => void submitModal()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{modal === 'settings' ? '保存设置' : modal === 'delete' ? '删除笔记' : modal === 'deleteFolder' ? '删除文件夹' : modal === 'folder' ? '创建分类' : modal === 'rename' ? '保存更改' : modal === 'drawing' ? '创建绘图' : modal === 'embed' ? '插入绘图' : '创建笔记'}</button></>}</div>
+   </div><div className="modal-footer">{modal === 'discard' || modal === 'discardAll' ? <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className="danger" disabled={busy} onClick={() => void discardFile(modal === 'discardAll')}>{modal === 'discardAll' ? '全部还原' : '撤销变更'}</button></> : <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className={modal === 'delete' || modal === 'deleteFolder' ? 'danger' : 'primary'} disabled={busy || (['note', 'folder', 'renameFolder', 'rename', 'drawing'].includes(modal) && !field.trim()) || (modal === 'embed' && !embedId && !field.trim())} onClick={() => void submitModal()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{modal === 'settings' ? '保存设置' : modal === 'delete' ? '删除笔记' : modal === 'deleteFolder' ? '删除文件夹' : modal === 'folder' ? '创建分类' : modal === 'rename' || modal === 'renameFolder' ? '保存更改' : modal === 'drawing' ? '创建绘图' : modal === 'embed' ? '插入绘图' : '创建笔记'}</button></>}</div>
   </section></div>}
  </div>;
 }

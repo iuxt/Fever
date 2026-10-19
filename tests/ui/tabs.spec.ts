@@ -140,12 +140,12 @@ test('close shortcut handles file and diff tabs without reopening closed notes',
  await page.getByRole('button', { name: '查看工作区差异：fever.json', exact: true }).hover();
  await page.getByTitle('打开文件：fever.json', { exact: true }).click();
  const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
- state.manifest.categories.push('关闭文件时保存');
+ state.manifest.folders.push({ id: 'saved-on-close', name: '关闭文件时保存', parentId: null });
  await page.locator('.file-editor .cm-content').fill(JSON.stringify(state.manifest, null, 2));
  await page.keyboard.press('Meta+w');
  await expect(page.locator('.file-editor')).toHaveCount(0);
  await expect(page.locator('.tab.current')).toContainText('工作区对比');
- expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest.categories)).toContain('关闭文件时保存');
+ expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest.folders.map((folder: { name: string }) => folder.name))).toContain('关闭文件时保存');
  await page.getByTitle('关闭标签', { exact: true }).click();
  await expect(page.locator('.tab')).toHaveCount(1);
  await page.keyboard.press('Control+w');

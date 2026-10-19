@@ -9,21 +9,8 @@ const { downloadImage } = require('./remote-images.cjs');
 const { readBounded } = require('./files.cjs');
 const { RevisionImages } = require('./revision-images.cjs');
 const MANIFEST = 'fever.json';
-const UUID_FILE = /^[a-zA-Z0-9_-]+\.(md|markdown|txt|fountain|excalidraw)$/;
 const notePath = note => `${note.directory || 'notes'}/${note.filename}`;
-function validateManifest(manifest) {
-  if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.notes) || !Array.isArray(manifest.categories)) throw new Error('不支持的笔记清单格式');
-  if (manifest.trash != null && !Array.isArray(manifest.trash)) throw new Error('回收站格式无效');
-  const ids = new Set(), files = new Set();
-  for (const n of [...manifest.notes, ...(manifest.trash || [])]) {
-    if (n?.directory !== undefined && !['notes', 'drawings'].includes(n.directory)) throw new Error('笔记存储目录无效');
-    if (!n || typeof n.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(n.id) || typeof n.filename !== 'string' || !UUID_FILE.test(n.filename) || typeof n.title !== 'string' || typeof n.category !== 'string' || (n.sourcePath != null && typeof n.sourcePath !== 'string') || ids.has(n.id) || files.has(n.filename)) throw new Error('笔记清单含有无效或重复的文件记录');
-    ids.add(n.id); files.add(n.filename);
-  }
-  if (!manifest.categories.every(c => typeof c === 'string')) throw new Error('分类格式无效');
-  // Old vaults may contain migration aliases. References now live in Markdown/Git only.
-  delete manifest.assets;
-}
+const { readManifest, manifestView, noteView, noteCategory, folderPaths, validCategory, ensureFolder, moveCategory, removeCategory } = require('./manifest.mjs');
 function validateDrawing(content) {
   let scene;
   try { scene = JSON.parse(content); } catch { throw new Error('Excalidraw 文件不是有效的 JSON'); }
@@ -66,6 +53,7 @@ class VaultStore {
     if (!query.trim() || !this.manifest) return [];
     const controller = new AbortController(); this.searchController = controller;
     const { signal } = controller, needle = query.toLowerCase(), notes = scope === 'trash' ? (this.manifest.trash || []) : this.manifest.notes;
+    const paths = folderPaths(this.manifest);
     // Cache only match booleans for the current query, never whole note bodies.
     if (this.searchCache?.root !== this.root || this.searchCache.query !== needle || this.searchCache.scope !== scope) this.searchCache = { root: this.root, query: needle, scope, files: new Map() };
     const cache = this.searchCache.files;
@@ -75,7 +63,7 @@ class VaultStore {
     const worker = async () => {
       while (!signal.aborted && cursor < notes.length) {
         const note = notes[cursor++];
-        if (note.title.toLowerCase().includes(needle) || note.category.toLowerCase().includes(needle)) { matches.add(note.id); continue; }
+        if (note.title.toLowerCase().includes(needle) || noteCategory(this.manifest, note, paths).toLowerCase().includes(needle)) { matches.add(note.id); continue; }
         try {
           const file = await this.safe(notePath(note));
           if (signal.aborted) return;
@@ -106,7 +94,7 @@ class VaultStore {
       await fs.rename(temp, await this.safe(MANIFEST));
     } finally { await fs.rm(temp, { force: true }); }
   }
-  snapshot() { return { path: this.root, name: path.basename(this.root), manifest: structuredClone(this.manifest), lfs: this.lfs }; }
+  snapshot() { return { path: this.root, name: path.basename(this.root), manifest: manifestView(this.manifest), lfs: this.lfs }; }
   async open(folder) {
     return this.queued(async () => {
       this.cancelSearch();
@@ -121,7 +109,7 @@ class VaultStore {
         let manifest, isNew = false;
         try {
           manifest = JSON.parse(await fs.readFile(await this.safe(MANIFEST), 'utf8'));
-          validateManifest(manifest);
+          manifest = readManifest(manifest, previous.root === root ? previous.manifest : undefined);
         } catch (e) {
           if (e.code !== 'ENOENT') throw e;
           // Never silently index or overwrite an unrelated content directory.
@@ -131,7 +119,7 @@ class VaultStore {
           }
           const entries = await fs.readdir(root);
           if (entries.some(entry => !['.git', '.DS_Store', 'notes', 'drawings', 'images'].includes(entry))) throw new Error('此文件夹包含其他文件但没有 fever.json，请选择空文件夹或已有笔记库');
-          manifest = { version: 1, categories: ['收件箱'], notes: [] };
+          manifest = readManifest({ version: 1, categories: ['收件箱'], notes: [] });
           isNew = true;
         }
         this.manifest = manifest;
@@ -153,20 +141,21 @@ class VaultStore {
   async createInternal(title, category, content, format = 'markdown', sourcePath) {
     title = String(title).trim(); category = String(category).trim();
     if (!title || title.length > 200 || category.length > 200) throw new Error('请输入有效的标题和分类（最多 200 字）');
+    validCategory(category, true);
     if (!['markdown', 'excalidraw'].includes(format)) throw new Error('不支持的文件格式');
     const id = randomUUID(), now = new Date().toISOString();
-    const note = { id, filename: id + (format === 'excalidraw' ? '.excalidraw' : '.md'), title, category, createdAt: now, updatedAt: now, ...(sourcePath ? { sourcePath } : {}) };
+    const note = { id, filename: id + (format === 'excalidraw' ? '.excalidraw' : '.md'), title, createdAt: now, updatedAt: now, ...(sourcePath ? { sourcePath } : {}) };
     const legacyDrawing = /^excalidraw-plugin:[ \t]*\S/m.test(content?.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] || '');
     if (format === 'excalidraw' || legacyDrawing) note.directory = 'drawings';
     content ??= format === 'excalidraw' ? JSON.stringify({ type: 'excalidraw', version: 2, source: 'Fever', elements: [], appState: { viewBackgroundColor: '#ffffff' }, files: {} }, null, 2) : `# ${title}\n\n`;
     if (format === 'excalidraw') validateDrawing(content);
     const file = await this.safe(notePath(note)), previous = structuredClone(this.manifest);
     await fs.writeFile(file, content, { flag: 'wx' });
+    note.folderId = ensureFolder(this.manifest, category);
     this.manifest.notes.push(note);
-    if (category && !this.manifest.categories.includes(category)) this.manifest.categories.push(category);
     try { await this.persist(); }
     catch (e) { this.manifest = previous; await fs.rm(file, { force: true }); throw e; }
-    return structuredClone(note);
+    return noteView(this.manifest, note);
   }
   create(title, category, format) { return this.queued(() => this.createInternal(title, category, undefined, format)); }
   async read(id, scope) {
@@ -194,18 +183,17 @@ class VaultStore {
     if (typeof title !== 'string' || !title.trim() || title.length > 200 || typeof category !== 'string' || category.length > 200) throw new Error('标题或分类无效');
     const previous = structuredClone(this.manifest);
     category = category.trim();
-    const note = this.note(id); Object.assign(note, { title: title.trim(), category, updatedAt: new Date().toISOString() });
-    if (category && !this.manifest.categories.includes(category)) this.manifest.categories.push(category);
+    const note = this.note(id); Object.assign(note, { title: title.trim(), folderId: ensureFolder(this.manifest, category), updatedAt: new Date().toISOString() });
     try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
-    return structuredClone(note);
+    return noteView(this.manifest, note);
   }); }
   remove(id) { return this.queued(async () => {
     const note = this.note(id);
     await this.safe(notePath(note));
     const previous = structuredClone(this.manifest);
     this.manifest.notes = this.manifest.notes.filter(n => n.id !== id);
-    (this.manifest.trash ||= []).push(note);
+    (this.manifest.trash ||= []).push({ ...note, originalCategory: noteCategory(this.manifest, note) });
     try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
     this.cancelSearch();
@@ -217,30 +205,35 @@ class VaultStore {
     if (!(await fs.stat(file)).isFile()) throw new Error('笔记正文文件不存在');
     const previous = structuredClone(this.manifest);
     this.manifest.trash = this.manifest.trash.filter(n => n.id !== id);
+    note.folderId = ensureFolder(this.manifest, noteCategory(this.manifest, note));
+    delete note.originalCategory;
     this.manifest.notes.push(note);
-    if (note.category && !this.manifest.categories.includes(note.category)) this.manifest.categories.push(note.category);
     try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
-    return structuredClone(note);
+    return noteView(this.manifest, note);
   }); }
   category(category) { return this.queued(async () => {
     if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效');
     const previous = structuredClone(this.manifest);
-    if (!this.manifest.categories.includes(category.trim())) this.manifest.categories.push(category.trim());
+    ensureFolder(this.manifest, category.trim());
     try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
+  }); }
+  moveCategory(from, to) { return this.queued(async () => {
+    const previous = this.manifest;
+    this.manifest = moveCategory(previous, from, to);
+    try { await this.persist(); }
+    catch (e) { this.manifest = previous; throw e; }
+    this.cancelSearch();
   }); }
   removeCategory(category) { return this.queued(async () => {
     if (typeof category !== 'string' || !category.trim() || category.length > 200 || category.split('/').some(c => !c.trim())) throw new Error('分类无效');
     category = category.trim();
-    const contains = value => value === category || value.startsWith(`${category}/`);
-    if (!this.manifest.categories.some(contains) && !this.manifest.notes.some(note => contains(note.category))) throw new Error('分类不存在');
-    const removed = this.manifest.notes.filter(note => contains(note.category));
-    for (const note of removed) await this.safe(notePath(note));
-    const previous = structuredClone(this.manifest);
-    this.manifest.categories = this.manifest.categories.filter(value => !contains(value));
-    this.manifest.notes = this.manifest.notes.filter(note => !contains(note.category));
-    if (removed.length) (this.manifest.trash ||= []).push(...removed);
+    const previous = this.manifest;
+    const next = removeCategory(previous, category);
+    const retained = new Set(next.notes);
+    for (const note of previous.notes) if (!retained.has(note)) await this.safe(notePath(note));
+    this.manifest = next;
     try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
     this.cancelSearch();
@@ -368,9 +361,8 @@ class VaultStore {
       let manifest;
       if (relative === MANIFEST) {
         const parsed = JSON.parse(content);
-        const hadAssets = parsed != null && Object.hasOwn(parsed, 'assets');
-        validateManifest(parsed); manifest = parsed;
-        if (hadAssets) content = JSON.stringify(parsed, null, 2) + '\n';
+        manifest = readManifest(parsed, this.manifest);
+        content = JSON.stringify(manifest, null, 2) + '\n';
       }
       if (relative.endsWith('.excalidraw')) validateDrawing(content);
       const temp = await this.safe(`${path.dirname(relative)}/.fever-${randomUUID()}.tmp`);
@@ -444,7 +436,7 @@ class VaultStore {
     if (relative === MANIFEST) {
       // Validate the restored snapshot before changing either the index or the file.
       const restored = JSON.parse(await this.git(['show', `HEAD:${relative}`]));
-      validateManifest(restored);
+      readManifest(restored, this.manifest);
     }
     if (tracked.length) await this.git(['restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked.map(p => `:(literal)${p}`)]);
     for (const file of added) {
@@ -454,7 +446,7 @@ class VaultStore {
     this.cancelSearch();
     if (relative === MANIFEST) {
       const text = await fs.readFile(await this.safe(MANIFEST), 'utf8');
-      this.manifest = JSON.parse(text);
+      this.manifest = readManifest(JSON.parse(text), this.manifest);
     } else if (added.some(file => this.manifest.notes.some(n => notePath(n) === file))) {
       // Discarding a new note must not leave a dangling entry in the library.
       this.manifest.notes = this.manifest.notes.filter(n => !added.includes(notePath(n)));
@@ -491,7 +483,7 @@ class VaultStore {
     let restoredManifest;
     if (tracked.has(MANIFEST)) {
       restoredManifest = JSON.parse(await this.git(['show', `HEAD:${MANIFEST}`]));
-      validateManifest(restoredManifest);
+      restoredManifest = readManifest(restoredManifest, this.manifest);
     }
     const indexed = new Set(added.length ? (await this.gitPaths(['ls-files', '-z'], added)).split('\0').filter(Boolean) : []);
     this.cancelSearch();
@@ -531,8 +523,8 @@ class VaultStore {
     await this.git(['pull', '--ff-only', 'origin', status.branch]);
     this.cancelSearch();
     const text = await fs.readFile(await this.safe(MANIFEST), 'utf8');
-    const manifest = JSON.parse(text);
-    validateManifest(manifest);
+    let manifest = JSON.parse(text);
+    manifest = readManifest(manifest);
     this.manifest = manifest;
   }); }
   push() { return this.queued(async () => { const s = await this.status(); if (!s.remote) throw new Error('请先在设置中配置远程仓库'); if (s.branch === 'HEAD') throw new Error('请先切换到分支再推送'); await this.git(['push', '--set-upstream', 'origin', s.branch]); }); }

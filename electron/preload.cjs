@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('fever', {
   exportNote: call('exportNote'),
   onBackupError: callback => { const listener = (_event, message) => callback(message); ipcRenderer.on('fever:backup-error', listener); return () => ipcRenderer.removeListener('fever:backup-error', listener); },
   onAutoPull: callback => { const listener = () => callback(); ipcRenderer.on('fever:auto-pull', listener); return () => ipcRenderer.removeListener('fever:auto-pull', listener); },
-  ...Object.fromEntries(['current', 'open', 'read', 'search', 'cancelSearch', 'save', 'create', 'update', 'remove', 'restoreTrash', 'category', 'removeCategory', 'importNotes', 'image', 'completeImageImport', 'localizeImages', 'status', 'diff', 'stage', 'unstage', 'stageAll', 'unstageAll', 'discard', 'discardAll', 'openFile', 'saveFile', 'commit', 'pull', 'push', 'history', 'revision', 'revisionComparison', 'restore', 'settings', 'configure'].map(method => [method, call(method)])),
+  ...Object.fromEntries(['current', 'open', 'read', 'search', 'cancelSearch', 'save', 'create', 'update', 'remove', 'restoreTrash', 'category', 'moveCategory', 'removeCategory', 'importNotes', 'image', 'completeImageImport', 'localizeImages', 'status', 'diff', 'stage', 'unstage', 'stageAll', 'unstageAll', 'discard', 'discardAll', 'openFile', 'saveFile', 'commit', 'pull', 'push', 'history', 'revision', 'revisionComparison', 'restore', 'settings', 'configure'].map(method => [method, call(method)])),
   asset: (src, revision) => {
     // Remote URLs have no Git blob and retain their original URL in historical Markdown.
     if (/^https?:\/\//i.test(src)) return src;
