@@ -1,0 +1,5 @@
+<link rel="icon" type="image/png" href="{{ "images/favicon.png" | relURL }}">
+{{ $theme := resources.Get "style.sass" | css.Sass (dict "targetPath" "css/fresh.css" "outputStyle" "compressed") | fingerprint }}
+<link rel="stylesheet" href="{{ $theme.RelPermalink }}" integrity="{{ $theme.Data.Integrity }}">
+{{ $custom := resources.Get "css/fever.css" | minify | fingerprint }}
+<link rel="stylesheet" href="{{ $custom.RelPermalink }}" integrity="{{ $custom.Data.Integrity }}">

@@ -1,0 +1,20 @@
+<a class="skip-link" href="#main-content">跳到主要内容</a>
+<nav class="navbar is-fresh" aria-label="主导航">
+  <div class="container">
+    <div class="navbar-brand">
+      <a class="navbar-item fever-brand" href="{{ site.Home.RelPermalink }}" aria-label="Fever 首页">
+        <img src="{{ "images/fever.png" | relURL }}" alt="" width="36" height="36"><span>Fever</span>
+      </a>
+      <button class="navbar-burger" type="button" aria-label="展开导航" aria-expanded="false" aria-controls="fever-menu">
+        <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+      </button>
+    </div>
+    <div id="fever-menu" class="navbar-menu">
+      <div class="navbar-end">
+        {{ range site.Params.navbar }}
+        <a class="navbar-item{{ if .button }} nav-download{{ end }}" href="{{ .url }}">{{ .title }}</a>
+        {{ end }}
+      </div>
+    </div>
+  </div>
+</nav>

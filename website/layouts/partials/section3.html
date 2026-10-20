@@ -1,0 +1,40 @@
+<section class="section download-section" id="section3" aria-labelledby="download-title">
+  <div class="container">
+    <div class="title-wrapper has-text-centered">
+      <p class="eyebrow">开始记录</p>
+      <h2 class="title is-2" id="download-title">{{ site.Params.section3.title }}</h2>
+      <p class="subtitle is-5">{{ site.Params.section3.subtitle }}</p>
+    </div>
+    <div class="columns platform-downloads">
+      {{ range site.Params.section3.platforms }}
+      <div class="column">
+        <a class="download-card" href="{{ site.Params.section3.releases }}">
+          <h3>{{ .name }} <span aria-hidden="true">↗</span></h3>
+          <p>{{ .detail }}</p>
+          <span class="download-label">前往最新版本</span>
+        </a>
+      </div>
+      {{ end }}
+    </div>
+    <p class="download-note">下载按钮会打开 GitHub Releases，请在附件中选择对应平台和架构的安装包。</p>
+    <div id="getting-started" class="getting-started">
+      <h2 class="title is-3">第一次使用 Fever</h2>
+      <details open>
+        <summary>01 &nbsp; 安装应用与 Git</summary>
+        <p>下载并安装对应系统的 Fever。桌面版需要系统安装 <a href="https://git-scm.com/downloads">Git</a> 和 <a href="https://git-lfs.com/">Git LFS</a>，并能从 PATH 找到它们。macOS 安装包目前未签名或公证，Windows 安装包也尚未签名。</p>
+      </details>
+      <details>
+        <summary>02 &nbsp; 选择一个本地笔记库</summary>
+        <p>首次启动时选择一个空文件夹，或已有的 Fever 笔记库根目录。应用会初始化独立的 Git 仓库；在设置中填写 Git 用户名和邮箱，就可以开始写作与提交。</p>
+      </details>
+      <details>
+        <summary>03 &nbsp; 按需连接自己的远程仓库</summary>
+        <p>如需通过 Git 同步，在设置中填入自己的远程仓库 HTTPS 或 SSH 地址。认证沿用系统 Git 的凭据或 SSH 密钥。离线写作无需远程仓库；本地定时备份也不会自动推送。</p>
+      </details>
+      <details>
+        <summary>已有 Markdown 或 Obsidian 笔记？</summary>
+        <p>Markdown 文件可直接导入；导入时相对路径的图片不会自动复制。Obsidian 笔记库可使用仓库提供的迁移脚本，保留 Git 历史、图片与绘图。操作步骤见 <a href="https://github.com/iuxt/Fever#迁移现有-obsidian-笔记库">迁移指南</a>。</p>
+      </details>
+    </div>
+  </div>
+</section>

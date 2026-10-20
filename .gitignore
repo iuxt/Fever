@@ -4,6 +4,10 @@ node_modules/
 # Build and packaging output
 /dist/
 /release/
+/website/public/
+/website/resources/
+/website/.hugo_build.lock
+/website/_vendor/
 *.tsbuildinfo
 
 # Test reports and coverage

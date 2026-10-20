@@ -1,0 +1,80 @@
+baseURL: https://iuxt.github.io/Fever/
+locale: zh-CN
+defaultContentLanguage: zh
+title: Fever · 让每一个想法，都有迹可循
+disableKinds: [taxonomy, term, RSS]
+enableRobotsTXT: true
+
+module:
+  imports:
+    - path: github.com/StefMa/hugo-fresh
+
+params:
+  description: Fever 是一个本地优先的跨平台 Markdown 笔记应用。用 Markdown 记录，用 Excalidraw 绘图，用 Git 留住每一次思考的轨迹。
+  preloader: false
+  hero:
+    title: 让每一个想法，都有迹可循。
+    subtitle: 用 Markdown 记录，用文件夹整理，用 Git 留住思考的轨迹。Fever 把专注的写作体验和可靠的版本管理，放进一个属于你的本地知识空间。
+    buttontext: 下载 Fever
+    buttonlink: "#section3"
+  navbar:
+    - title: 功能
+      url: "#section1"
+    - title: 工作方式
+      url: "#section2"
+    - title: 使用指南
+      url: "#getting-started"
+    - title: GitHub
+      url: https://github.com/iuxt/Fever
+    - title: 下载
+      url: "#section3"
+      button: true
+  section1:
+    title: 把注意力，留给内容。
+    subtitle: 从一行文字到一张草图，让记录自然发生。
+    tiles:
+      - title: 写下想法，即刻成文
+        icon: mouse-globe
+        text: 所见即所得与 Markdown 源码随时切换。表格、代码块、任务清单和双向查找替换，照顾写作的每一个细节。
+        url: https://github.com/iuxt/Fever#编辑体验
+        buttonText: 了解编辑体验
+      - title: 文字之外，画出思路
+        icon: laptop-cloud
+        text: 用 Excalidraw 画草图，在正文中嵌入绘图；用 Mermaid 表达流程与关系。文字与图形，在同一份笔记里相遇。
+        url: https://github.com/iuxt/Fever#excalidraw-绘图
+        buttonText: 了解绘图功能
+      - title: 每次修改，都有来处
+        icon: doc-sync
+        text: 用 Git 提交和回看历史，按需恢复笔记。可设置本地定时备份，也可以通过自己的 Git 远程仓库拉取与推送。
+        url: https://github.com/iuxt/Fever#已实现功能
+        buttonText: 了解版本管理
+  section2:
+    title: 你的笔记，始终属于你。
+    subtitle: 熟悉的文件，开放的格式，自己掌握的存储方式。
+    features:
+      - title: 本地保存，离线也能继续
+        icon: laptop-globe
+        text: 正文保存为本地 `.md` 文件，绘图使用标准 `.excalidraw` 格式。无需登录 Fever 账号，即可在自己的文件夹中开始记录。
+      - title: 从零散记录，到有序知识库
+        icon: mobile-feed
+        text: 嵌套文件夹、多标签页、全文搜索与标题大纲，帮助你整理和回看内容。支持导入 Markdown，已有 Obsidian 笔记库也可通过迁移脚本导入。
+      - title: 分享内容，选择合适的形式
+        icon: doc-sync
+        text: 将笔记导出为 PDF、HTML 或 Markdown；HTML 可内嵌图片和绘图，便于离线阅读。亮色、暗色与跟随系统主题，让长时间阅读更自在。
+  section3:
+    title: 从第一个想法开始。
+    subtitle: 选择你的平台，下载最新发布的 Fever 桌面版。
+    releases: https://github.com/iuxt/Fever/releases/latest
+    platforms:
+      - name: macOS
+        detail: Apple Silicon / Intel · DMG
+      - name: Windows
+        detail: x64 · 安装程序
+      - name: Linux
+        detail: x64 · AppImage / DEB
+  footer:
+    enabled: true
+
+caches:
+  images:
+    dir: :cacheDir/images

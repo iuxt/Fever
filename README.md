@@ -2,6 +2,10 @@
 
 一个本地优先的跨平台 Markdown 笔记应用。Electron + React + TypeScript，参考 Obsidian 的侧栏、分类树、多标签编辑区和右侧面板，提供浅色 / 深色 / 跟随系统主题。
 
+## 软件官网
+
+中文官网位于 [`website/`](website/)，使用 Hugo Fresh 主题。预览命令为 `hugo server --source website`，需要 Hugo Extended 和 Go。已配置独立的 GitHub Pages 工作流，启用方式、内容编辑和私有仓库的发布条件见 [官网说明](website/README.md)。
+
 ## 开始使用
 
 开发环境需要 Node.js 24、Git 和 Git LFS。桌面应用运行时仍需要系统安装 Git / Git LFS，并能从 PATH 找到它们。
