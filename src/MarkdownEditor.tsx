@@ -208,7 +208,7 @@ const EditorCodeBlock = CodeBlockLowlight.extend({
   const fence = '`'.repeat(Math.max(3, longest + 1));
   return `${fence}${node.attrs?.language || ''}\n${text}\n${fence}`;
  },
-}).configure({ lowlight: editorLowlight });
+}).configure({ lowlight: editorLowlight, exitOnTripleEnter: false });
 const EditorParagraph = Paragraph.extend({
  parseMarkdown(token, helpers) {
   // Tiptap's default parser unwraps lone images as blocks; ours stay inline.
@@ -258,6 +258,15 @@ function splitContent(content: string) {
  // YAML is kept verbatim; it must never turn into headings during rich-text editing.
  const prefix = content.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)(?:\r?\n)*/)?.[0] || '';
  return { prefix, body: content.slice(prefix.length) };
+}
+
+function focusStartParagraph(view: EditorView) {
+ const { doc, schema, tr } = view.state;
+ const first = doc.firstChild;
+ const reuse = first?.type === schema.nodes.paragraph && first.content.size === 0;
+ if (!reuse) tr.insert(0, schema.nodes.paragraph.create());
+ view.dispatch(tr.setSelection(TextSelection.create(tr.doc, 1)).scrollIntoView());
+ view.focus();
 }
 
 function focusEndParagraph(view: EditorView) {
@@ -314,8 +323,10 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
    handleKeyDown(view, event) {
     if (event.key !== 'Enter' || event.isComposing || view.composing || event.ctrlKey || event.metaKey || event.altKey) return false;
     const { doc, selection } = view.state;
-    // Shift+Enter remains available for inserting a newline inside code.
-    if (event.shiftKey) return selection.$from.parent.type.spec.code ? editor?.commands.newlineInCode() || false : false;
+    // Enter (including repeated Enter and Shift+Enter) always inserts literal
+    // newlines inside code. Mod+Enter and ArrowDown can still leave the block.
+    if (selection.$from.parent.type.spec.code) return editor?.commands.newlineInCode() || false;
+    if (event.shiftKey) return false;
     const last = doc.lastChild;
     const specialEnd = last && (last.type.name === 'codeBlock' || last.type.name === 'table' || last.isAtom || (last.lastChild?.isAtom && !last.lastChild.isText));
     if (!specialEnd) return false;
@@ -382,13 +393,20 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
    }
   }
   // Only the document's blank surface should create a line, never node controls.
-  const tableBottom = event.target instanceof Element && event.target.classList.contains('table-hover-edge') && event.target.classList.contains('bottom');
-  if (event.target !== event.currentTarget && event.target !== view.dom && event.target !== view.dom.parentElement && !tableBottom) return;
+  const tableEdge = event.target instanceof Element && event.target.classList.contains('table-hover-edge') && (event.target.classList.contains('top') || event.target.classList.contains('bottom'));
+  if (event.target !== event.currentTarget && event.target !== view.dom && event.target !== view.dom.parentElement && !tableEdge) return;
   // Native multi-click selection and ProseMirror's coordinate lookup can reach
   // neighboring code even when the pointer is on the document's blank surface.
   if (event.detail > 1) {
    event.preventDefault();
    event.stopPropagation();
+   return;
+  }
+  const firstDOM = view.state.doc.firstChild && view.nodeDOM(0);
+  if (firstDOM instanceof HTMLElement && event.clientY < firstDOM.getBoundingClientRect().top) {
+   event.preventDefault();
+   event.stopPropagation();
+   focusStartParagraph(view);
    return;
   }
   const last = view.state.doc.lastChild;

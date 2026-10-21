@@ -64,7 +64,28 @@ const terminalBlocks = [
 ];
 
 for (const block of terminalBlocks) {
- test(`creates a paragraph with Enter after a terminal ${block.name}`, async ({ page }) => {
+ test(`creates a paragraph by clicking above an initial ${block.name}`, async ({ page }) => {
+  await seed(page, block.markdown);
+  const editor = page.getByRole('textbox', { name: '笔记正文' });
+  const first = editor.locator(':scope > :first-child');
+  const bounds = (await first.boundingBox())!;
+  await page.mouse.click(bounds.x + 12, bounds.y - 10);
+  await expect(editor.locator(':scope > p').first()).toBeEmpty();
+  const count = await editor.locator(':scope > p').count();
+  const paragraph = (await first.boundingBox())!;
+  await page.mouse.click(paragraph.x + 12, paragraph.y - 8);
+  await expect(editor.locator(':scope > p')).toHaveCount(count);
+  await page.keyboard.insertText('块前的正文');
+  await expect(editor.locator(':scope > p').first()).toHaveText('块前的正文');
+  if (block.name === 'table') {
+   await expect.poll(() => saved(page)).toMatch(/^块前的正文\n\n+\|/);
+   await expect(editor.locator('td')).toHaveText(['a1', 'b1']);
+  } else await expect.poll(() => saved(page)).toBe(`块前的正文\n\n${block.markdown}`);
+  await page.reload();
+  await expect(editor.locator(':scope > p').first()).toHaveText('块前的正文');
+ });
+
+ test(`creates a paragraph with ${block.name === 'code block' ? 'Mod+Enter' : 'Enter'} after a terminal ${block.name}`, async ({ page }) => {
   await seed(page, block.markdown);
   const editor = page.getByRole('textbox', { name: '笔记正文' });
   expect(await saved(page)).toBe(block.markdown);
@@ -83,7 +104,7 @@ for (const block of terminalBlocks) {
    });
    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   }
-  await page.keyboard.press('Enter');
+  await page.keyboard.press(block.name === 'code block' ? 'ControlOrMeta+Enter' : 'Enter');
   await page.keyboard.insertText('块后的正文');
   await expect(editor.locator(':scope > p').last()).toHaveText('块后的正文');
   await expect.poll(() => saved(page)).toContain('\n\n块后的正文');
@@ -111,6 +132,29 @@ for (const block of terminalBlocks) {
   await expect.poll(() => saved(page)).toContain('点击后的正文');
  });
 }
+
+test('creates an undoable paragraph with ArrowUp at the start of an initial code block', async ({ page }) => {
+ const original = '```js\nconst value = 42;\n```\n';
+ await seed(page, original);
+ const editor = page.locator('.wysiwyg-content');
+ const code = editor.locator('pre code');
+ await code.click();
+ await code.evaluate(element => {
+  const text = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()!;
+  const range = document.createRange(); range.setStart(text, 0); range.collapse(true);
+  const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+ });
+ await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+ await page.keyboard.press('ArrowUp');
+ await expect(editor.locator(':scope > p')).toHaveCount(1);
+ await page.getByRole('button', { name: '撤销', exact: true }).click();
+ await expect(editor.locator(':scope > p')).toHaveCount(0);
+ await page.getByRole('button', { name: '重做', exact: true }).click();
+ await expect(editor.locator(':scope > p')).toHaveCount(1);
+ await page.keyboard.insertText('代码块前面的正文');
+ await expect.poll(() => saved(page)).toBe(`代码块前面的正文\n\n${original}`);
+ await expect(code).toHaveText('const value = 42;');
+});
 
 for (const line of [
  { name: 'first', index: 0 },
@@ -298,7 +342,38 @@ for (const area of ['text', 'left padding', 'right padding', 'bottom padding', '
  });
 }
 
-test('keeps code newlines and composition while allowing Enter to leave the final block', async ({ page }) => {
+for (const terminal of [true, false]) {
+ for (const empty of [true, false]) {
+  test(`keeps repeated Enter inside a ${empty ? 'blank' : 'highlighted'} ${terminal ? 'terminal' : 'nonterminal'} code block without entities`, async ({ page }) => {
+   const initial = empty ? '' : 'const value = 42;';
+   const suffix = terminal ? '' : '\n\n后面的正文';
+   await seed(page, `\`\`\`js\n${initial}\n\`\`\`${suffix}\n`);
+   const code = page.locator('.editor-code-block pre code');
+   await code.click();
+   await code.evaluate(element => {
+    const range = document.createRange(); range.selectNodeContents(element); range.collapse(false);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+   });
+   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+   for (let i = 0; i < 4; i++) await page.keyboard.press('Enter');
+   await page.keyboard.insertText('const next = 7;');
+   await page.keyboard.press('Shift+Enter');
+   await page.keyboard.insertText('done');
+   const text = `${initial}\n\n\n\nconst next = 7;\ndone`;
+   await expect(code).toHaveText(text);
+   const expected = `\`\`\`js\n${text}\n\`\`\`${suffix}\n`;
+   await expect.poll(() => saved(page)).toBe(expected);
+   await expect(page.locator('.wysiwyg-content > p')).toHaveCount(terminal ? 0 : 1);
+   await page.reload();
+   await expect(code).toHaveText(text);
+   await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+   await expect(page.locator('.source-editor .cm-content')).not.toContainText('&nbsp;');
+   expect(await saved(page)).toBe(expected);
+  });
+ }
+}
+
+test('keeps code newlines and composition while allowing Mod+Enter to leave the final block', async ({ page }) => {
  await seed(page, '```text\nfirst\nlast\n```\n');
  const code = page.locator('.editor-code-block pre code');
  await code.click({ position: { x: 3, y: 3 } });
@@ -317,7 +392,7 @@ test('keeps code newlines and composition while allowing Enter to leave the fina
  await expect(code).toHaveText('first\n\nlast\nmore');
  await code.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
  await expect(page.locator('.wysiwyg-content > p')).toHaveCount(0);
- await page.keyboard.press('Enter');
+ await page.keyboard.press('ControlOrMeta+Enter');
  await page.keyboard.insertText('正文');
  await expect(page.locator('.wysiwyg-content > p')).toHaveText('正文');
  await expect(code).toHaveText('first\n\nlast\nmore');
