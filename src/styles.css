@@ -462,7 +462,7 @@ button.category-expand:hover:not(:disabled) { color: var(--green); background: v
 .folder-row > svg { flex-shrink: 0; }
 .folder-tree-row.dragging { opacity: .45; }
 .note-card.dragging { opacity: .45; }
-.folder-row[draggable='true'], .note-card[draggable='true'] { cursor: grab; }
+.folder-row, .note-card, .all-notes { cursor: default; }
 .folder-drop-before::before, .folder-drop-after::after { content: ''; position: absolute; left: 5px; right: 5px; height: 2px; background: var(--green); border-radius: 2px; pointer-events: none; z-index: 1; }
 .folder-drop-before::before { top: 0; }
 .folder-drop-after::after { bottom: 0; }
