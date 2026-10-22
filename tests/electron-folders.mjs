@@ -57,7 +57,27 @@ try {
  await expect(page.locator('.wysiwyg-content')).toContainText('保留的正文');
  expect(await readManifest()).toEqual(moved);
  expect(await readFile(path.join(vaultPath, 'notes', 'legacy.md'), 'utf8')).toBe('# 旧版笔记\n\n保留的正文\n');
+ await expect(folder('空分类')).toBeVisible();
+ await folder('空分类').dragTo(folder('子分类'), { targetPosition: { x: 60, y: 3 } });
+ await expect.poll(() => page.locator('.folder-row').evaluateAll(rows => rows.map(row => row.getAttribute('title')))).toEqual(['目标', '目标/新项目', '目标/新项目/空分类', '目标/新项目/子分类']);
+ const ordered = await readManifest();
+ expect(ordered.notes).toEqual(moved.notes);
+ expect(ordered.folders.map(folder => folder.id).sort()).toEqual(moved.folders.map(folder => folder.id).sort());
+ const card = page.locator('.note-row').filter({ hasText: '旧版笔记' });
+ await expect(card).toHaveAttribute('draggable', 'true');
+ await card.dragTo(folder('空分类'));
+ await expect(folder('空分类')).toHaveAttribute('aria-pressed', 'true');
+ await expect(page.locator('.breadcrumbs')).toContainText('空分类');
+ const recategorized = await readManifest();
+ const empty = ordered.folders.find(folder => folder.name === '空分类');
+ expect(recategorized.notes[0]).toMatchObject({ id: 'legacy', filename: 'legacy.md', title: '旧版笔记', folderId: empty.id });
+ expect(await readFile(path.join(vaultPath, 'notes', 'legacy.md'), 'utf8')).toBe('# 旧版笔记\n\n保留的正文\n');
+ await page.reload();
+ await expect(folder('空分类')).toHaveAttribute('aria-pressed', 'true');
+ await expect(card).toHaveClass(/selected/);
+ expect(await readManifest()).toEqual(recategorized);
+ await expect.poll(() => page.locator('.folder-row').evaluateAll(rows => rows.map(row => row.getAttribute('title')))).toEqual(['目标', '目标/新项目', '目标/新项目/空分类', '目标/新项目/子分类']);
  expect(errors).toEqual([]);
  succeeded = true;
- console.log('Desktop v1 migration, UUID stability, minimal rename/move changes and reload passed');
+ console.log('Desktop migration, folder move/reorder, note drag classification, UUID stability and reload passed');
 } finally { if (app) { if (succeeded) await app.close(); else app.process().kill(); } if (server) await server.close(); await rm(scratch, { recursive: true, force: true }); }

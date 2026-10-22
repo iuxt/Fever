@@ -9,6 +9,7 @@ import SettingsPanel from './SettingsPanel';
 import TrashBrowser from './TrashBrowser';
 import CategoryPicker from './CategoryPicker';
 import NoteList from './NoteList';
+import type { NoteDragItem } from './noteDrag';
 import NoteSort, { sortNotes, useNoteSort } from './NoteSort';
 import NoteTree, { type NoteTreeTarget } from './NoteTree';
 import ContextMenu, { useContextMenu, type MenuItem } from './ContextMenu';
@@ -30,7 +31,7 @@ import { drawingJSON, isDrawingNote, isLegacyDrawing, resolveDrawing } from './d
 const DrawingEditor = lazy(() => import('./Drawing'));
 const DrawingPreview = lazy(() => import('./Drawing').then(module => ({ default: module.DrawingPreview })));
 const DrawingLoading = () => <span className="drawing-placeholder">正在加载绘图…</span>;
-import type { Change, Commit, FileDiff, GitStatus, Note, RevisionComparison, Settings, Vault, VaultFile } from './types';
+import type { Change, Commit, FileDiff, FolderPlacement, GitStatus, Note, RevisionComparison, Settings, Vault, VaultFile } from './types';
 
 const api = window.fever || demo;
 type Modal = 'export' | 'drawing' | 'embed' | 'note' | 'folder' | 'renameFolder' | 'rename' | 'delete' | 'deleteFolder' | 'settings' | 'discard' | 'discardAll' | null;
@@ -78,6 +79,13 @@ export default function App() {
  const [folderRevealRequest, setFolderRevealRequest] = useState(0);
  const [noteSort, setNoteSort] = useNoteSort();
  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+ const [dragItem, setDragItem] = useState<NoteDragItem | null>(null);
+ useEffect(() => {
+  if (!dragItem) return;
+  const clear = () => setDragItem(null);
+  window.addEventListener('dragend', clear); window.addEventListener('drop', clear);
+  return () => { window.removeEventListener('dragend', clear); window.removeEventListener('drop', clear); };
+ }, [dragItem]);
  const [status, setStatus] = useState<GitStatus | null>(null), [history, setHistory] = useState<Commit[]>([]);
  const [ignoreWhitespace, setIgnoreWhitespace] = useState(() => {
   try { return localStorage.getItem('fever-git-ignore-whitespace') !== 'false'; } catch { return true; }
@@ -642,8 +650,8 @@ export default function App() {
    notify(result.failed.length ? `已转换 ${downloaded} 张图片，${result.failed.length} 张失败，原链接已保留：${result.failed[0].message}` : `已将 ${downloaded} 张外部图片保存到 images/`, result.failed.length > 0);
   });
  }
- const relocateFolder = useCallback(async (from: string, to: string) => {
-  await api.moveCategory(from, to);
+ const relocateFolder = useCallback(async (from: string, to: string, placement?: FolderPlacement) => {
+  await api.moveCategory(from, to, placement);
   setSelectedFolder(previous => previous === null ? null : remapCategory(previous, from, to));
   setCollapsed(previous => {
    const next = new Set([...previous].map(path => remapCategory(path, from, to)));
@@ -652,12 +660,27 @@ export default function App() {
    return next;
   });
  }, []);
- const moveFolder = useCallback(async (from: string, parent: string) => {
+ const moveFolder = useCallback(async (from: string, parent: string, placement?: FolderPlacement) => {
   if (busy) return;
   const to = [parent, from.split('/').at(-1)].filter(Boolean).join('/');
-  if (from === to) return;
-  await run(() => relocateFolder(from, to), '文件夹已移动');
+  if (from === to && !placement) return;
+  await run(() => relocateFolder(from, to, placement), placement ? '文件夹顺序已调整' : '文件夹已移动');
  }, [busy, run, relocateFolder]);
+ const moveNote = useCallback(async (id: string, parent: string) => {
+  if (busy || workspaceLock.current) return;
+  const note = vaultRef.current?.manifest.notes.find(note => note.id === id);
+  if (!note || note.category === parent) return;
+  await run(async () => {
+   await api.update(id, note.title, parent);
+   setSelectedFolder(parent); setQuery(''); setTrashView(false);
+   setFolderRevealRequest(request => request + 1);
+   setCollapsed(previous => {
+    const next = new Set(previous), parts = parent.split('/');
+    for (let i = 1; i <= parts.length; i++) next.delete(parts.slice(0, i).join('/'));
+    return next;
+   });
+  }, parent ? '笔记已移入文件夹' : '笔记已移至未分类');
+ }, [busy, run]);
  async function submitModal() {
   await run(async () => {
    if (modal === 'note' || modal === 'drawing') { const note = await api.create(field.trim(), category.trim(), modal === 'drawing' ? 'excalidraw' : 'markdown'); await refresh(); await select(note.id); setMode('edit'); }
@@ -744,14 +767,14 @@ export default function App() {
     <button className="new-note" onClick={() => showNew('note')}><Plus size={17} /><span>新建笔记</span><kbd>⌘ N</kbd></button>
     <button className={`all-notes ${!trashView && selectedFolder === null && !query ? 'selected' : ''}`} aria-pressed={!trashView && selectedFolder === null && !query} onClick={() => selectFolder(null)}><BookOpen size={16} /><span>全部笔记</span><small>{vault.manifest.notes.length}</small></button>
     <div className="tree-label"><span>文件夹</span><div><button title="新建绘图" onClick={() => showNew('drawing')}><Shapes size={15} /></button><button title="新建分类" onClick={() => showNew('folder')}><FolderPlus size={15} /></button><button title="导入 Markdown / Excalidraw" onClick={() => void run(async () => { const notes = await api.importNotes(); if (notes.length) { await refresh(); await select(notes[0].id); } else if (!api.desktop) notify('Markdown / Excalidraw 导入请使用桌面应用'); })}><Upload size={15} /></button></div></div>
-    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView ? null : selectedFolder} revealRequest={folderRevealRequest} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} onMove={moveFolder} disabled={busy} />
+    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView ? null : selectedFolder} revealRequest={folderRevealRequest} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} onMove={moveFolder} onMoveNote={moveNote} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} />
     {vault.manifest.notes.some(note => !note.category) && <button className={`all-notes ${selectedFolder === '' && !trashView ? 'selected' : ''}`} onClick={() => selectFolder('')}><Folder size={16} /><span>未分类</span><small>{vault.manifest.notes.filter(note => !note.category).length}</small></button>}
     <div className="sidebar-bottom"><button className={`trash-entry ${trashView ? 'selected' : ''}`} disabled={busy} onClick={() => void openTrash()}><Trash2 size={16} /><span>回收站</span><span className="trash-count">{vault.manifest.trash?.length || 0}</span></button><div className="sidebar-foot"><FolderOpen size={13} /><span title={vault.path}>{vault.name}</span></div></div>
    </aside>
    <section className="file-list-panel" aria-label="笔记列表栏">
     <header className="file-list-header"><div><h2 title={selectedFolder || listTitle}>{listTitle}</h2><span>{trashView ? filtered.length : folderNotes.length} 篇笔记{!trashView && selectedFolder && !query ? ' · 含子文件夹' : ''}</span></div>{!trashView && <button className="icon-button" title="在当前文件夹新建笔记" onClick={() => showNew('note')}><FilePlus2 size={18} /></button>}</header>
     {!trashView && <NoteSort sort={noteSort} onChange={setNoteSort} />}
-    {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
+    {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
     <footer className="file-list-footer">{query.trim() ? '搜索整个笔记库' : '选择笔记，开始阅读与记录'}</footer>
    </section>
   </>}

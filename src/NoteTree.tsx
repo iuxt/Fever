@@ -1,22 +1,23 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react';
 import { Folder, FolderOpen } from 'lucide-react';
-import type { Note } from './types';
+import type { FolderPlacement, Note } from './types';
 import { keyboardContextMenu } from './ContextMenu';
+import { matchesNoteDrag, startNoteDrag, type NoteDragProps } from './noteDrag';
 
 type FolderNode = { path: string; name: string; children: Map<string, FolderNode>; notes: Note[]; total: number };
 type Row = { depth: number; folder: FolderNode };
 const ROW_HEIGHT = 36, OVERSCAN = 6;
-const FOLDER_DRAG_TYPE = 'application/x-fever-folder';
+type DropTarget = { parent: string; path: string; position: 'inside' | 'before' | 'after' };
 
 export type NoteTreeTarget = { kind: 'note'; note: Note } | { kind: 'folder'; path: string } | { kind: 'blank' };
 
-type NoteTreeProps = {
+type NoteTreeProps = NoteDragProps & {
  notes: Note[]; categories: string[]; selectedFolder: string | null; revealRequest: number; collapsed: Set<string>;
  onSelect: (path: string) => void;
  onToggle: (path: string) => void;
  onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
- onMove: (from: string, parent: string) => void;
- disabled?: boolean;
+ onMove: (from: string, parent: string, placement?: FolderPlacement) => void;
+ onMoveNote: (id: string, parent: string) => void;
 };
 // Saving content only changes timestamps; neither the rows nor their actions use them.
 const sameRows = (previous: Note[] | null, next: Note[] | null) => previous === next || Boolean(previous && next && previous.length === next.length && previous.every((note, index) => {
@@ -37,33 +38,57 @@ export default memo(function NoteTree(props: NoteTreeProps) {
  return <TreeRows {...props} notes={notes} />;
 });
 
-const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, revealRequest, collapsed, onSelect, onToggle, onContextMenu, onMove, disabled }: NoteTreeProps) {
+const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, revealRequest, collapsed, onSelect, onToggle, onContextMenu, onMove, onMoveNote, dragItem, onDragItemChange, disabled }: NoteTreeProps) {
  const container = useRef<HTMLDivElement>(null);
  const previous = useRef<{ selectedFolder: string | null; revealRequest: number }>({ selectedFolder: null, revealRequest: -1 });
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
- const [dragging, setDragging] = useState<string | null>(null);
- const [dropTarget, setDropTarget] = useState<string | null>(null);
- const canDrop = (parent: string) => dragging !== null && !disabled && parent !== dragging && !parent.startsWith(`${dragging}/`) && parent !== dragging.split('/').slice(0, -1).join('/');
- const dragOver = (event: DragEvent<HTMLElement>, parent: string) => {
-  if (dragging === null) return;
+ const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+ const [hoverFolder, setHoverFolder] = useState<string | null>(null);
+ const canDrop = (target: DropTarget) => {
+  if (!dragItem || disabled) return false;
+  if (dragItem.kind === 'note') {
+   const note = notes.find(note => note.id === dragItem.id);
+   return Boolean(note && note.category !== target.parent);
+  }
+  const from = dragItem.path;
+  return target.path !== from && target.parent !== from && !target.parent.startsWith(`${from}/`) && (target.position !== 'inside' || target.parent !== from.split('/').slice(0, -1).join('/'));
+ };
+ const getTarget = (event: DragEvent<HTMLElement>, path: string): DropTarget => {
+  if (path && dragItem?.kind === 'folder') {
+   const bounds = event.currentTarget.getBoundingClientRect(), y = event.clientY - bounds.top;
+   const position = y < 9 ? 'before' : y > bounds.height - 9 ? 'after' : 'inside';
+   if (position !== 'inside') return { path, parent: path.split('/').slice(0, -1).join('/'), position };
+  }
+  return { path, parent: path, position: 'inside' };
+ };
+ const dragOver = (event: DragEvent<HTMLElement>, path: string) => {
+  if (!dragItem) return;
   event.preventDefault(); event.stopPropagation();
-  event.dataTransfer.dropEffect = canDrop(parent) ? 'move' : 'none';
-  setDropTarget(canDrop(parent) ? parent : null);
+  const target = getTarget(event, path), allowed = canDrop(target);
+  event.dataTransfer.dropEffect = allowed ? 'move' : 'none';
+  const next = allowed ? target : null;
+  setDropTarget(previous => previous?.path === next?.path && previous?.position === next?.position ? previous : next);
+  setHoverFolder(!disabled && target.position === 'inside' && (allowed || dragItem.kind === 'note') ? path : null);
  };
  const dragLeave = (event: DragEvent<HTMLElement>) => {
-  if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(null);
+  if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) { setDropTarget(null); setHoverFolder(null); }
  };
- const drop = (event: DragEvent<HTMLElement>, parent: string) => {
-  if (dragging === null) return;
+ const drop = (event: DragEvent<HTMLElement>, path: string) => {
+  if (!dragItem) return;
   event.preventDefault(); event.stopPropagation();
-  if (canDrop(parent) && event.dataTransfer.getData(FOLDER_DRAG_TYPE) === dragging) onMove(dragging, parent);
-  setDragging(null); setDropTarget(null);
+  const target = getTarget(event, path);
+  if (canDrop(target) && matchesNoteDrag(event, dragItem)) {
+   if (dragItem.kind === 'note') onMoveNote(dragItem.id, target.parent);
+   else onMove(dragItem.path, target.parent, target.position === 'inside' ? undefined : { target: target.path, position: target.position });
+  }
+  onDragItemChange(null); setDropTarget(null); setHoverFolder(null);
  };
+ useEffect(() => { if (!dragItem) { setDropTarget(null); setHoverFolder(null); } }, [dragItem]);
  useEffect(() => {
-  if (!dragging || !dropTarget || !collapsed.has(dropTarget)) return;
-  const timer = setTimeout(() => onToggle(dropTarget), 650);
+  if (!dragItem || !hoverFolder || !collapsed.has(hoverFolder)) return;
+  const timer = setTimeout(() => onToggle(hoverFolder), 650);
   return () => clearTimeout(timer);
- }, [dragging, dropTarget, collapsed, onToggle]);
+ }, [dragItem, hoverFolder, collapsed, onToggle]);
  const root = useMemo(() => {
   const makeFolder = (path = '', name = ''): FolderNode => ({ path, name, children: new Map(), notes: [], total: 0 });
   const root = makeFolder();
@@ -112,12 +137,12 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, rev
  const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / ROW_HEIGHT) + OVERSCAN);
  return <div ref={container} className="note-tree virtual-note-tree" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
   <div className="note-tree-rows" style={{ height: rows.length * ROW_HEIGHT }}>
-   {rows.slice(start, end).map((row, offset) => <div className={`note-tree-row folder-tree-row${dragging === row.folder.path ? ' dragging' : ''}${dropTarget === row.folder.path ? ' folder-drop-target' : ''}`} key={row.folder.path} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }} onDragOver={event => dragOver(event, row.folder.path)} onDragLeave={dragLeave} onDrop={event => drop(event, row.folder.path)}>
-    <button className={`folder-row ${selectedFolder === row.folder.path ? 'selected' : ''}`} aria-pressed={selectedFolder === row.folder.path} aria-expanded={row.folder.children.size > 0 ? !collapsed.has(row.folder.path) : undefined} title={row.folder.path} draggable={!disabled} onDragStart={event => { event.dataTransfer.setData(FOLDER_DRAG_TYPE, row.folder.path); event.dataTransfer.effectAllowed = 'move'; setDragging(row.folder.path); }} onDragEnd={() => { setDragging(null); setDropTarget(null); }} onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })} onClick={() => onSelect(row.folder.path)}>
+   {rows.slice(start, end).map((row, offset) => <div className={`note-tree-row folder-tree-row${dragItem?.kind === 'folder' && dragItem.path === row.folder.path ? ' dragging' : ''}${dropTarget?.path === row.folder.path ? dropTarget.position === 'inside' ? ' folder-drop-target' : ` folder-drop-${dropTarget.position}` : ''}`} key={row.folder.path} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }} onDragOver={event => dragOver(event, row.folder.path)} onDragLeave={dragLeave} onDrop={event => drop(event, row.folder.path)}>
+    <button className={`folder-row ${selectedFolder === row.folder.path ? 'selected' : ''}`} aria-pressed={selectedFolder === row.folder.path} aria-expanded={row.folder.children.size > 0 ? !collapsed.has(row.folder.path) : undefined} title={row.folder.path} draggable={!disabled} onDragStart={event => startNoteDrag(event, { kind: 'folder', path: row.folder.path }, onDragItemChange)} onDragEnd={() => onDragItemChange(null)} onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })} onClick={() => onSelect(row.folder.path)}>
      {(row.folder.children.size > 0 ? !collapsed.has(row.folder.path) : selectedFolder === row.folder.path) ? <FolderOpen size={16} /> : <Folder size={16} />}<span>{row.folder.name}</span><small>{row.folder.total}</small>
     </button>
    </div>)}
   </div>
-  {dragging !== null && <div className={`folder-root-drop${dropTarget === '' ? ' folder-drop-target' : ''}`} onDragOver={event => dragOver(event, '')} onDragLeave={dragLeave} onDrop={event => drop(event, '')}><Folder size={15} />拖到此处移至最外层</div>}
+  {dragItem !== null && <div className={`folder-root-drop${dropTarget?.path === '' ? ' folder-drop-target' : ''}`} onDragOver={event => dragOver(event, '')} onDragLeave={dragLeave} onDrop={event => drop(event, '')}><Folder size={15} />{dragItem.kind === 'note' ? '拖到此处移至未分类' : '拖到此处移至最外层'}</div>}
  </div>;
 });

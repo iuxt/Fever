@@ -255,3 +255,95 @@ test('v1 migration persists UUID references and folder edits change only one fol
  await page.reload();
  expect(await stored()).toEqual(moved);
 });
+
+test('dragging folder edges reorders roots and children and persists their subtree order', async ({ page }) => {
+ const before = await readState(page);
+ await folder(page, '项目').click();
+ await folder(page, '项目').dragTo(folder(page, '空文件夹'), { targetPosition: { x: 60, y: 31 } });
+ await expect(folder(page, '项目')).toHaveAttribute('draggable', 'true');
+ await expect.poll(() => page.locator('.folder-row').evaluateAll(rows => rows.map(row => row.getAttribute('title')))).toEqual(['项目备份', '空文件夹', '项目', '项目/子分类', '项目/空子分类']);
+ await folder(page, '空子分类').dragTo(folder(page, '子分类'), { targetPosition: { x: 60, y: 3 } });
+ await expect.poll(() => page.locator('.folder-row').evaluateAll(rows => rows.map(row => row.getAttribute('title')))).toEqual(['项目备份', '空文件夹', '项目', '项目/空子分类', '项目/子分类']);
+ await page.reload();
+ await expect.poll(async () => (await readState(page)).manifest.categories).toEqual(['项目备份', '空文件夹', '项目', '项目/空子分类', '项目/子分类']);
+ const after = await readState(page);
+ expect(after.manifest.notes).toEqual(before.manifest.notes);
+ expect(after.manifest.folders.map((entry: { id: string }) => entry.id).sort()).toEqual(before.manifest.folders.map((entry: { id: string }) => entry.id).sort());
+});
+
+test('dragging a folder beside a folder under another parent moves and orders the entire subtree', async ({ page }) => {
+ await folder(page, '项目').click();
+ await folder(page, '空文件夹').dragTo(folder(page, '子分类'), { targetPosition: { x: 60, y: 3 } });
+ await expect(folder(page, '空文件夹')).toHaveAttribute('title', '项目/空文件夹');
+ await expect.poll(async () => (await readState(page)).manifest.categories).toEqual(['项目', '项目/空文件夹', '项目/子分类', '项目/空子分类', '项目备份']);
+ await page.reload();
+ await folder(page, '项目').click();
+ await expect(folder(page, '空文件夹')).toHaveAttribute('title', '项目/空文件夹');
+});
+
+test('dragging the active note into an empty folder saves drafts and preserves the editor and tabs', async ({ page }) => {
+ await folder(page, '项目').click(); await note(page, '父分类笔记').click();
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await page.locator('.cm-content').fill('# 拖动前的未保存正文');
+ await expect(note(page, '父分类笔记')).toHaveAttribute('draggable', 'true');
+ await note(page, '父分类笔记').dragTo(folder(page, '空文件夹'));
+ await expect(folder(page, '空文件夹')).toHaveAttribute('aria-pressed', 'true');
+ await expect(note(page, '父分类笔记')).toHaveClass(/selected/);
+ await expect(page.locator('.cm-content')).toContainText('拖动前的未保存正文');
+ await expect(page.locator('.tabs')).toContainText('父分类笔记');
+ await expect(page.locator('.breadcrumbs')).toContainText('空文件夹');
+ const moved = await readState(page);
+ expect(moved.manifest.notes.find((entry: { id: string }) => entry.id === 'parent')).toMatchObject({ category: '空文件夹', filename: 'parent.md' });
+ expect(moved.contents.parent).toContain('拖动前的未保存正文');
+ await page.reload();
+ await expect(folder(page, '空文件夹')).toHaveAttribute('aria-pressed', 'true');
+ await expect(page.locator('.wysiwyg-content')).toContainText('拖动前的未保存正文');
+});
+
+test('dragging a search result into a collapsed folder expands it and can target an empty child without changing the open note', async ({ page }) => {
+ await folder(page, '项目备份').click(); await note(page, '保留的笔记').click();
+ await page.getByPlaceholder('搜索你的笔记…').fill('父分类笔记');
+ const card = note(page, '父分类笔记'), bounds = (await card.boundingBox())!;
+ await page.mouse.move(bounds.x + 50, bounds.y + 30); await page.mouse.down();
+ await page.mouse.move(bounds.x + 65, bounds.y + 40, { steps: 5 });
+ await folder(page, '项目').hover();
+ const parent = (await folder(page, '项目').boundingBox())!;
+ await page.mouse.move(parent.x + 60, parent.y + parent.height / 2);
+ await expect(folder(page, '空子分类')).toBeVisible();
+ await folder(page, '空子分类').hover();
+ const child = (await folder(page, '空子分类').boundingBox())!;
+ await page.mouse.move(child.x + 62, child.y + child.height / 2);
+ await expect(folder(page, '空子分类').locator('..')).toHaveClass(/folder-drop-target/);
+ await page.screenshot({ path: 'test-results/note-drag-folder.png' });
+ await page.mouse.up();
+ await expect(folder(page, '空子分类')).toHaveAttribute('aria-pressed', 'true');
+ await expect(page.getByPlaceholder('搜索你的笔记…')).toHaveValue('');
+ await expect(page.locator('.wysiwyg-content h1')).toHaveText('保留的笔记');
+ expect((await readState(page)).manifest.notes.find((entry: { id: string }) => entry.id === 'parent').category).toBe('项目/空子分类');
+});
+
+test('note dragging to its current folder is ignored, cancellation clears feedback and root drop removes its category', async ({ page }) => {
+ await folder(page, '项目').click();
+ const before = (await readState(page)).manifest;
+ await note(page, '父分类笔记').dragTo(folder(page, '项目'));
+ expect((await readState(page)).manifest).toEqual(before);
+ const card = (await note(page, '父分类笔记').boundingBox())!;
+ await page.mouse.move(card.x + 50, card.y + 30); await page.mouse.down();
+ await page.mouse.move(card.x + 65, card.y + 40, { steps: 5 });
+ await expect(page.locator('.folder-root-drop')).toBeVisible();
+ await page.keyboard.press('Escape'); await page.mouse.up();
+ await expect(page.locator('.folder-root-drop')).toHaveCount(0);
+ expect((await readState(page)).manifest).toEqual(before);
+ await page.mouse.move(card.x + 50, card.y + 30); await page.mouse.down();
+ await page.mouse.move(card.x + 65, card.y + 40, { steps: 5 });
+ const root = page.locator('.folder-root-drop');
+ await expect(root).toHaveText('拖到此处移至未分类');
+ await root.hover();
+ const target = (await root.boundingBox())!;
+ await page.mouse.move(target.x + target.width / 2 + 2, target.y + target.height / 2);
+ await expect(root).toHaveClass(/folder-drop-target/); await page.mouse.up();
+ await expect(page.locator('.file-list-header h2')).toHaveText('未分类');
+ await expect(note(page, '父分类笔记')).toBeVisible();
+ await page.reload();
+ expect((await readState(page)).manifest.notes.find((entry: { id: string }) => entry.id === 'parent')).toMatchObject({ category: '', folderId: null });
+});

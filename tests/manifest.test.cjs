@@ -63,3 +63,27 @@ test('deleting folders preserves trash locations through later rename, removal a
  const { originalCategory, ...note } = trash; manifest.notes.push({ ...note, folderId: id });
  assert.equal(manifestView(readManifest(manifest)).notes.find(note => note.id === 'a').category, '项目/子分类');
 });
+
+test('folder ordering preserves subtree order and references when children precede their parent records', () => {
+ const original = readManifest({ version: 1, categories: ['A/first', 'A/second', 'B/empty', 'C'], notes: legacy().notes });
+ let ordered = moveCategory(original, 'A', 'A', { target: 'C', position: 'after' });
+ assert.deepEqual(manifestView(ordered).categories.slice(0, 6), ['B', 'B/empty', 'C', 'A', 'A/first', 'A/second']);
+ ordered = moveCategory(ordered, 'A/second', 'A/second', { target: 'A/first', position: 'before' });
+ assert.deepEqual(manifestView(ordered).categories.filter(path => path.startsWith('A/')), ['A/second', 'A/first']);
+ ordered = moveCategory(ordered, 'B', 'A/B', { target: 'A/first', position: 'after' });
+ assert.deepEqual(manifestView(ordered).categories.slice(0, 7), ['C', 'A', 'A/second', 'A/first', 'A/B', 'A/B/empty', '项目']);
+ assert.deepEqual(ordered.notes, original.notes);
+ assert.deepEqual(readManifest(ordered), ordered);
+ assert.equal(manifestView(original).categories[0], 'A');
+});
+
+test('folder ordering rejects invalid positions, missing targets, different parents and cycles without mutation', () => {
+ const manifest = readManifest(legacy()), before = structuredClone(manifest);
+ for (const [to, placement] of [
+  ['项目', null], ['项目', { target: '目标', position: 'invalid' }],
+  ['项目', { target: '不存在', position: 'before' }], ['项目', { target: '项目', position: 'after' }],
+  ['项目', { target: '项目/子分类', position: 'after' }],
+  ['项目/子分类/项目', { target: '项目/子分类', position: 'before' }],
+ ]) assert.throws(() => moveCategory(manifest, '项目', to, placement));
+ assert.deepEqual(manifest, before);
+});

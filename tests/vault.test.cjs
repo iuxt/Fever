@@ -274,6 +274,24 @@ test('moving implicit and empty folders retains their original parent', async t 
  assert.ok(store.snapshot().manifest.categories.includes('子分类'));
  assert.ok(store.snapshot().manifest.categories.includes('重命名空文件夹'));
 });
+test('folder order persists after reopening and failed sorting writes roll back', async t => {
+ const { store, dir } = await fixture(t);
+ await store.category('A/child'); await store.category('B');
+ const note = await store.create('正文', 'A/child');
+ await store.save(note.id, '# 保留的正文');
+ await store.moveCategory('A', 'A', { target: 'B', position: 'after' });
+ assert.deepEqual(store.snapshot().manifest.categories, ['收件箱', 'B', 'A', 'A/child']);
+ const before = structuredClone(store.manifest);
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.deepEqual(reopened.manifest, before);
+ assert.equal(await reopened.read(note.id), '# 保留的正文');
+ const persist = store.persist;
+ store.persist = async () => { throw new Error('模拟写入失败'); };
+ await assert.rejects(store.moveCategory('A', 'A', { target: 'B', position: 'before' }), /模拟写入失败/);
+ store.persist = persist;
+ assert.deepEqual(store.manifest, before);
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')), before);
+});
 test('category moves reject collisions, cycles, invalid paths and overlong descendant paths atomically', async t => {
  const { store, dir } = await fixture(t);
  await store.category('项目/子分类'); await store.category('占用/隐式文件夹');

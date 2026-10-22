@@ -87,9 +87,9 @@ export const demo: Api = {
  remove: async id => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.manifest.notes = state.manifest.notes.filter(n => n.id !== id); (state.manifest.trash ||= []).push({ ...note, originalCategory: noteCategory(state.manifest, note) }); dirty('fever.json'); },
  restoreTrash: async id => { const note = state.manifest.trash?.find(n => n.id === id); if (!note) throw new Error('回收站中找不到这篇笔记'); if (!Object.hasOwn(state.contents, id)) throw new Error('笔记正文文件不存在'); state.manifest.trash = state.manifest.trash!.filter(n => n.id !== id); note.folderId = ensureFolder(state.manifest, noteCategory(state.manifest, note)); delete note.originalCategory; state.manifest.notes.push(note); dirty('fever.json'); return noteView(state.manifest, note); },
  category: async path => { ensureFolder(state.manifest, path); dirty('fever.json'); },
- moveCategory: async (from, to) => {
+ moveCategory: async (from, to, placement) => {
   const previous = state.manifest;
-  state.manifest = moveCategory(previous, from, to);
+  state.manifest = moveCategory(previous, from, to, placement);
   try { dirty('fever.json'); }
   catch (error) { state.manifest = previous; throw error; }
  },

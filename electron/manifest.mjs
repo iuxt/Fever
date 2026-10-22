@@ -40,7 +40,19 @@ export function noteCategory(manifest, note, paths = folderPaths(manifest)) {
 export function noteView(manifest, note, paths) { const { originalCategory, ...record } = note; return { ...record, category: noteCategory(manifest, note, paths) }; }
 export function manifestView(manifest) {
   const paths = folderPaths(manifest);
-  return { ...manifest, folders: manifest.folders.map(folder => ({ ...folder })), categories: [...paths.values()], notes: manifest.notes.map(note => noteView(manifest, note, paths)), ...(manifest.trash ? { trash: manifest.trash.map(note => noteView(manifest, note, paths)) } : {}) };
+  // Sibling order comes from the stored array, even if a child record precedes its parent.
+  const children = new Map(), categories = [];
+  for (const folder of manifest.folders) {
+    if (!children.has(folder.parentId)) children.set(folder.parentId, []);
+    children.get(folder.parentId).push(folder);
+  }
+  const stack = [...(children.get(null) || [])].reverse();
+  while (stack.length) {
+    const folder = stack.pop(); categories.push(paths.get(folder.id));
+    const nested = children.get(folder.id) || [];
+    for (let i = nested.length - 1; i >= 0; i--) stack.push(nested[i]);
+  }
+  return { ...manifest, folders: manifest.folders.map(folder => ({ ...folder })), categories, notes: manifest.notes.map(note => noteView(manifest, note, paths)), ...(manifest.trash ? { trash: manifest.trash.map(note => noteView(manifest, note, paths)) } : {}) };
 }
 // v1 remains readable for existing vaults, old Git snapshots and manually edited manifests.
 export function readManifest(input, previous) {
@@ -93,18 +105,28 @@ export function readManifest(input, previous) {
   }
   return manifest;
 }
-export function moveCategory(manifest, from, to) {
+export function moveCategory(manifest, from, to, placement) {
   from = validCategory(from); to = validCategory(to);
   const paths = folderPaths(manifest), byPath = new Map([...paths].map(([id, path]) => [path, id]));
   const id = byPath.get(from);
   if (!id) throw new Error('分类不存在');
-  if (from === to) return manifest;
-  if (withinCategory(to, from)) throw new Error('不能将文件夹移入自身或子文件夹');
-  if (byPath.has(to)) throw new Error('目标位置已存在同名文件夹');
+  if (from === to && placement === undefined) return manifest;
+  if (from !== to && withinCategory(to, from)) throw new Error('不能将文件夹移入自身或子文件夹');
+  if (from !== to && byPath.has(to)) throw new Error('目标位置已存在同名文件夹');
   const parent = to.split('/').slice(0, -1).join('/'), parentId = parent ? byPath.get(parent) : null;
   if (parent && !parentId) throw new Error('目标父文件夹不存在');
   for (const path of paths.values()) if (withinCategory(path, from) && remapCategory(path, from, to).length > 200) throw new Error('移动后的分类路径超过 200 字');
-  return { ...manifest, folders: manifest.folders.map(folder => folder.id === id ? { ...folder, name: to.split('/').at(-1), parentId } : folder) };
+  const folders = manifest.folders.map(folder => folder.id === id ? { ...folder, name: to.split('/').at(-1), parentId } : folder);
+  if (placement !== undefined) {
+    if (!placement || !['before', 'after'].includes(placement.position)) throw new Error('文件夹排序位置无效');
+    const targetId = byPath.get(validCategory(placement.target));
+    const target = manifest.folders.find(folder => folder.id === targetId);
+    if (!target || target.id === id || target.parentId !== parentId) throw new Error('文件夹排序目标无效');
+    const [moved] = folders.splice(folders.findIndex(folder => folder.id === id), 1);
+    const index = folders.findIndex(folder => folder.id === targetId);
+    folders.splice(index + (placement.position === 'after' ? 1 : 0), 0, moved);
+  }
+  return { ...manifest, folders };
 }
 export function removeCategory(manifest, path) {
   path = validCategory(path);

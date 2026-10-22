@@ -275,9 +275,9 @@ class VaultStore {
     try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
   }); }
-  moveCategory(from, to) { return this.queued(async () => {
+  moveCategory(from, to, placement) { return this.queued(async () => {
     const previous = this.manifest;
-    this.manifest = moveCategory(previous, from, to);
+    this.manifest = moveCategory(previous, from, to, placement);
     try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
     this.cancelSearch();

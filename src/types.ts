@@ -1,4 +1,5 @@
 export type Folder = { id: string; name: string; parentId: string | null };
+export type FolderPlacement = { target: string; position: 'before' | 'after' };
 export type StoredNote = { id: string; title: string; folderId: string | null; filename: string; createdAt: string; updatedAt: string; sourcePath?: string; directory?: 'notes' | 'drawings'; originalCategory?: string };
 // Paths are derived for rendering and never written into the v2 manifest.
 export type Note = StoredNote & { category: string };
@@ -47,7 +48,7 @@ export type Api = {
   remove(id: string): Promise<void>;
   restoreTrash(id: string): Promise<Note>;
   category(path: string): Promise<void>;
-  moveCategory(from: string, to: string): Promise<void>;
+  moveCategory(from: string, to: string, placement?: FolderPlacement): Promise<void>;
   removeCategory(path: string): Promise<void>;
   importNotes(): Promise<Note[]>;
   image(bytes: Uint8Array | number[], name: string, noteId: string, importId?: string): Promise<string>;
