@@ -155,25 +155,21 @@ const terminalBlocks = [
 ];
 
 for (const block of terminalBlocks) {
- test(`creates a paragraph by clicking above an initial ${block.name}`, async ({ page }) => {
+ test(`does not create a paragraph by clicking above an initial ${block.name}`, async ({ page }) => {
   await seed(page, block.markdown);
   const editor = page.getByRole('textbox', { name: '笔记正文' });
+  const count = await editor.locator(':scope > p').count();
   const first = editor.locator(':scope > :first-child');
   const bounds = (await first.boundingBox())!;
   await page.mouse.click(bounds.x + 12, bounds.y - 10);
-  await expect(editor.locator(':scope > p').first()).toBeEmpty();
-  const count = await editor.locator(':scope > p').count();
-  const paragraph = (await first.boundingBox())!;
-  await page.mouse.click(paragraph.x + 12, paragraph.y - 8);
   await expect(editor.locator(':scope > p')).toHaveCount(count);
-  await page.keyboard.insertText('块前的正文');
-  await expect(editor.locator(':scope > p').first()).toHaveText('块前的正文');
-  if (block.name === 'table') {
-   await expect.poll(() => saved(page)).toMatch(/^块前的正文\n\n+\|/);
-   await expect(editor.locator('td')).toHaveText(['a1', 'b1']);
-  } else await expect.poll(() => saved(page)).toBe(`块前的正文\n\n${block.markdown}`);
+  await page.mouse.click(bounds.x + 12, bounds.y - 8);
+  await expect(editor.locator(':scope > p')).toHaveCount(count);
+  expect(await saved(page)).toBe(block.markdown);
   await page.reload();
-  await expect(editor.locator(':scope > p').first()).toHaveText('块前的正文');
+  await expect(editor).toBeVisible();
+  await expect(editor.locator(':scope > p')).toHaveCount(count);
+  expect(await saved(page)).toBe(block.markdown);
  });
 
  test(`creates a paragraph with ${block.name === 'code block' ? 'Mod+Enter' : 'Enter'} after a terminal ${block.name}`, async ({ page }) => {
@@ -205,22 +201,22 @@ for (const block of terminalBlocks) {
   await expect(editor.locator(':scope > p').last()).toHaveText('块后的正文');
  });
 
- test(`creates a paragraph by clicking below a terminal ${block.name}`, async ({ page }) => {
+ test(`does not create a paragraph by clicking below a terminal ${block.name}`, async ({ page }) => {
   await seed(page, block.markdown);
   const editor = page.getByRole('textbox', { name: '笔记正文' });
+  const count = await editor.locator(':scope > p').count();
   const last = editor.locator(':scope > :last-child');
   await last.scrollIntoViewIfNeeded();
   const bounds = await last.boundingBox();
   await page.mouse.click(bounds!.x + 12, bounds!.y + bounds!.height + 16);
-  await expect(editor.locator(':scope > p').last()).toBeEmpty();
-  const count = await editor.locator(':scope > p').count();
-  const paragraph = await last.boundingBox();
-  await page.mouse.click(paragraph!.x + 12, paragraph!.y + paragraph!.height + 8);
   await expect(editor.locator(':scope > p')).toHaveCount(count);
-  await page.keyboard.press('Enter');
-  await page.keyboard.insertText('点击后的正文');
-  await expect(editor.locator(':scope > p').last()).toHaveText('点击后的正文');
-  await expect.poll(() => saved(page)).toContain('点击后的正文');
+  await page.mouse.click(bounds!.x + 12, bounds!.y + bounds!.height + 8);
+  await expect(editor.locator(':scope > p')).toHaveCount(count);
+  expect(await saved(page)).toBe(block.markdown);
+  await page.reload();
+  await expect(editor).toBeVisible();
+  await expect(editor.locator(':scope > p')).toHaveCount(count);
+  expect(await saved(page)).toBe(block.markdown);
  });
 }
 
@@ -686,25 +682,28 @@ test('creates a paragraph after a selected terminal image and supports undo', as
  await expect(editor.locator(':scope > p')).toHaveCount(2);
 });
 
-test('keeps a clickable line below a code block taller than the editor viewport', async ({ page }) => {
+test('does not insert a line when clicking below a code block taller than the editor viewport', async ({ page }) => {
  const markdown = `\`\`\`text\n${Array.from({ length: 80 }, (_, i) => `line ${i}`).join('\n')}\n\`\`\`\n`;
  await seed(page, markdown);
  const block = page.locator('.editor-code-block');
  await page.locator('.wysiwyg-content').evaluate(editor => editor.scrollIntoView({ block: 'end' }));
  const bounds = await block.boundingBox();
  await page.mouse.click(bounds!.x + 12, bounds!.y + bounds!.height + 16);
- await page.keyboard.insertText('长代码块后的正文');
- await expect(page.locator('.wysiwyg-content > p')).toHaveText('长代码块后的正文');
- await expect.poll(() => saved(page)).toContain(`${markdown.trimEnd()}\n\n长代码块后的正文`);
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(0);
+ expect(await saved(page)).toBe(markdown);
 });
 
-test('clicking the bottom of the document surface creates a line after a short block', async ({ page }) => {
- await seed(page, '```text\nshort\n```\n');
+test('clicking the blank document surface above or below a short block does not insert a line', async ({ page }) => {
+ const markdown = '```text\nshort\n```\n';
+ await seed(page, markdown);
  const surface = await page.locator('.document-space').boundingBox();
  const editor = await page.locator('.wysiwyg-content').boundingBox();
+ const block = (await page.locator('.editor-code-block').boundingBox())!;
+ await page.mouse.click(block.x + 20, block.y - 12);
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(0);
  await page.mouse.click(editor!.x + 20, surface!.y + surface!.height - 20);
- await page.keyboard.insertText('底部新段落');
- await expect(page.locator('.wysiwyg-content > p')).toHaveText('底部新段落');
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(0);
+ expect(await saved(page)).toBe(markdown);
 });
 
 for (const theme of ['light', 'dark']) {

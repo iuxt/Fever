@@ -268,19 +268,10 @@ function splitContent(content: string) {
  return { prefix, body: content.slice(prefix.length) };
 }
 
-function focusStartParagraph(view: EditorView) {
- const { doc, schema, tr } = view.state;
- const first = doc.firstChild;
- const reuse = first?.type === schema.nodes.paragraph && first.content.size === 0;
- if (!reuse) tr.insert(0, schema.nodes.paragraph.create());
- view.dispatch(tr.setSelection(TextSelection.create(tr.doc, 1)).scrollIntoView());
- view.focus();
-}
-
 function focusEndParagraph(view: EditorView) {
  const { doc, schema, tr } = view.state;
  const last = doc.lastChild;
- // Reuse an existing empty line so repeated clicks do not grow the document.
+ // Reuse an existing empty line when leaving the final block with Enter.
  const reuse = last?.type === schema.nodes.paragraph && last.content.size === 0;
  const position = reuse ? doc.content.size - last.nodeSize + 1 : doc.content.size + 1;
  if (!reuse) tr.insert(doc.content.size, schema.nodes.paragraph.create());
@@ -389,10 +380,10 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
    if (event.type !== 'mouseup') event.stopPropagation();
   }
  }
- function clickDocumentSurface(event: MouseEvent<HTMLElement>) {
-  if (!editor || event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+ function preventSurfaceMultiClick(event: MouseEvent<HTMLElement>) {
+  if (!editor || event.detail <= 1 || event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
   const view = editor.view;
-  if (event.detail > 1 && event.target instanceof Element && !event.target.closest('input, textarea, button, select')) {
+  if (event.target instanceof Element && !event.target.closest('input, textarea, button, select')) {
    const uneditable = event.target.closest('[contenteditable="false"]');
    const container = view.dom.contains(event.target) && !event.target.closest('p, h1, h2, h3, h4, h5, h6, pre');
    if (uneditable || container) {
@@ -401,29 +392,12 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
     return;
    }
   }
-  // Only the document's blank surface should create a line, never node controls.
   const tableEdge = event.target instanceof Element && event.target.classList.contains('table-hover-edge') && (event.target.classList.contains('top') || event.target.classList.contains('bottom'));
   if (event.target !== event.currentTarget && event.target !== view.dom && event.target !== view.dom.parentElement && !tableEdge) return;
   // Native multi-click selection and ProseMirror's coordinate lookup can reach
   // neighboring code even when the pointer is on the document's blank surface.
-  if (event.detail > 1) {
-   event.preventDefault();
-   event.stopPropagation();
-   return;
-  }
-  const firstDOM = view.state.doc.firstChild && view.nodeDOM(0);
-  if (firstDOM instanceof HTMLElement && event.clientY < firstDOM.getBoundingClientRect().top) {
-   event.preventDefault();
-   event.stopPropagation();
-   focusStartParagraph(view);
-   return;
-  }
-  const last = view.state.doc.lastChild;
-  const lastDOM = last && view.nodeDOM(view.state.doc.content.size - last.nodeSize);
-  if (!(lastDOM instanceof HTMLElement) || event.clientY < lastDOM.getBoundingClientRect().bottom) return;
   event.preventDefault();
   event.stopPropagation();
-  focusEndParagraph(view);
  }
  function showContextMenu(event: MouseEvent<HTMLElement>) {
   if (!editor) return;
@@ -529,7 +503,7 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
     <button onMouseDown={e => e.preventDefault()} onClick={() => editor.chain().focus().deleteTable().run()}>删除表格</button>
    </div>}
   </div>
-  <article ref={surfaceRef} className="document wysiwyg-document" onMouseDownCapture={clickDocumentSurface} onMouseDown={selectDocumentLine} onMouseUp={selectDocumentLine}>
+  <article ref={surfaceRef} className="document wysiwyg-document" onMouseDownCapture={preventSurfaceMultiClick} onMouseDown={selectDocumentLine} onMouseUp={selectDocumentLine}>
    {prefix.current && <details className="editor-frontmatter"><summary>文档属性 · 在源码中编辑</summary><pre>{prefix.current}</pre></details>}
    <EditorContent editor={editor} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} />
    <BlockInsert editor={editor} surfaceRef={surfaceRef} />
