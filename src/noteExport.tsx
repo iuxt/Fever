@@ -1,7 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import Markdown from './Markdown';
-import { drawingJSON, isDrawingNote, isLegacyDrawing } from './drawings';
+import { displayNoteTitle, drawingJSON, isDrawingNote, isLegacyDrawing } from './drawings';
 import type { Api, ExportFormat, ExportOptions, Note } from './types';
 
 export const defaultExportOptions: Omit<ExportOptions, 'filename'> = { format: 'pdf', pageSize: 'A4', landscape: false, margin: 18, fontSize: 15, width: 780 };
@@ -111,8 +111,8 @@ export async function exportNote(api: Api, note: Note, content: string, options:
  const filename = exportFilename(options.filename, format);
  const html = format === 'md' ? content : format === 'excalidraw' ? drawingJSON(content) : await renderDocument(
   isDrawingNote(note) || isLegacyDrawing(content)
-   ? <><h1>{note.title}</h1><DrawingPreview content={content} label={note.title} /></>
-   : <Markdown content={content} notes={notes} />, note.title, options);
+   ? <><h1>{displayNoteTitle(note)}</h1><DrawingPreview content={content} label={displayNoteTitle(note)} /></>
+   : <Markdown content={content} notes={notes} />, displayNoteTitle(note), options);
  if (api.exportNote) return api.exportNote({ format, filename, content: html, pageSize: options.pageSize, landscape: options.landscape });
  if (format === 'pdf') { await printDocument(html); return 'print' as const; }
  download(filename, html, format === 'md' ? 'text/markdown;charset=utf-8' : format === 'excalidraw' ? 'application/json' : 'text/html;charset=utf-8');

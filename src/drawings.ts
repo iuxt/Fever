@@ -6,6 +6,7 @@ import type { Note } from './types';
 
 export const isLegacyDrawing = (content: string) => /^excalidraw-plugin:[ \t]*\S/m.test(content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] || '');
 export const isDrawingNote = (note: Note) => /\.excalidraw$/i.test(note.filename) || /\.excalidraw(?:\.md)?$/i.test(note.sourcePath || '') || /\.excalidraw$/i.test(note.title);
+export const displayNoteTitle = (note: Note) => isDrawingNote(note) ? note.title.replace(/\.excalidraw(?:\.md)?$/i, '') : note.title;
 const drawingBlock = /^([ \t]*```(compressed-json|json)[ \t]*\r?\n)([\s\S]*?)(^[ \t]*```[ \t]*\r?$)/m;
 
 export function drawingJSON(content: string) {

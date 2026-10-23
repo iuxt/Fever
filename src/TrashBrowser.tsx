@@ -1,7 +1,7 @@
 import { useEffect, useState, type MouseEvent } from 'react';
 import { ChevronLeft, ChevronRight, FileText, History, Shapes, Trash2 } from 'lucide-react';
 import { keyboardContextMenu } from './ContextMenu';
-import { isDrawingNote } from './drawings';
+import { displayNoteTitle, isDrawingNote } from './drawings';
 import type { Note } from './types';
 
 const PAGE_SIZE = 20;
@@ -19,10 +19,10 @@ export default function TrashBrowser({ notes, query, activeId, busy, onSelect, o
  return <section className="trash-browser" aria-label="回收站文件列表">
   <div className="trash-results">
    <ul className="trash-list">{notes.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(note => <li className={`trash-item ${activeId === note.id ? 'selected' : ''}`} key={note.id}>
-    <button className="trash-note" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, note)} onClick={() => onSelect(note.id)} title={`${note.title}\n原位置：${note.category || '未分类'}`}>
-     {isDrawingNote(note) ? <Shapes size={16} /> : <FileText size={16} />}<span><strong>{note.title}</strong><small>{note.category || '未分类'}</small></span>
+    <button className="trash-note" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, note)} onClick={() => onSelect(note.id)} title={`${displayNoteTitle(note)}\n原位置：${note.category || '未分类'}`}>
+     {isDrawingNote(note) ? <Shapes size={16} /> : <FileText size={16} />}<span><strong>{displayNoteTitle(note)}</strong><small>{note.category || '未分类'}</small></span>
     </button>
-    <button className="icon-button" aria-label={`恢复：${note.title}`} title="还原到原位置" disabled={busy} onClick={() => onRestore(note)}><History size={15} /></button>
+    <button className="icon-button" aria-label={`恢复：${displayNoteTitle(note)}`} title="还原到原位置" disabled={busy} onClick={() => onRestore(note)}><History size={15} /></button>
    </li>)}</ul>
    {!notes.length && <div className="trash-empty"><Trash2 size={28} /><span>{query.trim() ? '没有找到相关笔记' : '回收站是空的'}</span></div>}
   </div>

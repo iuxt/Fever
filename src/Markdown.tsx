@@ -5,7 +5,7 @@ import { HighlightedCode } from './codeHighlight';
 import remarkLegacyImages from './legacyImages';
 import { resolveNoteLink } from './noteLinks';
 import { parseImageAlt } from './imageSize';
-import remarkDrawingEmbeds, { resolveDrawing } from './drawings';
+import remarkDrawingEmbeds, { displayNoteTitle, resolveDrawing } from './drawings';
 import { demo } from './demo';
 import type { Note, RevisionAsset } from './types';
 import Mermaid from './Mermaid';
@@ -25,7 +25,7 @@ export function DrawingReference({ source, notes, onOpen }: { source: string; no
   return () => { cancelled = true; };
  }, [note?.id, note?.updatedAt]);
  if (error) return <span role="alert" className="drawing-error">{error}</span>;
- return value !== null ? <Suspense fallback={<DrawingLoading />}><DrawingPreview content={value} label={note?.title} onEdit={onOpen && note ? () => onOpen(note.id) : undefined} /></Suspense> : <DrawingLoading />;
+ return value !== null ? <Suspense fallback={<DrawingLoading />}><DrawingPreview content={value} label={note ? displayNoteTitle(note) : undefined} onEdit={onOpen && note ? () => onOpen(note.id) : undefined} /></Suspense> : <DrawingLoading />;
 }
 
 export default memo(function Markdown({ content, revision, notes = [], onOpen, onNavigate }: { content: string; revision?: RevisionAsset; notes?: Note[]; onOpen?: (id: string) => void; onNavigate?: (href: string) => boolean }) {

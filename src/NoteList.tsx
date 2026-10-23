@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
 import { FileText, Shapes } from 'lucide-react';
-import { isDrawingNote } from './drawings';
+import { displayNoteTitle, isDrawingNote } from './drawings';
 import { keyboardContextMenu } from './ContextMenu';
 import type { NoteTreeTarget } from './NoteTree';
 import type { Api, Note } from './types';
@@ -34,6 +34,7 @@ const NoteCard = memo(function NoteCard({ note, active, draft, view, api, cache,
 }) {
  const [preview, setPreview] = useState('');
  const drawing = isDrawingNote(note);
+ const title = displayNoteTitle(note);
  useEffect(() => {
   if (view === 'title' || drawing || draft !== undefined) return;
   const cached = cache.get(note.id);
@@ -50,8 +51,8 @@ const NoteCard = memo(function NoteCard({ note, active, draft, view, api, cache,
   }).catch(() => { if (!cancelled) setPreview('暂时无法预览，点击打开笔记'); });
   return () => { cancelled = true; void api.cancelPreview?.(requestId).catch(() => {}); };
  }, [note.id, note.updatedAt, drawing, draft, view, api, cache]);
- return <button className={`note-row note-card ${active ? 'selected' : ''}${dragItem?.kind === 'note' && dragItem.id === note.id ? ' dragging' : ''}`} aria-pressed={active} title={note.title} draggable={!disabled} onDragStart={event => startNoteDrag(event, { kind: 'note', id: note.id }, onDragItemChange)} onDragEnd={() => onDragItemChange(null)} onClick={() => onSelect(note.id)} onContextMenu={event => onContextMenu(event, { kind: 'note', note })}>
-  <span className="note-card-title">{drawing ? <Shapes size={15} /> : <FileText size={15} />}<strong>{note.title}</strong>{active && <span className="selected-dot" />}</span>
+ return <button className={`note-row note-card ${active ? 'selected' : ''}${dragItem?.kind === 'note' && dragItem.id === note.id ? ' dragging' : ''}`} aria-pressed={active} title={title} draggable={!disabled} onDragStart={event => startNoteDrag(event, { kind: 'note', id: note.id }, onDragItemChange)} onDragEnd={() => onDragItemChange(null)} onClick={() => onSelect(note.id)} onContextMenu={event => onContextMenu(event, { kind: 'note', note })}>
+  <span className="note-card-title">{drawing ? <Shapes size={15} /> : <FileText size={15} />}<strong>{title}</strong>{active && <span className="selected-dot" />}</span>
   {view === 'preview' && <><span className="note-card-preview">{drawing ? 'Excalidraw 绘图 · 点击打开画布' : draft !== undefined ? summary(draft) || '还没有正文，写下第一个想法…' : preview || '还没有正文，写下第一个想法…'}</span>
   <span className="note-card-meta"><time dateTime={note.updatedAt}>{date(note.updatedAt)}</time><span>{note.category.split('/').join(' / ') || '未分类'}</span></span></>}
  </button>;

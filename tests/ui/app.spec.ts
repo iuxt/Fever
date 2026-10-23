@@ -154,7 +154,9 @@ test('Obsidian compressed drawings, wiki embeds, code blocks and history preview
  expect(edited).toContain('```excalidraw\n' + scene + '\n```');
  await page.getByTitle('编辑模式 · ⌘ E', { exact: true }).click();
  await expect(page.locator('.wysiwyg-content .drawing-preview img')).toHaveCount(3);
- await page.locator('.note-row').filter({ hasText: '旧图.excalidraw' }).click();
+ await page.locator('.note-row').getByText('旧图', { exact: true }).click();
+ await expect(page.locator('.tab.current span')).toHaveText('旧图');
+ await expect(page.locator('.breadcrumb-title')).toHaveText('旧图');
  await expect(page.locator('.drawing-canvas')).toBeVisible();
  await page.getByRole('button', { name: 'Git', exact: true }).click();
  const canvas = page.locator('.drawing-canvas canvas.interactive');
