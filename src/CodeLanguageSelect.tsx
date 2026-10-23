@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { codeLanguages } from './codeHighlight';
 
-const label = (value: string) => value === '' ? '自动识别' : value === 'plaintext' ? '纯文本 · plaintext' : value;
+const label = (value: string) => value === 'plaintext' ? '纯文本 · plaintext' : value;
 
 export default function CodeLanguageSelect({ value, onChange }: { value: string; onChange: (language: string) => void }) {
  const id = useId();
@@ -11,7 +11,7 @@ export default function CodeLanguageSelect({ value, onChange }: { value: string;
  const [open, setOpen] = useState(false), [query, setQuery] = useState<string | null>(null), [active, setActive] = useState(0);
  const [position, setPosition] = useState<CSSProperties>();
  const search = (query || '').trim().toLowerCase();
- const values = ['', ...codeLanguages, ...(value && !codeLanguages.includes(value) ? [value] : [])];
+ const values = ['txt', ...codeLanguages.filter(language => language !== 'txt'), ...(value && !codeLanguages.includes(value) ? [value] : [])];
  const options = values.filter(language => `${language} ${label(language)}`.toLowerCase().includes(search))
   .sort((a, b) => Number(b.toLowerCase() === search) - Number(a.toLowerCase() === search));
 
@@ -57,7 +57,7 @@ export default function CodeLanguageSelect({ value, onChange }: { value: string;
  }, [open, active, query, position]);
 
  return <div className="code-language-select">
-  <input ref={input} type="text" role="combobox" aria-label="代码块语言" title="搜索代码块语言" placeholder={open ? '搜索语言…' : '自动识别'}
+  <input ref={input} type="text" role="combobox" aria-label="代码块语言" title="搜索代码块语言" placeholder={open ? '搜索语言…' : 'txt'}
    aria-autocomplete="list" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined}
    aria-activedescendant={open && options[active] !== undefined ? `${id}-${active}` : undefined}
    value={query ?? value} autoComplete="off" spellCheck={false}

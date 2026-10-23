@@ -25,6 +25,56 @@ async function chooseLanguage(input: Locator, language: string) {
  await input.press('Enter');
 }
 
+test('copies the current code without fences in the compact editor and split preview', async ({ page, context }) => {
+ await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+ const source = 'const message = "hello <world>";\n\nconsole.log(message);\n';
+ const original = `\`\`\`js\n${source}\n\`\`\`\n`;
+ await seed(page, original);
+ const block = page.locator('.editor-code-block');
+ const copy = block.getByRole('button', { name: '复制代码', exact: true });
+ const code = block.locator('pre code');
+ const layout = await block.evaluate(element => {
+  const block = element.getBoundingClientRect(), pre = element.querySelector('pre')!.getBoundingClientRect();
+  const button = element.querySelector('.code-copy-button')!.getBoundingClientRect();
+  return { topInset: pre.top - block.top, rightInset: block.right - button.right, buttonTop: button.top - block.top };
+ });
+ expect(layout.topInset).toBeLessThanOrEqual(1);
+ expect(layout.rightInset).toBeLessThanOrEqual(12);
+ expect(layout.buttonTop).toBeLessThanOrEqual(12);
+ await copy.click();
+ await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(source);
+ await expect(block.getByRole('button', { name: '已复制', exact: true })).toBeVisible();
+ expect(await saved(page)).toBe(original);
+ await code.click();
+ await page.keyboard.press('ControlOrMeta+End');
+ await page.keyboard.insertText('const updated = 42;');
+ await expect(code).toContainText('const updated = 42;');
+ const updated = (await code.textContent())!;
+ await expect.poll(() => saved(page)).toContain(updated);
+ await block.locator('.code-copy-button').click();
+ await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(updated);
+ await page.screenshot({ path: 'test-results/code-block-compact-light.png' });
+ await page.emulateMedia({ colorScheme: 'dark' });
+ await page.screenshot({ path: 'test-results/code-block-compact-dark.png' });
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ const preview = page.locator('.preview-code-block');
+ await preview.getByRole('button', { name: '复制代码', exact: true }).click();
+ await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(updated);
+ await expect(preview.getByRole('button', { name: '已复制', exact: true })).toBeVisible();
+});
+
+test('reports a code copy failure and allows retrying without changing the note', async ({ page }) => {
+ await seed(page, '```js\nconst value = 42;\n```\n');
+ await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async () => { throw new Error('denied'); } }));
+ const block = page.locator('.editor-code-block');
+ await block.getByRole('button', { name: '复制代码', exact: true }).click();
+ await expect(block.getByRole('button', { name: '复制失败，点击重试', exact: true })).toBeVisible();
+ expect(await saved(page)).toBe('```js\nconst value = 42;\n```\n');
+ await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async () => {} }));
+ await block.getByRole('button', { name: '复制失败，点击重试', exact: true }).click();
+ await expect(block.getByRole('button', { name: '已复制', exact: true })).toBeVisible();
+});
+
 test('source Tab inserts four spaces at the cursor and indents selected lines by four spaces', async ({ page }) => {
  await seed(page, 'alpha\nbeta\n');
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
@@ -351,7 +401,7 @@ test('preserves triple-click selection in Markdown source and preview', async ({
  await expect.poll(() => saved(page)).toBe('replacement\n\n```js\nconst below = 42;\n```\n');
 });
 
-for (const area of ['text', 'left padding', 'right padding', 'bottom padding', 'header']) {
+for (const area of ['text', 'left padding', 'right padding', 'bottom padding', 'top padding']) {
  test(`keeps repeated clicks in code ${area} out of neighboring blocks`, async ({ page }) => {
   const original = 'before paragraph\n\n```js\nconst first = 1;\nconst last = 2;\n```\n\n```js\nconst below = 42;\n```\n';
   await seed(page, original);
@@ -361,10 +411,9 @@ for (const area of ['text', 'left padding', 'right padding', 'bottom padding', '
    const text = document.createTreeWalker(code, NodeFilter.SHOW_TEXT).nextNode()!;
    const range = document.createRange(); range.setStart(text, 1); range.setEnd(text, 2);
    const glyph = range.getBoundingClientRect(), bounds = pre.getBoundingClientRect();
-   const header = element.querySelector('.editor-code-label')!.getBoundingClientRect();
    return {
-    x: area === 'left padding' ? bounds.left + 3 : area === 'right padding' || area === 'header' ? bounds.right - 3 : glyph.x + 2,
-    y: area === 'bottom padding' ? bounds.bottom - 3 : area === 'header' ? header.y + header.height / 2 : glyph.y + glyph.height / 2,
+    x: area === 'left padding' || area === 'top padding' ? bounds.left + 3 : area === 'right padding' ? bounds.right - 3 : glyph.x + 2,
+    y: area === 'bottom padding' ? bounds.bottom - 3 : area === 'top padding' ? bounds.top + 3 : glyph.y + glyph.height / 2,
    };
   }, area);
   await page.mouse.move(point.x, point.y);
@@ -372,9 +421,9 @@ for (const area of ['text', 'left padding', 'right padding', 'bottom padding', '
    await page.mouse.down({ clickCount });
    await page.mouse.up({ clickCount });
    if (clickCount < 3) continue;
-   const selected = area === 'header' ? '' : area === 'bottom padding' ? 'const last = 2;' : 'const first = 1;\n';
+   const selected = area === 'bottom padding' ? 'const last = 2;' : 'const first = 1;\n';
    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString()), { message: `${area}, click ${clickCount}` }).toBe(selected);
-   if (area !== 'header') expect(await block.locator('code').evaluate(element => {
+   expect(await block.locator('code').evaluate(element => {
     const selection = window.getSelection()!;
     return element.contains(selection.anchorNode) && element.contains(selection.focusNode);
    })).toBe(true);
@@ -422,7 +471,7 @@ for (const theme of ['light', 'dark']) {
   const original = `${first}\n\n${second}\n`;
   await seed(page, original);
   const blocks = page.locator('.editor-code-block');
-  const insert = page.getByRole('button', { name: '在代码块之间插入空行', exact: true });
+  const insert = page.getByRole('button', { name: '插入空行', exact: true });
   const hoverGap = async () => {
    const before = (await blocks.first().boundingBox())!, after = (await blocks.last().boundingBox())!;
    await page.mouse.move(before.x + before.width / 2, (before.y + before.height + after.y) / 2);
@@ -466,6 +515,110 @@ for (const theme of ['light', 'dark']) {
   await expect(insert).toHaveCount(0);
  });
 }
+
+const insertableBlocks = [
+ { name: 'table', markdown: '| A | B |\n| --- | --- |\n| a1 | b1 |', selector: '.interactive-table' },
+ { name: 'image', markdown: '![图片](missing.png)', selector: 'p:has(.editor-image)' },
+ { name: 'wiki image', markdown: '![[missing.png|图片]]', selector: 'p:has(.editor-image)' },
+ { name: 'drawing reference', markdown: '![[missing.excalidraw]]', selector: 'p:has(.editor-image)' },
+ { name: 'quote', markdown: '> 引用正文', selector: 'blockquote' },
+ { name: 'bullet list', markdown: '- 列表一\n- 列表二', selector: 'ul' },
+ { name: 'ordered list', markdown: '1. 列表一\n2. 列表二', selector: 'ol' },
+ { name: 'task list', markdown: '- [ ] 任务一\n- [x] 任务二', selector: 'ul' },
+ { name: 'horizontal rule', markdown: '---', selector: 'hr' },
+ { name: 'Mermaid diagram', markdown: '```mermaid\nflowchart LR\nA --> B\n```', selector: '.editor-code-block' },
+];
+
+async function hoverBlockBoundary(page: Page, before: Locator | null, after: Locator | null) {
+ if (after) await after.scrollIntoViewIfNeeded();
+ else await before!.scrollIntoViewIfNeeded();
+ const first = before ? (await before.boundingBox())! : null, second = after ? (await after.boundingBox())! : null;
+ const bounds = first || second!;
+ await page.mouse.move(bounds.x + bounds.width / 2, first && second ? (first.y + first.height + second.y) / 2 : first ? first.y + first.height + 12 : second!.y - 12);
+ const insert = page.getByRole('button', { name: '插入空行', exact: true });
+ await expect(insert).toBeVisible();
+ return insert;
+}
+
+for (const block of insertableBlocks) {
+ test(`inserts editable paragraphs before and after a ${block.name} from the hover guide`, async ({ page }) => {
+  const original = `前文\n\n${block.markdown}\n\n后文\n`;
+  await seed(page, original, { 'missing.png': `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#95aa7c"/></svg>')}` });
+  const editor = page.locator('.wysiwyg-content');
+  const children = editor.locator(':scope > *');
+  if (block.name === 'Mermaid diagram') await expect(editor.getByRole('img', { name: 'Mermaid 图表' })).toBeVisible();
+  await expect(children).toHaveCount(3);
+  const before = await hoverBlockBoundary(page, children.nth(0), children.nth(1));
+  expect(await saved(page)).toBe(original);
+  if (block.name === 'table' || block.name === 'Mermaid diagram') await page.screenshot({ path: `test-results/block-insert-${block.name === 'table' ? 'table' : 'diagram'}.png` });
+  await before.click();
+  await expect(children.nth(1)).toBeEmpty();
+  await page.keyboard.insertText('块前新增');
+  await expect(children.nth(1)).toHaveText('块前新增');
+  await (await hoverBlockBoundary(page, children.nth(2), children.nth(3))).click();
+  await expect(children.nth(3)).toBeEmpty();
+  await page.keyboard.insertText('块后新增');
+  await expect(children.nth(3)).toHaveText('块后新增');
+  await expect(editor.locator(block.selector)).toHaveCount(1);
+  if (block.name === 'table') await expect(editor.locator('tr')).toHaveCount(2);
+  await expect.poll(() => saved(page)).toContain('块后新增');
+  expect(await saved(page)).not.toContain('&nbsp;');
+  await page.reload();
+  await expect(children).toHaveCount(5);
+  await expect(children.nth(1)).toHaveText('块前新增');
+  await expect(children.nth(3)).toHaveText('块后新增');
+ });
+}
+
+for (const pair of [
+ { name: 'code and table', first: '```js\nconst value = 42;\n```', second: insertableBlocks[0].markdown },
+ { name: 'table and code', first: insertableBlocks[0].markdown, second: '```js\nconst value = 42;\n```' },
+ { name: 'two images', first: '![第一张](first.png)', second: '![第二张](second.png)' },
+ { name: 'table and image', first: insertableBlocks[0].markdown, second: '![图片](missing.png)' },
+]) {
+ test(`inserts a blank paragraph between ${pair.name}`, async ({ page }) => {
+  const original = `${pair.first}\n\n${pair.second}\n\n结尾正文\n`;
+  await seed(page, original);
+  const children = page.locator('.wysiwyg-content > *');
+  await expect(children).toHaveCount(3);
+  await (await hoverBlockBoundary(page, children.nth(0), children.nth(1))).click();
+  await expect(children).toHaveCount(4);
+  await expect(children.nth(1)).toBeEmpty();
+  await expect.poll(() => saved(page)).toMatch(/\n{4}/);
+  expect(await saved(page)).not.toContain('&nbsp;');
+  await page.reload();
+  await expect(children).toHaveCount(4);
+  await expect(children.nth(1)).toBeEmpty();
+ });
+}
+
+for (const edge of ['start', 'end']) {
+ test(`inserts outside a table at the document ${edge} with undo and redo`, async ({ page }) => {
+  await seed(page, '| A | B |\n| --- | --- |\n| a1 | b1 |\n');
+  const editor = page.locator('.wysiwyg-content'), table = editor.locator('.interactive-table');
+  await (await hoverBlockBoundary(page, edge === 'start' ? null : table, edge === 'start' ? table : null)).click();
+  await expect(editor.locator(':scope > p')).toHaveCount(1);
+  await expect(editor.locator(edge === 'start' ? ':scope > :first-child' : ':scope > :last-child')).toHaveJSProperty('tagName', 'P');
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(editor.locator(':scope > p')).toHaveCount(0);
+  await page.getByRole('button', { name: '重做', exact: true }).click();
+  await expect(editor.locator(':scope > p')).toHaveCount(1);
+  await page.keyboard.insertText('表格外正文');
+  await expect(editor.locator(':scope > p')).toHaveText('表格外正文');
+  await expect(table.locator('td')).toHaveText(['a1', 'b1']);
+ });
+}
+
+test('does not offer extra paragraphs beside existing blank lines or between ordinary text blocks', async ({ page }) => {
+ await seed(page, '前文\n\n## 标题\n\n后文\n\n\n\n```js\nconst value = 42;\n```\n');
+ const children = page.locator('.wysiwyg-content > *');
+ await expect(children).toHaveCount(5);
+ for (const index of [0, 1, 2, 3]) {
+  const first = (await children.nth(index).boundingBox())!, second = (await children.nth(index + 1).boundingBox())!;
+  await page.mouse.move(first.x + first.width / 2, (first.y + first.height + second.y) / 2);
+  await expect(page.getByRole('button', { name: '插入空行', exact: true })).toHaveCount(0);
+ }
+});
 
 test('saves consecutive blank paragraphs between code blocks as pure Markdown and restores them', async ({ page }) => {
  const first = '```js\nconst first = 1;\n```';
@@ -607,14 +760,17 @@ for (const theme of ['light', 'dark']) {
   await input.fill('rust'); await input.press('Tab');
   await expect(input).toHaveValue('plaintext');
   await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.editor-code-block').first().getByRole('button', { name: '复制代码', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(page.getByRole('combobox', { name: '代码块语言' }).last()).toBeFocused();
   expect(await saved(page)).toBe(committed);
   await page.locator('.wysiwyg-content h1').click();
   await expect(list).toHaveCount(0);
 
-  await chooseLanguage(input, '');
-  await expect(input).toHaveValue('');
-  await expect.poll(() => saved(page)).toContain('```\nconst value = 42;');
+  await chooseLanguage(input, 'txt');
+  await expect(input).toHaveValue('txt');
+  await expect(page.locator('.editor-code-block').first().locator('[class*="hljs-"]')).toHaveCount(0);
+  await expect.poll(() => saved(page)).toContain('```txt\nconst value = 42;');
   await page.setViewportSize({ width: 780, height: 800 });
   await input.fill('script');
   await expect(list.getByRole('option')).toHaveText(['javascript', 'typescript']);
@@ -625,7 +781,7 @@ for (const theme of ['light', 'dark']) {
   await page.screenshot({ path: `test-results/code-language-search-${theme}.png`, fullPage: true });
   await page.locator('.wysiwyg-content h1').click();
   await expect(list).toHaveCount(0);
-  await expect(input).toHaveValue('');
+  await expect(input).toHaveValue('txt');
  });
 
  test(`code languages persist and highlighting updates in rich editing and previews (${theme})`, async ({ page }) => {
@@ -689,9 +845,15 @@ test('configures each code block independently and preserves aliases and unknown
  await expect(languages).toHaveCount(3);
  await expect(languages.nth(0)).toHaveValue('custom-language');
  await expect(languages.nth(1)).toHaveValue('text');
- await expect(languages.nth(2)).toHaveValue('');
+ await expect(languages.nth(2)).toHaveValue('txt');
+ await expect(page.locator('.editor-code-block').nth(2).locator('[class*="hljs-"]')).toHaveCount(0);
+ await languages.nth(2).click();
+ await expect(page.getByRole('option', { name: '自动识别', exact: true })).toHaveCount(0);
+ await expect(page.getByRole('option', { name: 'txt', exact: true })).toBeVisible();
+ await languages.nth(2).press('Escape');
  await expect(page.locator('.editor-code-block').nth(1).locator('[class*="hljs-"]')).toHaveCount(0);
- await chooseLanguage(languages.nth(1), 'js');
+ await languages.nth(1).fill('js');
+ await page.getByRole('option', { name: 'js', exact: true }).click();
  await expect(page.locator('.editor-code-block').nth(1).locator('.hljs-keyword')).toHaveText('const');
  await expect(languages.nth(0)).toHaveValue('custom-language');
  await expect.poll(() => saved(page)).toContain('```custom-language\n<literal>& **text**\n```');
@@ -701,6 +863,7 @@ test('configures each code block independently and preserves aliases and unknown
  await page.keyboard.press('End'); await page.keyboard.press('Enter');
  await page.getByRole('button', { name: '代码块', exact: true }).click();
  await expect(languages).toHaveCount(4);
+ await expect(languages.last()).toHaveValue('txt');
  await chooseLanguage(languages.last(), 'json');
  await page.locator('.editor-code-block').last().locator('pre code').click();
  await page.keyboard.insertText('{"created": true}');

@@ -59,6 +59,7 @@ async function renderDocument(children: ReactNode, title: string, options: Expor
   const error = host.querySelector('[role="alert"]');
   if (error) throw new Error(error.textContent || '绘图加载失败');
   const article = host.querySelector('article')!.cloneNode(true) as HTMLElement;
+  article.querySelectorAll('[data-export-ignore]').forEach(element => element.remove());
   // Freeze all image bytes, including vault attachments and generated drawing SVGs.
   // Do not silently produce an export with missing images.
   await Promise.all(Array.from(article.querySelectorAll('img')).map(async image => {

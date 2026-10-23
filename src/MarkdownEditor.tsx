@@ -19,7 +19,8 @@ import { readClipboard, writeClipboard } from './clipboard';
 import { InteractiveTable } from './InteractiveTable';
 import { editorLowlight } from './codeHighlight';
 import CodeLanguageSelect from './CodeLanguageSelect';
-import CodeBlockInsert from './CodeBlockInsert';
+import CodeCopyButton from './CodeCopyButton';
+import BlockInsert from './BlockInsert';
 import Mermaid from './Mermaid';
 import { imageAltWithWidth, parseImageAlt } from './imageSize';
 import { selectTextLine } from './editorSelection';
@@ -181,7 +182,7 @@ function CodeView({ node, editor, getPos, updateAttributes }: NodeViewProps) {
  const media = useContext(MediaContext)!;
  const [source, setSource] = useState(false);
  const drawing = node.attrs.language === 'excalidraw';
- const language = node.attrs.language || '';
+ const language = node.attrs.language || 'txt';
  const mermaid = language.toLowerCase() === 'mermaid';
  function setLanguage(value: string) {
   const position = getPos();
@@ -189,13 +190,14 @@ function CodeView({ node, editor, getPos, updateAttributes }: NodeViewProps) {
   // Select this block so language changes also refresh its highlight decorations.
   const { from, to } = editor.state.selection;
   if (from < position + 1 || to > position + node.nodeSize - 1) editor.commands.setTextSelection(position + 1);
-  updateAttributes({ language: value || null });
+  updateAttributes({ language: value || 'txt' });
  }
- return <NodeViewWrapper className="editor-code-block">
-  <div className="editor-code-label" contentEditable={false}>
+ return <NodeViewWrapper className={`editor-code-block${drawing || mermaid ? ' diagram-code-block' : ''}`}>
+  <div className="code-block-actions" contentEditable={false}>
    <CodeLanguageSelect value={language} onChange={setLanguage} />
    {drawing && <button type="button" onClick={() => setSource(!source)}>{source ? '查看绘图' : '编辑数据'}</button>}
    {mermaid && <button type="button" aria-pressed={source} onClick={() => setSource(!source)}>{source ? '查看图表' : '编辑源码'}</button>}
+   <CodeCopyButton text={node.textContent} onError={media.onError} />
   </div>
   {mermaid && !source && <div contentEditable={false}><Mermaid content={node.textContent} /></div>}
   {drawing && !source ? <div contentEditable={false}>{media.drawing(node.textContent)}</div> : <pre hidden={mermaid && !source}><NodeViewContent<'code'> as="code" className={language ? `language-${language}` : undefined} /></pre>}
@@ -207,9 +209,9 @@ const EditorCodeBlock = CodeBlockLowlight.extend({
   const text = (node.content || []).map(child => child.text || '').join('');
   const longest = Math.max(0, ...Array.from(text.matchAll(/`+/g), match => match[0].length));
   const fence = '`'.repeat(Math.max(3, longest + 1));
-  return `${fence}${node.attrs?.language || ''}\n${text}\n${fence}`;
+  return `${fence}${node.attrs?.language || 'txt'}\n${text}\n${fence}`;
  },
-}).configure({ lowlight: editorLowlight, exitOnTripleEnter: false, enableTabIndentation: true, tabSize: 4 });
+}).configure({ lowlight: editorLowlight, defaultLanguage: 'txt', exitOnTripleEnter: false, enableTabIndentation: true, tabSize: 4 });
 const EditorParagraph = Paragraph.extend({
  renderMarkdown(node, helpers) {
   // Keep blank paragraphs as Markdown spacing; the default emits HTML entities
@@ -530,7 +532,7 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
   <article ref={surfaceRef} className="document wysiwyg-document" onMouseDownCapture={clickDocumentSurface} onMouseDown={selectDocumentLine} onMouseUp={selectDocumentLine}>
    {prefix.current && <details className="editor-frontmatter"><summary>文档属性 · 在源码中编辑</summary><pre>{prefix.current}</pre></details>}
    <EditorContent editor={editor} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} />
-   <CodeBlockInsert editor={editor} surfaceRef={surfaceRef} />
+   <BlockInsert editor={editor} surfaceRef={surfaceRef} />
   </article>
   <ContextMenu menu={contextMenu.menu} onClose={contextMenu.close} onError={onError} />
  </MediaContext.Provider>;

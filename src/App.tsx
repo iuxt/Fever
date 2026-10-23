@@ -9,6 +9,7 @@ import SettingsPanel from './SettingsPanel';
 import TrashBrowser from './TrashBrowser';
 import CategoryPicker from './CategoryPicker';
 import NoteList from './NoteList';
+import NoteView, { useNoteView } from './NoteView';
 import type { NoteDragItem } from './noteDrag';
 import NoteSort, { sortNotes, useNoteSort } from './NoteSort';
 import NoteTree, { type NoteTreeTarget } from './NoteTree';
@@ -78,6 +79,7 @@ export default function App() {
  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
  const [folderRevealRequest, setFolderRevealRequest] = useState(0);
  const [noteSort, setNoteSort] = useNoteSort();
+ const [noteView, setNoteView] = useNoteView();
  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
  const [dragItem, setDragItem] = useState<NoteDragItem | null>(null);
  useEffect(() => {
@@ -795,8 +797,8 @@ export default function App() {
    </aside>
    <section className="file-list-panel" aria-label="笔记列表栏">
     <header className="file-list-header"><div><h2 title={selectedFolder || listTitle}>{listTitle}</h2><span>{trashView ? filtered.length : folderNotes.length} 篇笔记{!trashView && selectedFolder && !query ? ' · 含子文件夹' : ''}</span></div>{!trashView && <button className="icon-button" title="在当前文件夹新建笔记" onClick={() => showNew('note')}><FilePlus2 size={18} /></button>}</header>
-    {!trashView && <NoteSort sort={noteSort} onChange={setNoteSort} />}
-    {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
+    {!trashView && <><NoteView view={noteView} onChange={setNoteView} /><NoteSort sort={noteSort} onChange={setNoteSort} /></>}
+    {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} view={noteView} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}:${noteView}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
     <footer className="file-list-footer">{query.trim() ? '搜索整个笔记库' : '选择笔记，开始阅读与记录'}</footer>
    </section>
   </>}

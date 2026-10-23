@@ -44,6 +44,8 @@ test('HTML export embeds local images and drawing SVGs in a standalone light doc
  expect(result.content).toContain('data:image/svg+xml;base64,');
  expect(result.content).not.toContain('blob:');
  expect(result.content).not.toContain('fever-asset:');
+ expect(result.content).not.toContain('code-copy-button');
+ expect(result.content).not.toContain('code-block-actions');
  expect(result.content).toContain('size: A4');
  const exported = await context.newPage();
  await exported.setContent(result.content);

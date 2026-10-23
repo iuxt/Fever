@@ -12,7 +12,7 @@ export const editorLowlight = {
  highlight: (language: string, text: string) => lowlight.highlight(lowlight.registered(language) && text.length <= 32 * 1024 ? language : 'plaintext', text),
  highlightAuto: (text: string) => lowlight.highlight('plaintext', text),
 };
-export const codeLanguages = [...new Set([...lowlight.listLanguages(), 'html', 'js', 'jsx', 'ts', 'tsx', 'sh', 'py', 'text', 'bat', 'batch', 'cmd', 'pwsh', 'ps', 'ps1', 'excalidraw', 'mermaid'])].sort();
+export const codeLanguages = [...new Set([...lowlight.listLanguages(), 'html', 'js', 'jsx', 'ts', 'tsx', 'sh', 'py', 'text', 'txt', 'bat', 'batch', 'cmd', 'pwsh', 'ps', 'ps1', 'excalidraw', 'mermaid'])].sort();
 
 function renderTokens(nodes: RootContent[]): ReactNode[] {
  return nodes.map((node, index) => {

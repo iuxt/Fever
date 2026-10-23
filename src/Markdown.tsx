@@ -9,6 +9,7 @@ import remarkDrawingEmbeds, { resolveDrawing } from './drawings';
 import { demo } from './demo';
 import type { Note, RevisionAsset } from './types';
 import Mermaid from './Mermaid';
+import CodeCopyButton from './CodeCopyButton';
 const api = window.fever || demo;
 const headingId = (text: string) => `heading-${text.replace(/[^\p{L}\p{N}]/gu, '-')}`;
 const DrawingPreview = lazy(() => import('./Drawing').then(module => ({ default: module.DrawingPreview })));
@@ -49,7 +50,7 @@ export default memo(function Markdown({ content, revision, notes = [], onOpen, o
     const language = classes.find(value => value.startsWith('language-'))?.slice('language-'.length);
     const text = code.children.map(child => child.type === 'text' ? child.value : '').join('');
     if (language?.toLowerCase() === 'mermaid') return <Mermaid content={text} />;
-    return <pre><HighlightedCode text={text} language={language} className={classes.join(' ')} /></pre>;
+    return <div className="preview-code-block"><div className="code-block-actions" data-export-ignore="true"><CodeCopyButton text={text.replace(/\n$/, '')} /></div><pre><HighlightedCode text={text} language={language} className={classes.join(' ')} /></pre></div>;
    }
    return <pre>{children}</pre>;
   },
