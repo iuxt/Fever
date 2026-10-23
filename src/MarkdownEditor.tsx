@@ -19,6 +19,7 @@ import { readClipboard, writeClipboard } from './clipboard';
 import { InteractiveTable } from './InteractiveTable';
 import { editorLowlight } from './codeHighlight';
 import CodeLanguageSelect from './CodeLanguageSelect';
+import CodeBlockInsert from './CodeBlockInsert';
 import Mermaid from './Mermaid';
 import { imageAltWithWidth, parseImageAlt } from './imageSize';
 import { selectTextLine } from './editorSelection';
@@ -208,8 +209,13 @@ const EditorCodeBlock = CodeBlockLowlight.extend({
   const fence = '`'.repeat(Math.max(3, longest + 1));
   return `${fence}${node.attrs?.language || ''}\n${text}\n${fence}`;
  },
-}).configure({ lowlight: editorLowlight, exitOnTripleEnter: false });
+}).configure({ lowlight: editorLowlight, exitOnTripleEnter: false, enableTabIndentation: true, tabSize: 4 });
 const EditorParagraph = Paragraph.extend({
+ renderMarkdown(node, helpers) {
+  // Keep blank paragraphs as Markdown spacing; the default emits HTML entities
+  // for consecutive empty paragraphs. The Markdown parser restores these gaps.
+  return helpers.renderChildren(node.content || []);
+ },
  parseMarkdown(token, helpers) {
   // Tiptap's default parser unwraps lone images as blocks; ours stay inline.
   if (token.tokens?.length === 1 && token.tokens[0].type === 'image') {
@@ -291,6 +297,7 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
  const [initial] = useState(() => splitContent(content));
  const prefix = useRef(initial.prefix), lastContent = useRef(content);
  const liveEditor = useRef<Editor | null>(null), dirty = useRef(false);
+ const surfaceRef = useRef<HTMLElement>(null);
  const callbacks = useRef({ onChange, onDirty }); callbacks.current = { onChange, onDirty };
  const serializationTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), deadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
  const publish = useCallback(() => {
@@ -520,9 +527,10 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
     <button onMouseDown={e => e.preventDefault()} onClick={() => editor.chain().focus().deleteTable().run()}>删除表格</button>
    </div>}
   </div>
-  <article className="document wysiwyg-document" onMouseDownCapture={clickDocumentSurface} onMouseDown={selectDocumentLine} onMouseUp={selectDocumentLine}>
+  <article ref={surfaceRef} className="document wysiwyg-document" onMouseDownCapture={clickDocumentSurface} onMouseDown={selectDocumentLine} onMouseUp={selectDocumentLine}>
    {prefix.current && <details className="editor-frontmatter"><summary>文档属性 · 在源码中编辑</summary><pre>{prefix.current}</pre></details>}
    <EditorContent editor={editor} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} />
+   <CodeBlockInsert editor={editor} surfaceRef={surfaceRef} />
   </article>
   <ContextMenu menu={contextMenu.menu} onClose={contextMenu.close} onError={onError} />
  </MediaContext.Provider>;

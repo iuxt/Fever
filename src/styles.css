@@ -206,7 +206,11 @@
 
 .virtual-note-tree { min-height: 0; overflow-anchor: none; }
 .wysiwyg-editor { min-height: 100%; display: flex; flex-direction: column; }
-.wysiwyg-document { flex: 1; width: 100%; }
+.wysiwyg-document { position: relative; flex: 1; width: 100%; }
+.code-block-insert { position: absolute; z-index: 1; height: 24px; display: flex; align-items: center; gap: 6px; transform: translateY(-50%); color: var(--green); }
+.code-block-insert > button { display: grid; place-items: center; flex: 0 0 22px; height: 22px; padding: 0; border: 1px solid currentColor; border-radius: 4px; background: var(--paper); }
+.code-block-insert > button:hover { background: var(--selected); }
+.code-block-insert > span { flex: 1; border-top: 1px solid currentColor; pointer-events: none; }
 .wysiwyg-toolbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 3px; padding: 7px 22px; background: var(--paper); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .wysiwyg-toolbar > button { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 5px; color: var(--muted); }
 .wysiwyg-toolbar > button.active { background: var(--selected); color: var(--green); }
@@ -445,7 +449,7 @@ button.category-expand:hover:not(:disabled) { color: var(--green); background: v
 :root[data-window-chrome='macos'] .sidebar-brand { height: 77px; flex-shrink: 0; padding-top: 29px; -webkit-app-region: drag; }
 :root[data-window-chrome='macos'] .tab-bar { -webkit-app-region: drag; }
 :root[data-window-chrome='macos'] .app-shell:not(:has(.sidebar)) .tab-bar { padding-left: 92px; }
-:root[data-window-chrome='macos'] :is(.sidebar-brand, .tab-bar) button { -webkit-app-region: no-drag; }
+:root[data-window-chrome='macos'] :is(.sidebar-brand, .tab-bar) button, :root[data-window-chrome='macos'] .tab { -webkit-app-region: no-drag; }
 :root[data-window-chrome='macos'] .welcome::before { content: ''; position: absolute; inset: 0 0 auto; height: 48px; -webkit-app-region: drag; }
 
 /* Folder navigation, note summaries, and a spacious writing column. */

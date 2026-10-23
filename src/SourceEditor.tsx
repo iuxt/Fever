@@ -1,9 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import type { Extension } from '@codemirror/state';
+import { EditorState, type Extension } from '@codemirror/state';
+import { indentUnit } from '@codemirror/language';
+import { keymap } from '@codemirror/view';
 import CodeMirror, { EditorView, Transaction, type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/commands';
+import { indentLess, indentMore, redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/commands';
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
 import { readClipboard, writeClipboard } from './clipboard';
 import { sourceFormatting } from './sourceFormatting';
@@ -14,6 +16,15 @@ import { sourceSearchAdapter, sourceSearchHighlights, sourceSearchUpdates } from
 // Reuse the language extension across edits and background status refreshes.
 const extensions = [markdown({ codeLanguages: languages }), sourceFormatting];
 const basicSetup = { lineNumbers: true, foldGutter: false, highlightActiveLine: true, searchKeymap: false };
+const indentation = [EditorState.tabSize.of(4), indentUnit.of('    '), keymap.of([{
+ key: 'Tab', preventDefault: true, shift: indentLess,
+ run(view) {
+  if (view.state.readOnly) return false;
+  if (view.state.selection.ranges.some(range => !range.empty)) return indentMore(view);
+  view.dispatch(view.state.update(view.state.replaceSelection('    '), { scrollIntoView: true, userEvent: 'input' }));
+  return true;
+ },
+}])];
 export default memo(function SourceEditor({ content, dark, onChange, onError, filename, findRequest }: { content: string; dark: boolean; onChange: (value: string) => void; onError: (message: string) => void; filename?: string; findRequest?: SearchRequest }) {
  const ref = useRef<ReactCodeMirrorRef>(null), contextMenu = useContextMenu();
  const [searchAdapter, setSearchAdapter] = useState<SearchAdapter | null>(null);
@@ -26,7 +37,7 @@ export default memo(function SourceEditor({ content, dark, onChange, onError, fi
   language?.load().then(extension => { if (!cancelled) setFileExtensions(/\.(md|markdown)$/i.test(filename) ? [extension, sourceFormatting] : [extension]); }).catch(() => {});
   return () => { cancelled = true; };
  }, [filename]);
- const editorExtensions = useMemo(() => [...fileExtensions, sourceSearchHighlights, sourceSearchUpdates], [fileExtensions]);
+ const editorExtensions = useMemo(() => [...indentation, ...fileExtensions, sourceSearchHighlights, sourceSearchUpdates], [fileExtensions]);
  function showContextMenu(event: MouseEvent<HTMLElement>) {
   const view = ref.current?.view;
   if (!view) return;
@@ -67,7 +78,7 @@ export default memo(function SourceEditor({ content, dark, onChange, onError, fi
  }
  return <>
   <FindReplace adapter={searchAdapter} request={findRequest} />
-  <CodeMirror className="source-codemirror" ref={ref} value={content} extensions={editorExtensions} onCreateEditor={view => setSearchAdapter(sourceSearchAdapter(view))} theme={dark ? 'dark' : 'light'} basicSetup={basicSetup} onChange={onChange} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} height="100%" placeholder="让一个想法，从这里开始…" />
+  <CodeMirror className="source-codemirror" ref={ref} value={content} extensions={editorExtensions} indentWithTab={false} onCreateEditor={view => setSearchAdapter(sourceSearchAdapter(view))} theme={dark ? 'dark' : 'light'} basicSetup={basicSetup} onChange={onChange} onContextMenu={showContextMenu} onKeyDown={keyboardContextMenu} height="100%" placeholder="让一个想法，从这里开始…" />
   <ContextMenu menu={contextMenu.menu} onClose={contextMenu.close} onError={onError} />
  </>;
 });

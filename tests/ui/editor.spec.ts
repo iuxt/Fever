@@ -25,6 +25,47 @@ async function chooseLanguage(input: Locator, language: string) {
  await input.press('Enter');
 }
 
+test('source Tab inserts four spaces at the cursor and indents selected lines by four spaces', async ({ page }) => {
+ await seed(page, 'alpha\nbeta\n');
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ const source = page.locator('.source-editor .cm-content');
+ await source.fill('alpha\nbeta');
+ await source.press('ControlOrMeta+A');
+ await source.press('Tab');
+ await expect.poll(() => saved(page)).toBe('    alpha\n    beta');
+ await source.press('Shift+Tab');
+ await expect.poll(() => saved(page)).toBe('alpha\nbeta');
+ await source.press('ArrowLeft');
+ await source.press('ArrowRight');
+ await source.press('ArrowRight');
+ await source.press('Tab');
+ await expect.poll(() => saved(page)).toBe('al    pha\nbeta');
+ await source.press('ControlOrMeta+z');
+ await expect.poll(() => saved(page)).toBe('alpha\nbeta');
+});
+
+test('rich-text code Tab saves four spaces and Shift+Tab removes them', async ({ page }) => {
+ await seed(page, '```js\nalpha\nbeta\n```\n');
+ const code = page.locator('.editor-code-block pre code');
+ await code.click();
+ await code.evaluate(element => {
+  const text = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()!;
+  const range = document.createRange(); range.setStart(text, 0); range.collapse(true);
+  const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+ });
+ await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+ await page.keyboard.press('Tab');
+ await expect.poll(() => code.textContent()).toBe('    alpha\nbeta');
+ await expect.poll(() => saved(page)).toBe('```js\n    alpha\nbeta\n```\n');
+ await page.keyboard.press('Shift+Tab');
+ await expect.poll(() => code.textContent()).toBe('alpha\nbeta');
+ await expect.poll(() => saved(page)).toBe('```js\nalpha\nbeta\n```\n');
+ await page.keyboard.press('Tab');
+ await expect.poll(() => saved(page)).toBe('```js\n    alpha\nbeta\n```\n');
+ await page.reload();
+ await expect.poll(() => code.textContent()).toBe('    alpha\nbeta');
+});
+
 for (const theme of ['light', 'dark']) {
  test(`scrolls source and preview independently with the mouse wheel (${theme})`, async ({ page }) => {
   await page.addInitScript(theme => localStorage.setItem('fever-theme', theme), theme);
@@ -372,6 +413,86 @@ for (const terminal of [true, false]) {
   });
  }
 }
+
+for (const theme of ['light', 'dark']) {
+ test(`inserts a focused blank line with the code-gap hover button (${theme})`, async ({ page }) => {
+  await page.addInitScript(theme => localStorage.setItem('fever-theme', theme), theme);
+  const first = '```js\nconst first = 1;\n```';
+  const second = '```python\nprint("second")\n```';
+  const original = `${first}\n\n${second}\n`;
+  await seed(page, original);
+  const blocks = page.locator('.editor-code-block');
+  const insert = page.getByRole('button', { name: '在代码块之间插入空行', exact: true });
+  const hoverGap = async () => {
+   const before = (await blocks.first().boundingBox())!, after = (await blocks.last().boundingBox())!;
+   await page.mouse.move(before.x + before.width / 2, (before.y + before.height + after.y) / 2);
+   await expect(insert).toBeVisible();
+   expect((await insert.boundingBox())!.x).toBeLessThan(before.x);
+  };
+  await expect(insert).toHaveCount(0);
+  await hoverGap();
+  expect(await saved(page)).toBe(original);
+  await blocks.first().locator('code').hover();
+  await expect(insert).toHaveCount(0);
+  await hoverGap();
+  await page.getByRole('toolbar', { name: '正文格式' }).hover();
+  await expect(insert).toHaveCount(0);
+  await hoverGap();
+  await insert.hover();
+  await expect(insert).toBeVisible();
+  await page.screenshot({ path: `test-results/code-gap-${theme}.png` });
+  await insert.click();
+  await expect(insert).toHaveCount(0);
+  await expect(page.locator('.wysiwyg-content > p')).toHaveCount(1);
+  await expect.poll(() => saved(page)).toBe(`${first}\n\n\n\n${second}\n`);
+  await expect.poll(() => page.evaluate(() => {
+   const editor = document.querySelector('.wysiwyg-content');
+   const anchor = window.getSelection()?.anchorNode;
+   const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+   return document.activeElement === editor && element?.closest('p')?.parentElement === editor;
+  })).toBe(true);
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(page.locator('.wysiwyg-content > p')).toHaveCount(0);
+  await expect.poll(() => saved(page)).toBe(original);
+  await page.getByRole('button', { name: '重做', exact: true }).click();
+  await expect(page.locator('.wysiwyg-content > p')).toHaveCount(1);
+  await page.keyboard.insertText('代码块之间的正文');
+  const expected = `${first}\n\n代码块之间的正文\n\n${second}\n`;
+  await expect.poll(() => saved(page)).toBe(expected);
+  await page.reload();
+  await expect(page.locator('.wysiwyg-content > p')).toHaveText('代码块之间的正文');
+  await expect(blocks.locator('code')).toHaveText(['const first = 1;', 'print("second")']);
+  await blocks.first().hover();
+  await expect(insert).toHaveCount(0);
+ });
+}
+
+test('saves consecutive blank paragraphs between code blocks as pure Markdown and restores them', async ({ page }) => {
+ const first = '```js\nconst first = 1;\n```';
+ const second = '```js\nconst second = 2;\n```';
+ await seed(page, `${first}\n\n${second}\n`);
+ const code = page.locator('.editor-code-block pre code').first();
+ await code.click();
+ await code.evaluate(element => {
+  const range = document.createRange(); range.selectNodeContents(element); range.collapse(false);
+  const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+ });
+ await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+ await page.keyboard.press('ControlOrMeta+Enter');
+ await page.keyboard.press('Enter');
+ await page.keyboard.press('Enter');
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(3);
+ const expected = `${first}${'\n'.repeat(8)}${second}\n`;
+ await expect.poll(() => saved(page)).toBe(expected);
+ await page.reload();
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(3);
+ await expect(page.locator('.editor-code-block pre code')).toHaveText(['const first = 1;', 'const second = 2;']);
+ await page.locator('.wysiwyg-content > p').nth(1).click();
+ await page.keyboard.insertText('middle');
+ await expect.poll(() => saved(page)).toBe(`${first}\n\n\n\nmiddle\n\n\n\n${second}\n`);
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await expect(page.locator('.source-editor .cm-content')).not.toContainText('&nbsp;');
+});
 
 test('keeps code newlines and composition while allowing Mod+Enter to leave the final block', async ({ page }) => {
  await seed(page, '```text\nfirst\nlast\n```\n');

@@ -1,5 +1,72 @@
 import { test, expect } from '@playwright/test';
 
+for (const target of ['note', 'file', 'diff'] as const) {
+ test(`tab context menu keeps the clicked ${target} and saves edits before closing others`, async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+  await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
+  await page.locator('.note-row').filter({ hasText: 'Markdown 语法指南' }).click();
+  await page.getByTitle('Markdown 源码与预览').click();
+  await page.locator('.cm-content').fill('# 关闭其他标签前保存');
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  await page.getByTitle('刷新 Git 状态', { exact: true }).click();
+  await page.getByRole('button', { name: '查看工作区差异：Markdown 语法指南', exact: true }).click();
+  await page.getByRole('button', { name: '查看工作区差异：fever.json', exact: true }).hover();
+  await page.getByTitle('打开文件：fever.json', { exact: true }).click();
+  const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
+  state.manifest.folders.push({ id: 'context-menu-save', name: '右键关闭时保存', parentId: null });
+  await page.locator('.file-editor .cm-content').fill(JSON.stringify(state.manifest, null, 2));
+  const keptTab = page.locator('.tab').filter({ hasText: target === 'note' ? '欢迎使用 Fever' : target === 'file' ? 'fever.json' : '工作区对比' });
+  // Finish scrolling the tab strip before opening a menu that dismisses on scroll.
+  await keptTab.scrollIntoViewIfNeeded();
+  await keptTab.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await keptTab.click({ button: 'right' });
+  await expect(page.locator('.tab.current')).toContainText('fever.json');
+  await page.getByRole('menuitem', { name: '关闭其他所有选项卡', exact: true }).click();
+  await expect(page.locator('.tab')).toHaveCount(1);
+  await expect(keptTab).toHaveClass(/current/);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
+  expect(saved.contents['demo-2']).toBe('# 关闭其他标签前保存');
+  expect(saved.manifest.folders.map((folder: { name: string }) => folder.name)).toContain('右键关闭时保存');
+  if (target === 'note') await expect(page.locator('.document .cm-content, .source-editor .cm-content')).toContainText('欢迎');
+  if (target === 'file') await expect(page.locator('.file-editor .cm-content')).toBeVisible();
+  if (target === 'diff') await expect(page.getByRole('region', { name: '文件变更对比' })).toBeVisible();
+  await keptTab.getByRole('button').first().focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem', { name: '关闭其他所有选项卡', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await keptTab.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '关闭选项卡', exact: true }).click();
+  await expect(page.locator('.tab')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ });
+}
+
+test('closing other tabs preserves all tabs when saving fails', async ({ page }) => {
+ await page.addInitScript(() => {
+  window.fever = {
+   current: async () => ({ path: '/test/context-tabs', name: 'context-tabs', lfs: true, manifest: { version: 1, categories: [], notes: ['a', 'b'].map(id => ({ id, title: `Note ${id}`, filename: `${id}.md`, category: '', createdAt: '', updatedAt: '' })) } }),
+   read: async id => `# Note ${id}`,
+   save: async () => { throw new Error('测试保存失败'); },
+   status: async () => ({ branch: 'main', changes: [], ahead: 0, behind: 0, remote: '', lfs: true }),
+   settings: async () => ({ autoCommit: false, interval: 10, author: '', email: '', remote: '' }),
+   cancelSearch: async () => {}, asset: () => '',
+  } as unknown as typeof window.fever;
+ });
+ await page.goto('/');
+ await page.locator('.note-row').filter({ hasText: 'Note a' }).click();
+ await page.locator('.note-row').filter({ hasText: 'Note b' }).click();
+ await page.getByTitle('Markdown 源码与预览').click();
+ await page.locator('.cm-content').fill('# 不能丢失的修改');
+ await page.locator('.tab').filter({ hasText: 'Note a' }).click({ button: 'right' });
+ await page.getByRole('menuitem', { name: '关闭其他所有选项卡', exact: true }).click();
+ await expect(page.getByText('测试保存失败', { exact: true })).toBeVisible();
+ await expect(page.locator('.tab')).toHaveCount(2);
+ await expect(page.locator('.tab.current')).toContainText('Note b');
+ await expect(page.locator('.cm-content')).toContainText('不能丢失的修改');
+});
+
 for (const desktop of [false, true]) {
  for (const fail of [false, true]) {
   test(`${desktop ? 'native' : 'browser'} tabs close while a Git commit is pending (${fail ? 'failure' : 'success'})`, async ({ page }) => {
