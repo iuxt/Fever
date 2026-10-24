@@ -34,6 +34,7 @@ try {
  const parent = before.folders.find(folder => folder.name === '项目'), target = before.folders.find(folder => folder.name === '目标');
  expect(parent.id).toMatch(/^[0-9a-f-]{36}$/);
  expect(before.notes[0].category).toBeUndefined();
+ await page.getByRole('button', { name: '展开文件夹：项目', exact: true }).click();
  await folder('项目').click(); await folder('子分类').click();
  await page.locator('.note-row').filter({ hasText: '旧版笔记' }).click();
  await folder('项目').click({ button: 'right' });

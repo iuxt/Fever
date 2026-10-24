@@ -25,6 +25,40 @@ async function chooseLanguage(input: Locator, language: string) {
  await input.press('Enter');
 }
 
+for (const key of ['Backspace', 'Delete']) {
+ test(`removes the blank line between prose paragraphs with ${key} while keeping a single line break`, async ({ page }) => {
+  const original = '第一段 **粗体**\n\n第二段 *斜体*\n\n第三段\n';
+  await seed(page, original);
+  const paragraphs = page.locator('.wysiwyg-content > p');
+  await expect(paragraphs).toHaveCount(3);
+  expect(await saved(page)).toBe(original);
+  const target = paragraphs.nth(key === 'Backspace' ? 1 : 0);
+  await target.click();
+  await target.evaluate((element, start) => {
+   const range = document.createRange(); range.selectNodeContents(element); range.collapse(start);
+   const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+  }, key === 'Backspace');
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.keyboard.press(key);
+  const compact = '第一段 **粗体**  \n第二段 *斜体*\n\n第三段\n';
+  await expect.poll(() => saved(page)).toBe(compact);
+  await expect(paragraphs).toHaveCount(2);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => saved(page)).toBe(original);
+  await expect(paragraphs).toHaveCount(3);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(() => saved(page)).toBe(compact);
+  await page.keyboard.press(key);
+  await expect.poll(() => saved(page)).toBe('第一段 **粗体**第二段 *斜体*\n\n第三段\n');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => saved(page)).toBe(compact);
+  await page.reload();
+  await expect(paragraphs).toHaveCount(2);
+  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+  await expect(page.locator('.source-editor .cm-line')).toHaveText(['第一段 **粗体**  ', '第二段 *斜体*', '', '第三段', '']);
+ });
+}
+
 test('copies the current code without fences in the compact editor and split preview', async ({ page, context }) => {
  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
  const source = 'const message = "hello <world>";\n\nconsole.log(message);\n';

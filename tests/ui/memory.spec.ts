@@ -8,13 +8,14 @@ test('large note list renders visible summaries, scrolls to the last note, and b
  await page.goto('/');
  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
  await expect(page.locator('.folder-row')).toHaveCount(2);
- await expect(page.locator('.folder-toggle, .folder-toggle-spacer')).toHaveCount(0);
- await expect(page.locator('.folder-row[aria-expanded="true"]')).toHaveCount(0);
+ await expect(page.locator('.folder-toggle')).toHaveCount(1);
+ await expect(page.locator('.folder-toggle[aria-expanded="true"]')).toHaveCount(0);
  expect(await page.locator('.note-list .note-row').count()).toBeLessThan(60);
  await expect(page.locator('.note-list .note-row').first()).toContainText('笔记 0000');
  await page.locator('.folder-row').filter({ hasText: '大库' }).click();
+ await page.getByRole('button', { name: '展开文件夹：大库', exact: true }).click();
  await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toBeVisible();
- const collapse = page.locator('.folder-row[title="大库"]');
+ const collapse = page.locator('.folder-row[title="大库"]').locator('..').locator('.folder-toggle');
  await expect(collapse).toHaveAttribute('aria-expanded', 'true');
  await collapse.click();
  await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toHaveCount(0);
@@ -23,7 +24,7 @@ test('large note list renders visible summaries, scrolls to the last note, and b
  await collapse.click();
  await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toBeVisible();
  expect(await page.locator('.note-list .note-row').count()).toBeLessThan(60);
- await expect(page.locator('.note-list .note-row').first()).toContainText('笔记 0000');
+ await expect(page.locator('.note-list .note-row')).toHaveCount(0);
  await page.locator('.folder-row').filter({ hasText: '子分类' }).click();
  await expect(page.locator('.note-row').filter({ hasText: '笔记 0000' })).toBeVisible();
  await page.locator('.note-row').filter({ hasText: '笔记 0000' }).click();
@@ -41,7 +42,7 @@ test('large note list renders visible summaries, scrolls to the last note, and b
  await expect(page.locator('.note-row.selected .note-card-title strong')).toHaveText('笔记 0000');
  await page.reload();
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('笔记 0000');
- await expect(page.locator('.folder-row[title="大库"]')).toHaveAttribute('aria-expanded', 'true');
+ await expect(page.getByRole('button', { name: '收起文件夹：大库', exact: true })).toHaveAttribute('aria-expanded', 'true');
  expect(await page.locator('.note-list .note-row').count()).toBeLessThan(60);
  await expect(page.locator('.note-list .note-row').first()).toContainText('笔记 0000');
 });

@@ -472,10 +472,11 @@ button.category-expand:hover:not(:disabled) { color: var(--green); background: v
 .all-notes { display: flex; align-items: center; gap: 9px; margin: 0 12px 18px; padding: 10px 11px; border-radius: 6px; color: var(--muted); font-size: .8125rem; text-align: left; }
 .all-notes span { flex: 1; }
 .all-notes small { font-size: .75rem; font-variant-numeric: tabular-nums; }
-.all-notes:hover, .folder-row:hover { background: var(--hover); }
-.all-notes.selected, .folder-row.selected, .trash-entry.selected { color: var(--green); background: var(--selected); }
-.folder-tree-row { display: flex; align-items: center; }
-.folder-tree-row .folder-row { flex: 1; min-width: 0; height: 33px; padding: 0 7px; border-radius: 5px; }
+.all-notes:hover, .folder-tree-row:hover { background: var(--hover); }
+.all-notes.selected, .folder-tree-row.selected, .folder-row.selected, .trash-entry.selected { color: var(--green); background: var(--selected); }
+.folder-tree-row { display: flex; align-items: center; border-radius: 5px; }
+.folder-toggle, .folder-toggle-spacer { display: flex; align-items: center; justify-content: center; width: 30px; height: 33px; flex-shrink: 0; padding: 0; border-radius: 5px; }
+.folder-tree-row .folder-row { flex: 1; min-width: 0; height: 33px; padding: 0 7px 0 0; border-radius: 5px; }
 .folder-row > svg { flex-shrink: 0; }
 .folder-tree-row.dragging { opacity: .45; }
 .note-card.dragging { opacity: .45; }
@@ -486,7 +487,7 @@ button.category-expand:hover:not(:disabled) { color: var(--green); background: v
 .folder-drop-target { background: var(--selected); outline: 2px solid var(--green); outline-offset: -2px; border-radius: 5px; }
 .folder-root-drop { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; margin-top: 8px; border: 1px dashed var(--green); border-radius: 5px; color: var(--green); background: var(--sidebar); font-size: .75rem; }
 .folder-row small { padding: 0; }
-.folder-row:focus-visible, .all-notes:focus-visible, .note-card:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
+.folder-toggle:focus-visible, .folder-row:focus-visible, .all-notes:focus-visible, .note-card:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .sidebar-foot { align-items: center; justify-content: flex-start; gap: 7px; }
 .sidebar-foot span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .file-list-panel { width: 292px; flex-shrink: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--panel) 60%, var(--paper)); }

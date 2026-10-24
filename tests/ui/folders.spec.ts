@@ -3,6 +3,10 @@ import { manifestView } from '../../electron/manifest.mjs';
 const readState = async (page: Page) => { const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!)); return { ...state, manifest: manifestView(state.manifest) }; };
 
 const folder = (page: Page, name: string) => page.locator('.folder-row').filter({ has: page.locator('span', { hasText: new RegExp(`^${name}$`) }) });
+async function expandFolder(page: Page, name: string) {
+ const toggle = folder(page, name).locator('..').locator('.folder-toggle');
+ if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click();
+}
 const note = (page: Page, title: string) => page.locator('.note-row').filter({ hasText: title });
 async function deleteFolder(page: Page, name: string) {
  await folder(page, name).click({ button: 'right' });
@@ -27,6 +31,69 @@ test.beforeEach(async ({ page }) => {
  await page.goto('/');
 });
 
+test('folder icons toggle children independently from names and article filters', async ({ page }) => {
+ const project = folder(page, '项目');
+ const toggle = project.locator('..').locator('.folder-toggle');
+ const header = page.locator('.file-list-header h2');
+ await expect(folder(page, '子分类')).toHaveCount(0);
+ await project.locator('span').click();
+ await expect(header).toHaveText('项目');
+ await expect(page.locator('.note-card')).toHaveCount(1);
+ await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+ await project.locator('span').click();
+ await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+ await toggle.click();
+ await expect(folder(page, '子分类')).toBeVisible();
+ await expect(header).toHaveText('项目');
+ await project.locator('span').click();
+ await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+ await folder(page, '项目备份').click();
+ await toggle.click();
+ await expect(folder(page, '子分类')).toHaveCount(0);
+ await expect(folder(page, '项目备份')).toHaveAttribute('aria-pressed', 'true');
+ await expect(header).toHaveText('项目备份');
+ await expect(page.locator('.note-card')).toHaveCount(1);
+ const search = page.getByPlaceholder('搜索你的笔记…');
+ await search.fill('父分类笔记');
+ await toggle.focus(); await page.keyboard.press('Enter');
+ await expect(folder(page, '子分类')).toBeVisible();
+ await expect(search).toHaveValue('父分类笔记');
+ await expect(header).toHaveText('搜索结果');
+ await toggle.focus(); await page.keyboard.press('Space');
+ await expect(folder(page, '子分类')).toHaveCount(0);
+ await project.focus(); await page.keyboard.press('Enter');
+ await expect(search).toHaveValue('');
+ await expect(header).toHaveText('项目');
+ await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+ await toggle.click({ button: 'right' });
+ await expect(page.getByRole('menuitem', { name: '展开分类', exact: true })).toBeVisible();
+ await page.keyboard.press('Escape');
+ await folder(page, '空文件夹').locator('span').click();
+ await expect(page.locator('.file-list-empty')).toContainText('这个文件夹还是空的');
+});
+
+test('folder lists and counts exclude child notes while all notes and search span the vault', async ({ page }) => {
+ await folder(page, '项目').click();
+ await expect(page.locator('.note-card-title strong')).toHaveText(['父分类笔记']);
+ await expect(page.locator('.file-list-header > div > span')).toHaveText('1 篇笔记');
+ await expect(folder(page, '项目').locator('small')).toHaveText('1');
+ await expandFolder(page, '项目');
+ await expect(page.locator('.note-card-title strong')).toHaveText(['父分类笔记']);
+ await folder(page, '子分类').click();
+ await expect(page.locator('.note-card-title strong')).toHaveText(['子分类笔记']);
+ await expect(folder(page, '子分类').locator('small')).toHaveText('1');
+ await folder(page, '空子分类').click();
+ await expect(page.locator('.note-card')).toHaveCount(0);
+ await expect(page.locator('.file-list-header > div > span')).toHaveText('0 篇笔记');
+ await folder(page, '项目').click();
+ await page.getByPlaceholder('搜索你的笔记…').fill('子分类笔记');
+ await expect(page.locator('.note-card-title strong')).toHaveText(['子分类笔记']);
+ await folder(page, '项目').click();
+ await expect(page.locator('.note-card-title strong')).toHaveText(['父分类笔记']);
+ await page.getByRole('button', { name: /^全部笔记/ }).click();
+ await expect(page.locator('.note-card')).toHaveCount(3);
+});
+
 test('empty folder deletion can be cancelled and persists after reload', async ({ page }) => {
  await deleteFolder(page, '空文件夹');
  await expect(page.getByRole('dialog')).toContainText('0 篇笔记');
@@ -43,7 +110,7 @@ test('empty folder deletion can be cancelled and persists after reload', async (
 test('subtree deletion saves edits, closes affected tabs and restores the original category', async ({ page }) => {
  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
  await folder(page, '项目备份').click(); await note(page, '保留的笔记').click();
- await folder(page, '项目').click(); await note(page, '父分类笔记').click();
+ await expandFolder(page, '项目'); await folder(page, '项目').click(); await note(page, '父分类笔记').click();
  await folder(page, '子分类').click(); await note(page, '子分类笔记').click();
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  await page.locator('.cm-content').fill('# 最新正文\n\n未提交内容');
@@ -86,7 +153,7 @@ test('deleting a different folder keeps the current note open', async ({ page })
 
 test('move dialog browses nested and empty folders, searches paths and saves only on confirmation', async ({ page }) => {
  await folder(page, '项目备份').click(); await note(page, '保留的笔记').click();
- await folder(page, '项目').click(); await note(page, '父分类笔记').click({ button: 'right' });
+ await expandFolder(page, '项目'); await folder(page, '项目').click(); await note(page, '父分类笔记').click({ button: 'right' });
  await page.getByRole('menuitem', { name: '重命名 / 移动笔记' }).click();
  const dialog = page.getByRole('dialog');
  await expect(dialog).toBeVisible();
@@ -125,7 +192,7 @@ test('move dialog browses nested and empty folders, searches paths and saves onl
 test('move dialog can select root and fits a small window in dark mode', async ({ page }) => {
  await page.emulateMedia({ colorScheme: 'dark' });
  await page.setViewportSize({ width: 780, height: 700 });
- await folder(page, '项目').click(); await note(page, '父分类笔记').click({ button: 'right' });
+ await expandFolder(page, '项目'); await folder(page, '项目').click(); await note(page, '父分类笔记').click({ button: 'right' });
  await page.getByRole('menuitem', { name: '重命名 / 移动笔记' }).click();
  await page.getByRole('button', { name: '选择分类：笔记库根目录', exact: true }).click();
  await expect(page.locator('.category-destination')).toContainText('笔记库根目录');
@@ -147,7 +214,7 @@ async function renameFolder(page: Page, name: string, next: string) {
 }
 
 test('renaming a folder preserves the selected descendant, tabs, drafts and empty subfolders', async ({ page }) => {
- await folder(page, '项目').click(); await folder(page, '子分类').click(); await note(page, '子分类笔记').click();
+ await expandFolder(page, '项目'); await folder(page, '项目').click(); await folder(page, '子分类').click(); await note(page, '子分类笔记').click();
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  await page.locator('.cm-content').fill('# 重命名前的未保存正文');
  await renameFolder(page, '项目', '新项目');
@@ -187,7 +254,7 @@ test('folder renaming supports cancellation, empty folders and rejects names and
 });
 
 test('dragging folders moves the entire subtree into a collapsed folder and back to root', async ({ page }) => {
- await folder(page, '项目').click(); await folder(page, '子分类').click(); await note(page, '子分类笔记').click();
+ await expandFolder(page, '项目'); await folder(page, '项目').click(); await folder(page, '子分类').click(); await note(page, '子分类笔记').click();
  await folder(page, '项目').dragTo(folder(page, '项目备份'));
  await expect(folder(page, '项目')).toHaveAttribute('title', '项目备份/项目');
  await expect(folder(page, '子分类')).toHaveAttribute('title', '项目备份/项目/子分类');
@@ -216,7 +283,7 @@ test('dragging folders moves the entire subtree into a collapsed folder and back
 });
 
 test('dragging into self or descendants is ignored and destination collisions leave both trees intact', async ({ page }) => {
- await folder(page, '项目').click();
+ await expandFolder(page, '项目'); await folder(page, '项目').click();
  const before = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest);
  await folder(page, '项目').dragTo(folder(page, '子分类'));
  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest)).toEqual(before);
@@ -258,7 +325,7 @@ test('v1 migration persists UUID references and folder edits change only one fol
 
 test('dragging folder edges reorders roots and children and persists their subtree order', async ({ page }) => {
  const before = await readState(page);
- await folder(page, '项目').click();
+ await expandFolder(page, '项目'); await folder(page, '项目').click();
  await folder(page, '项目').dragTo(folder(page, '空文件夹'), { targetPosition: { x: 60, y: 31 } });
  await expect(folder(page, '项目')).toHaveAttribute('draggable', 'true');
  await expect.poll(() => page.locator('.folder-row').evaluateAll(rows => rows.map(row => row.getAttribute('title')))).toEqual(['项目备份', '空文件夹', '项目', '项目/子分类', '项目/空子分类']);
@@ -272,17 +339,17 @@ test('dragging folder edges reorders roots and children and persists their subtr
 });
 
 test('dragging a folder beside a folder under another parent moves and orders the entire subtree', async ({ page }) => {
- await folder(page, '项目').click();
+ await expandFolder(page, '项目'); await folder(page, '项目').click();
  await folder(page, '空文件夹').dragTo(folder(page, '子分类'), { targetPosition: { x: 60, y: 3 } });
  await expect(folder(page, '空文件夹')).toHaveAttribute('title', '项目/空文件夹');
  await expect.poll(async () => (await readState(page)).manifest.categories).toEqual(['项目', '项目/空文件夹', '项目/子分类', '项目/空子分类', '项目备份']);
  await page.reload();
- await folder(page, '项目').click();
+ await expandFolder(page, '项目'); await folder(page, '项目').click();
  await expect(folder(page, '空文件夹')).toHaveAttribute('title', '项目/空文件夹');
 });
 
 test('dragging the active note into an empty folder saves drafts and preserves the editor and tabs', async ({ page }) => {
- await folder(page, '项目').click(); await note(page, '父分类笔记').click();
+ await expandFolder(page, '项目'); await folder(page, '项目').click(); await note(page, '父分类笔记').click();
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
  await page.locator('.cm-content').fill('# 拖动前的未保存正文');
  await expect(note(page, '父分类笔记')).toHaveAttribute('draggable', 'true');
@@ -323,7 +390,7 @@ test('dragging a search result into a collapsed folder expands it and can target
 });
 
 test('note dragging to its current folder is ignored, cancellation clears feedback and root drop removes its category', async ({ page }) => {
- await folder(page, '项目').click();
+ await expandFolder(page, '项目'); await folder(page, '项目').click();
  const before = (await readState(page)).manifest;
  await note(page, '父分类笔记').dragTo(folder(page, '项目'));
  expect((await readState(page)).manifest).toEqual(before);

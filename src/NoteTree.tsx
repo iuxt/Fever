@@ -4,7 +4,7 @@ import type { FolderPlacement, Note } from './types';
 import { keyboardContextMenu } from './ContextMenu';
 import { matchesNoteDrag, startNoteDrag, type NoteDragProps } from './noteDrag';
 
-type FolderNode = { path: string; name: string; children: Map<string, FolderNode>; notes: Note[]; total: number };
+type FolderNode = { path: string; name: string; children: Map<string, FolderNode>; notes: Note[] };
 type Row = { depth: number; folder: FolderNode };
 const ROW_HEIGHT = 36, OVERSCAN = 6;
 type DropTarget = { parent: string; path: string; position: 'inside' | 'before' | 'after' };
@@ -90,15 +90,13 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, rev
   return () => clearTimeout(timer);
  }, [dragItem, hoverFolder, collapsed, onToggle]);
  const root = useMemo(() => {
-  const makeFolder = (path = '', name = ''): FolderNode => ({ path, name, children: new Map(), notes: [], total: 0 });
+  const makeFolder = (path = '', name = ''): FolderNode => ({ path, name, children: new Map(), notes: [] });
   const root = makeFolder();
   const addPath = (path: string, note?: Note) => {
    let parent = root;
-   if (note) parent.total++;
    for (const name of path ? path.split('/') : []) {
     let child = parent.children.get(name);
     if (!child) { child = makeFolder(parent.path ? `${parent.path}/${name}` : name, name); parent.children.set(name, child); }
-    if (note) child.total++;
     parent = child;
    }
    if (note) parent.notes.push(note);
@@ -137,9 +135,10 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, rev
  const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / ROW_HEIGHT) + OVERSCAN);
  return <div ref={container} className="note-tree virtual-note-tree" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
   <div className="note-tree-rows" style={{ height: rows.length * ROW_HEIGHT }}>
-   {rows.slice(start, end).map((row, offset) => <div className={`note-tree-row folder-tree-row${dragItem?.kind === 'folder' && dragItem.path === row.folder.path ? ' dragging' : ''}${dropTarget?.path === row.folder.path ? dropTarget.position === 'inside' ? ' folder-drop-target' : ` folder-drop-${dropTarget.position}` : ''}`} key={row.folder.path} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }} onDragOver={event => dragOver(event, row.folder.path)} onDragLeave={dragLeave} onDrop={event => drop(event, row.folder.path)}>
-    <button className={`folder-row ${selectedFolder === row.folder.path ? 'selected' : ''}`} aria-pressed={selectedFolder === row.folder.path} aria-expanded={row.folder.children.size > 0 ? !collapsed.has(row.folder.path) : undefined} title={row.folder.path} draggable={!disabled} onDragStart={event => startNoteDrag(event, { kind: 'folder', path: row.folder.path }, onDragItemChange)} onDragEnd={() => onDragItemChange(null)} onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })} onClick={() => onSelect(row.folder.path)}>
-     {(row.folder.children.size > 0 ? !collapsed.has(row.folder.path) : selectedFolder === row.folder.path) ? <FolderOpen size={16} /> : <Folder size={16} />}<span>{row.folder.name}</span><small>{row.folder.total}</small>
+   {rows.slice(start, end).map((row, offset) => <div className={`note-tree-row folder-tree-row${selectedFolder === row.folder.path ? ' selected' : ''}${dragItem?.kind === 'folder' && dragItem.path === row.folder.path ? ' dragging' : ''}${dropTarget?.path === row.folder.path ? dropTarget.position === 'inside' ? ' folder-drop-target' : ` folder-drop-${dropTarget.position}` : ''}`} key={row.folder.path} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }} onDragOver={event => dragOver(event, row.folder.path)} onDragLeave={dragLeave} onDrop={event => drop(event, row.folder.path)} onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })}>
+    {row.folder.children.size > 0 ? <button type="button" className="folder-toggle" aria-label={`${collapsed.has(row.folder.path) ? '展开' : '收起'}文件夹：${row.folder.path}`} title={collapsed.has(row.folder.path) ? '展开子文件夹' : '收起子文件夹'} aria-expanded={!collapsed.has(row.folder.path)} onClick={() => onToggle(row.folder.path)}>{collapsed.has(row.folder.path) ? <Folder size={16} /> : <FolderOpen size={16} />}</button> : <span className="folder-toggle-spacer"><Folder size={16} /></span>}
+    <button className={`folder-row ${selectedFolder === row.folder.path ? 'selected' : ''}`} aria-pressed={selectedFolder === row.folder.path} title={row.folder.path} draggable={!disabled} onDragStart={event => startNoteDrag(event, { kind: 'folder', path: row.folder.path }, onDragItemChange)} onDragEnd={() => onDragItemChange(null)} onClick={() => onSelect(row.folder.path)}>
+     <span>{row.folder.name}</span><small>{row.folder.notes.length}</small>
     </button>
    </div>)}
   </div>

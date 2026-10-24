@@ -44,7 +44,7 @@ test('keeps sorting across folders, full-text search, empty folders and reloads'
  await sortBy(page, '创建时间');
  await page.getByRole('button', { name: '切换为升序', exact: true }).click();
  await page.locator('.folder-row').filter({ hasText: /^项目/ }).click();
- await expect(titles(page)).toHaveText(['笔记2', '笔记10', '笔记20']);
+ await expect(titles(page)).toHaveText(['笔记10', '笔记20']);
  await page.getByPlaceholder('搜索你的笔记…').fill('排序样例');
  await expect(titles(page)).toHaveText(['笔记2', '笔记1', '笔记10', '笔记20']);
  await page.reload();

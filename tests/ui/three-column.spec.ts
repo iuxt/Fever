@@ -39,15 +39,22 @@ test('folders scope the middle list, previews update, and search spans the vault
  expect(errors).toEqual([]);
 });
 
-test('parent folders include descendants and empty folders create notes in place', async ({ page }) => {
+test('parents with only child notes show an empty list and create notes in place', async ({ page }) => {
  await page.goto('/');
+ await page.getByRole('button', { name: '展开文件夹：项目', exact: true }).click();
  await page.locator('.folder-row').filter({ hasText: /^项目/ }).click();
- await expect(page.locator('.note-card')).toHaveCount(2);
+ await expect(page.locator('.note-card')).toHaveCount(0);
+ await expect(page.locator('.file-list-empty')).toContainText('这个文件夹还是空的');
+ await expect(page.locator('.file-list-header > div > span')).toHaveText('0 篇笔记');
+ await expect(page.locator('.folder-row[title="项目"] small')).toHaveText('0');
  await expect(page.locator('.folder-row').filter({ hasText: /^Fever/ })).toBeVisible();
  await page.locator('.folder-row').filter({ hasText: /^项目/ }).click({ button: 'right' });
  await page.getByRole('menuitem', { name: '折叠分类', exact: true }).click();
  await expect(page.locator('.folder-row').filter({ hasText: /^Fever/ })).toHaveCount(0);
- await expect(page.locator('.note-card')).toHaveCount(2);
+ await expect(page.locator('.note-card')).toHaveCount(0);
+ await expect(page.locator('.file-list-empty')).toContainText('这个文件夹还是空的');
+ await expect(page.locator('.file-list-header > div > span')).toHaveText('0 篇笔记');
+ await expect(page.locator('.folder-row[title="项目"] small')).toHaveText('0');
  await page.getByTitle('新建分类', { exact: true }).click();
  await page.getByLabel('分类名称').fill('项目/空文件夹');
  await page.getByRole('button', { name: '创建分类', exact: true }).click();
@@ -66,7 +73,7 @@ test('parent folders include descendants and empty folders create notes in place
  await expect(page.locator('.note-card.selected')).toContainText('空文件夹里的笔记');
 });
 
-test('opening notes from all notes, parent folders, search and tabs reveals their folder', async ({ page }) => {
+test('opening notes from all notes, child folders, search and tabs reveals their folder', async ({ page }) => {
  await page.goto('/');
  const allNotes = page.locator('.all-notes').filter({ hasText: '全部笔记' });
  const project = page.locator('.folder-row[title="项目"]');
@@ -75,12 +82,14 @@ test('opening notes from all notes, parent folders, search and tabs reveals thei
  const openProduct = () => page.locator('.note-card[title="Fever 产品构想"]').click();
  await openProduct();
  await expect(nested).toHaveAttribute('aria-pressed', 'true');
- await expect(project).toHaveAttribute('aria-expanded', 'true');
+ await expect(page.getByRole('button', { name: '收起文件夹：项目', exact: true })).toHaveAttribute('aria-expanded', 'true');
  await expect(page.locator('.file-list-header h2')).toHaveText('Fever');
  await allNotes.click();
  await page.locator('.note-card[title="Markdown 语法指南"]').click();
  await expect(page.locator('.folder-row[title="开始使用"]')).toHaveAttribute('aria-pressed', 'true');
  await project.click();
+ await expect(page.locator('.note-card')).toHaveCount(0);
+ await nested.click();
  await openProduct();
  await expect(nested).toHaveAttribute('aria-pressed', 'true');
  await project.click({ button: 'right' });

@@ -74,7 +74,14 @@ export default function App() {
  const [mode, setEditorMode] = useState<'edit' | 'split' | 'source'>('edit');
  const [articleFindRequest, setArticleFindRequest] = useState<string | null>(null);
  const [panel, setPanel] = useState<'outline' | 'history' | 'git'>('outline');
- const [rightOpen, setRightOpen] = useState(false), [leftOpen, setLeftOpen] = useState(true);
+ const [rightOpen, setRightOpen] = useState(() => {
+  try { return localStorage.getItem('fever-right-panel-open') === 'true'; } catch { return false; }
+ });
+ const [leftOpen, setLeftOpen] = useState(true);
+ useEffect(() => {
+  try { localStorage.setItem('fever-right-panel-open', String(rightOpen)); }
+  catch { /* Toggling still works without persistent storage. */ }
+ }, [rightOpen]);
  const [trashView, setTrashView] = useState(false);
  const [query, setQuery] = useState(''), [textMatches, setTextMatches] = useState<string[]>([]);
  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -780,10 +787,9 @@ export default function App() {
  }, [settledContent, displayedDrawing]);
  const filtered = useMemo(() => { const matches = new Set(textMatches), needle = query.toLowerCase(); const notes = trashView ? [...(vault?.manifest.trash || [])].reverse() : vault?.manifest.notes; return notes?.filter(n => n.title.toLowerCase().includes(needle) || n.category.toLowerCase().includes(needle) || matches.has(n.id)) || []; }, [vault, query, textMatches, trashView]);
 
- const folderNotes = useMemo(() => sortNotes(query.trim() ? filtered : (vault?.manifest.notes || []).filter(note => selectedFolder === null || note.category === selectedFolder || note.category.startsWith(`${selectedFolder}/`)), noteSort), [filtered, query, selectedFolder, vault?.manifest.notes, noteSort]);
+ const folderNotes = useMemo(() => sortNotes(query.trim() ? filtered : (vault?.manifest.notes || []).filter(note => selectedFolder === null || note.category === selectedFolder), noteSort), [filtered, query, selectedFolder, vault?.manifest.notes, noteSort]);
  const selectFolder = (path: string | null) => {
   setSelectedFolder(path); setQuery(''); setTrashView(false);
-  if (path !== null) toggleFolder(path);
  };
  const listTitle = trashView ? '回收站' : query.trim() ? '搜索结果' : selectedFolder === null ? '全部笔记' : selectedFolder.split('/').at(-1) || '未分类';
 
@@ -803,7 +809,7 @@ export default function App() {
     <div className="sidebar-bottom"><button className={`trash-entry ${trashView ? 'selected' : ''}`} disabled={busy} onClick={() => void openTrash()}><Trash2 size={16} /><span>回收站</span><span className="trash-count">{vault.manifest.trash?.length || 0}</span></button></div>
    </aside>
    <section className="file-list-panel" aria-label="笔记列表栏">
-    <header className="file-list-header"><div><h2 title={selectedFolder || listTitle}>{listTitle}</h2><span>{trashView ? filtered.length : folderNotes.length} 篇笔记{!trashView && selectedFolder && !query ? ' · 含子文件夹' : ''}</span></div>{!trashView && <button className="icon-button" title="在当前文件夹新建笔记" onClick={() => showNew('note')}><FilePlus2 size={18} /></button>}</header>
+    <header className="file-list-header"><div><h2 title={selectedFolder || listTitle}>{listTitle}</h2><span>{trashView ? filtered.length : folderNotes.length} 篇笔记</span></div>{!trashView && <button className="icon-button" title="在当前文件夹新建笔记" onClick={() => showNew('note')}><FilePlus2 size={18} /></button>}</header>
     {!trashView && <><NoteView view={noteView} onChange={setNoteView} /><NoteSort sort={noteSort} onChange={setNoteSort} /></>}
     {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} fontSize={fontSize} view={noteView} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}:${noteView}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
     {query.trim() && <footer className="file-list-footer">搜索整个笔记库</footer>}
