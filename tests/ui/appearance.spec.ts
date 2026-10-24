@@ -171,6 +171,7 @@ for (const theme of ['light', 'dark']) {
   await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
   await expect(page.locator('.wysiwyg-content p').first()).toBeVisible();
   await page.getByRole('button', { name: '大纲', exact: true }).click();
+  await expect(page.locator('.outline button').first()).toBeVisible();
   await openSettings(page);
   for (const tab of ['外观', '笔记库']) {
    await page.getByRole('tab', { name: tab, exact: true }).click();
@@ -182,7 +183,7 @@ for (const theme of ['light', 'dark']) {
      });
      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
     };
-    return (tab === '笔记库' ? ['.demo-info'] : ['.wysiwyg-content p', '.note-row.selected span', '.folder-row', '.sidebar-foot', '.status-bar', '.outline button', '.modal label', '.modal .select-trigger', '.form-hint', '.modal .primary', '.modal .secondary', '.font-preview span']).map(selector => {
+    return (tab === '笔记库' ? ['.demo-info'] : ['.wysiwyg-content p', '.note-row.selected span', '.folder-row', '.sidebar-search', '.status-bar', '.outline button', '.modal label', '.modal .select-trigger', '.form-hint', '.modal .primary', '.modal .secondary', '.font-preview span']).map(selector => {
      const element = document.querySelector(selector)!;
      let background = element;
      while (getComputedStyle(background).backgroundColor === 'rgba(0, 0, 0, 0)' && background.parentElement) background = background.parentElement;

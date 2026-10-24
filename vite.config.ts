@@ -2,9 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const fonts = path.resolve('node_modules/@excalidraw/excalidraw/dist/prod/fonts');
-export default defineConfig({ plugins: [react(), {
+export default defineConfig({
+ // Use the DOM-free entity decoder in both the preview and Markdown workers.
+ resolve: { alias: { 'decode-named-character-reference': fileURLToPath(import.meta.resolve('decode-named-character-reference')) } },
+ plugins: [react(), {
  name: 'local-excalidraw-fonts',
  configureServer(server) {
   server.middlewares.use('/excalidraw-assets/fonts', async (request, response, next) => {

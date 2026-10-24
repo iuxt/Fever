@@ -7,7 +7,7 @@ import type { Api, Note } from './types';
 import type { NoteViewMode } from './NoteView';
 import { startNoteDrag, type NoteDragProps } from './noteDrag';
 
-const ROW_HEIGHT = { title: 42, preview: 126 }, OVERSCAN = 3;
+const OVERSCAN = 3;
 const date = (value: string) => new Date(value).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 // Limit parsing work and retain only small text summaries, never entire documents.
 function summary(markdown: string) {
@@ -23,7 +23,7 @@ function summary(markdown: string) {
   .replace(/[*_`~|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 150);
 }
 type Props = NoteDragProps & {
- notes: Note[]; activeId: string; scope: string; view: NoteViewMode; api: Api; draftId: string; draft: string; revealRequest?: number;
+ fontSize: number; notes: Note[]; activeId: string; scope: string; view: NoteViewMode; api: Api; draftId: string; draft: string; revealRequest?: number;
  onSelect: (id: string) => void;
  onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
 };
@@ -58,10 +58,11 @@ const NoteCard = memo(function NoteCard({ note, active, draft, view, api, cache,
  </button>;
 });
 
-export default function NoteList({ notes, activeId, scope, view, api, draftId, draft, onSelect, onContextMenu, revealRequest = 0, dragItem, onDragItemChange, disabled }: Props) {
- const rowHeight = ROW_HEIGHT[view];
+export default function NoteList({ fontSize, notes, activeId, scope, view, api, draftId, draft, onSelect, onContextMenu, revealRequest = 0, dragItem, onDragItemChange, disabled }: Props) {
+ // Card padding/gaps plus title, two preview lines and metadata at the active font size.
+ const rowHeight = view === 'title' ? Math.max(42, Math.ceil(fontSize * 1.5 + 14)) : Math.max(126, Math.ceil(fontSize * 4.7 + 50));
  const container = useRef<HTMLDivElement>(null), cache = useRef<PreviewCache>(new Map());
- const selection = useRef<{ activeId: string; revealRequest: number; scope: string } | null>(null);
+ const selection = useRef<{ activeId: string; revealRequest: number; scope: string; rowHeight: number } | null>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
  useLayoutEffect(() => {
   const element = container.current!;
@@ -74,8 +75,8 @@ export default function NoteList({ notes, activeId, scope, view, api, draftId, d
   setViewport({ top: 0, height: element.clientHeight });
  }, [scope]);
  useLayoutEffect(() => {
-  const changed = selection.current?.activeId !== activeId || selection.current?.revealRequest !== revealRequest || selection.current?.scope !== scope;
-  selection.current = { activeId, revealRequest, scope };
+  const changed = selection.current?.activeId !== activeId || selection.current?.revealRequest !== revealRequest || selection.current?.scope !== scope || selection.current?.rowHeight !== rowHeight;
+  selection.current = { activeId, revealRequest, scope, rowHeight };
   if (!changed) return;
   const element = container.current!, index = notes.findIndex(note => note.id === activeId);
   if (index >= 0) {
@@ -86,7 +87,7 @@ export default function NoteList({ notes, activeId, scope, view, api, draftId, d
  }, [activeId, notes, scope, revealRequest, rowHeight]);
  const start = Math.max(0, Math.floor(viewport.top / rowHeight) - OVERSCAN);
  const end = Math.min(notes.length, Math.ceil((viewport.top + viewport.height) / rowHeight) + OVERSCAN);
- return <div ref={container} className={`note-tree note-list note-list-${view}`} aria-label="文件列表" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
+ return <div ref={container} className={`note-tree note-list note-list-${view}`} style={{ '--note-row-height': `${rowHeight}px` } as import('react').CSSProperties} aria-label="文件列表" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
   <div className="note-list-rows" style={{ height: notes.length * rowHeight }}>
    {notes.slice(start, end).map((note, offset) => <div className="note-list-row" key={note.id} style={{ top: (start + offset) * rowHeight, height: rowHeight }}><NoteCard note={note} active={note.id === activeId} draft={note.id === draftId ? draft : undefined} view={view} api={api} cache={cache.current} onSelect={onSelect} onContextMenu={onContextMenu} dragItem={dragItem} onDragItemChange={onDragItemChange} disabled={disabled} /></div>)}
   </div>

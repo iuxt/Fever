@@ -124,7 +124,16 @@ function ImageView({ node, selected, editor, getPos, updateAttributes }: NodeVie
   setPreviewWidth(null);
   if (commit && Math.abs(start.current - start.width) >= 1) updateAttributes({ alt: parsed.alt, width: start.current, height: null });
  }
- return <NodeViewWrapper ref={wrapperRef} as="span" className={`editor-image${selected ? ' selected' : ''}${previewWidth !== null ? ' resizing' : ''}${editingSource ? ' editing-source' : ''}`} contentEditable={false} style={!editingSource && resizable && width ? { width } : undefined}>
+ return <NodeViewWrapper ref={wrapperRef} as="span" className={`editor-image${selected ? ' selected' : ''}${previewWidth !== null ? ' resizing' : ''}${editingSource ? ' editing-source' : ''}`} contentEditable={false} style={!editingSource && resizable && width ? { width } : undefined} onMouseDown={(event: MouseEvent<HTMLSpanElement>) => {
+  // Image selection must not be replaced by a delayed native caret selection
+  // when reopening the source field immediately after it loses focus.
+  if (!resizable || editingSource || !(event.target instanceof HTMLImageElement) || event.button !== 0) return;
+  const position = getPos();
+  if (typeof position !== 'number') return;
+  event.preventDefault(); event.stopPropagation();
+  editor.commands.setNodeSelection(position);
+  editor.view.focus();
+ }}>
   {editingSource ? <textarea ref={sourceRef} className="image-markdown-source" aria-label="图片 Markdown" value={source} rows={2} spellCheck={false} onChange={event => {
    if (sourceSession.current) sourceSession.current.draft = event.target.value;
    setSource(event.target.value);
@@ -382,6 +391,7 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
  }
  function preventSurfaceMultiClick(event: MouseEvent<HTMLElement>) {
   if (!editor || event.detail <= 1 || event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.target instanceof HTMLImageElement && event.target.closest('.editor-image')) return;
   const view = editor.view;
   if (event.target instanceof Element && !event.target.closest('input, textarea, button, select')) {
    const uneditable = event.target.closest('[contenteditable="false"]');

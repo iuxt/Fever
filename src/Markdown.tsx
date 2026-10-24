@@ -10,8 +10,8 @@ import { demo } from './demo';
 import type { Note, RevisionAsset } from './types';
 import Mermaid from './Mermaid';
 import CodeCopyButton from './CodeCopyButton';
+import remarkHeadingIds, { headingMarkdown } from './headings';
 const api = window.fever || demo;
-const headingId = (text: string) => `heading-${text.replace(/[^\p{L}\p{N}]/gu, '-')}`;
 const DrawingPreview = lazy(() => import('./Drawing').then(module => ({ default: module.DrawingPreview })));
 const DrawingLoading = () => <span className="drawing-placeholder" data-export-pending="true">正在加载绘图…</span>;
 
@@ -29,11 +29,8 @@ export function DrawingReference({ source, notes, onOpen }: { source: string; no
 }
 
 export default memo(function Markdown({ content, revision, notes = [], onOpen, onNavigate }: { content: string; revision?: RevisionAsset; notes?: Note[]; onOpen?: (id: string) => void; onNavigate?: (href: string) => boolean }) {
- const plugins = useMemo(() => [remarkGfm, [remarkDrawingEmbeds, notes], remarkLegacyImages] as import('unified').PluggableList, [notes]);
+ const plugins = useMemo(() => [remarkGfm, [remarkDrawingEmbeds, notes], remarkLegacyImages, remarkHeadingIds] as import('unified').PluggableList, [notes]);
  const components = useMemo<import('react-markdown').Components>(() => ({
-  h1: ({ children }) => <h1 id={headingId(String(children))}>{children}</h1>,
-  h2: ({ children }) => <h2 id={headingId(String(children))}>{children}</h2>,
-  h3: ({ children }) => <h3 id={headingId(String(children))}>{children}</h3>,
   img: ({ src, alt, title, node }) => {
    if (/\.excalidraw(?:\.md)?$/i.test(src || '') || resolveDrawing(src || '', notes)) return <DrawingReference source={src || ''} notes={notes} onOpen={onOpen} />;
    const image = parseImageAlt(alt || '');
@@ -59,5 +56,5 @@ export default memo(function Markdown({ content, revision, notes = [], onOpen, o
    return <a href={internal || /^(https?:|mailto:|#)/.test(href || '') ? href : undefined} target={internal || href?.startsWith('#') ? undefined : '_blank'} rel="noreferrer" onClick={event => { if (internal) { event.preventDefault(); onNavigate?.(href!); } }}>{children}</a>;
   },
  }), [notes, revision, onOpen, onNavigate]);
- return <ReactMarkdown remarkPlugins={plugins} components={components}>{content}</ReactMarkdown>;
+ return <ReactMarkdown remarkPlugins={plugins} components={components}>{headingMarkdown(content)}</ReactMarkdown>;
 });

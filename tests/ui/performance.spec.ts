@@ -111,6 +111,9 @@ test('unlabelled and oversized code stays readable without auto detection in ric
  const large = 'const value = 123; // plain preview\n'.repeat(2048);
  await page.evaluate(large => { (window as any).performanceControls.content = '```\nconst small = 1;\n```\n\n```javascript\n' + large + '```\n'; }, large);
  await page.locator('.note-row').first().click();
+ await expect(page.locator('.document-space.source .cm-content')).toBeVisible();
+ // Large notes open as source; explicitly opt into rich text to test highlighting.
+ await page.getByTitle('编辑模式 · ⌘ E', { exact: true }).click();
  await expect(page.locator('.editor-code-block pre code').last()).toHaveText(large.trimEnd());
  await expect(page.locator('.editor-code-block [class*="hljs-"]')).toHaveCount(0);
  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();

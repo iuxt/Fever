@@ -25,7 +25,7 @@ const indentation = [EditorState.tabSize.of(4), indentUnit.of('    '), keymap.of
   return true;
  },
 }])];
-export default memo(function SourceEditor({ content, dark, onChange, onError, filename, findRequest }: { content: string; dark: boolean; onChange: (value: string) => void; onError: (message: string) => void; filename?: string; findRequest?: SearchRequest }) {
+export default memo(function SourceEditor({ content, dark, onChange, onError, filename, findRequest, jumpToLine }: { content: string; dark: boolean; onChange: (value: string) => void; onError: (message: string) => void; filename?: string; findRequest?: SearchRequest; jumpToLine?: { line: number; request: number } }) {
  const ref = useRef<ReactCodeMirrorRef>(null), contextMenu = useContextMenu();
  const [searchAdapter, setSearchAdapter] = useState<SearchAdapter | null>(null);
  const [fileExtensions, setFileExtensions] = useState<Extension[]>(filename ? [] : extensions);
@@ -37,6 +37,13 @@ export default memo(function SourceEditor({ content, dark, onChange, onError, fi
   language?.load().then(extension => { if (!cancelled) setFileExtensions(/\.(md|markdown)$/i.test(filename) ? [extension, sourceFormatting] : [extension]); }).catch(() => {});
   return () => { cancelled = true; };
  }, [filename]);
+ useEffect(() => {
+  const view = ref.current?.view;
+  if (!view || !jumpToLine) return;
+  const line = view.state.doc.line(Math.min(jumpToLine.line, view.state.doc.lines));
+  view.dispatch({ selection: { anchor: line.from }, effects: EditorView.scrollIntoView(line.from, { y: 'start' }) });
+  view.focus();
+ }, [jumpToLine, searchAdapter]);
  const editorExtensions = useMemo(() => [...indentation, ...fileExtensions, sourceSearchHighlights, sourceSearchUpdates], [fileExtensions]);
  function showContextMenu(event: MouseEvent<HTMLElement>) {
   const view = ref.current?.view;

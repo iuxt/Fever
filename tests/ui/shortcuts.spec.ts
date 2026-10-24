@@ -16,7 +16,7 @@ const formats = [
  { key: 'i', selector: 'em', markdown: '*快捷键正文*' },
  { key: 'Shift+x', selector: 's', markdown: '~~快捷键正文~~' },
  { key: '`', selector: 'p code', markdown: '`快捷键正文`' },
- { key: 'Shift+l', selector: 'pre code', markdown: '```\n快捷键正文\n```' },
+ { key: 'Shift+l', selector: 'pre code', markdown: '```txt\n快捷键正文\n```' },
  { key: 'Shift+b', selector: 'blockquote', markdown: '> 快捷键正文' },
  { key: 'Shift+8', selector: 'ul:not([data-type]) li', markdown: '- 快捷键正文' },
  { key: 'Shift+7', selector: 'ol li', markdown: '1. 快捷键正文' },
