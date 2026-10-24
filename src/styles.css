@@ -224,6 +224,7 @@ button, select, .code-block-actions, .table-controls, .drawing-preview-header { 
 .table-actions { width: 100%; display: flex; flex-wrap: wrap; gap: 12px; padding: 7px 3px 2px; font-size: 0.75rem; color: var(--green); }
 .table-actions button { padding: 0; }
 .wysiwyg-content { outline: none; min-height: 55vh; padding-bottom: 32px; white-space: pre-wrap; }
+.wysiwyg-content p { margin: 0; }
 .wysiwyg-content > :first-child { margin-top: 0; }
 .wysiwyg-content p.is-editor-empty:first-child:before { content: attr(data-placeholder); color: var(--muted); float: left; pointer-events: none; height: 0; }
 .wysiwyg-content ul[data-type='taskList'] { list-style: none; padding-left: 0; }

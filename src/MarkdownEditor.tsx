@@ -221,27 +221,7 @@ const EditorCodeBlock = CodeBlockLowlight.extend({
   return `${fence}${node.attrs?.language || 'txt'}\n${text}\n${fence}`;
  },
 }).configure({ lowlight: editorLowlight, defaultLanguage: 'txt', exitOnTripleEnter: false, enableTabIndentation: true, tabSize: 4 });
-function deleteParagraphGap(editor: Editor, backward: boolean) {
- const { selection, doc, schema } = editor.state;
- if (editor.view.composing || !(selection instanceof TextSelection) || !selection.empty) return false;
- const cursor = selection.$from;
- // Only join neighboring prose paragraphs. Lists, cells, headings and empty
- // paragraphs keep their normal structural deletion behavior.
- if (cursor.depth !== 1 || cursor.parent.type !== schema.nodes.paragraph || !cursor.parent.textContent.trim()) return false;
- if (cursor.parentOffset !== (backward ? 0 : cursor.parent.content.size)) return false;
- const index = cursor.index(0), adjacent = doc.maybeChild(index + (backward ? -1 : 1));
- if (adjacent?.type !== schema.nodes.paragraph || !adjacent.textContent.trim()) return false;
- const boundary = backward ? cursor.before() : cursor.after();
- // A Markdown paragraph separator contains a blank line. Remove that gap
- // first, keeping a real, editable line break instead of concatenating words.
- const tr = editor.state.tr.join(boundary).insert(boundary - 1, schema.nodes.hardBreak.create());
- editor.view.dispatch(tr.setSelection(TextSelection.create(tr.doc, backward ? boundary : boundary - 1)).scrollIntoView());
- return true;
-}
 const EditorParagraph = Paragraph.extend({
- addKeyboardShortcuts() {
-  return { ...this.parent?.(), Backspace: () => deleteParagraphGap(this.editor, true), Delete: () => deleteParagraphGap(this.editor, false) };
- },
  renderMarkdown(node, helpers) {
   // Keep blank paragraphs as Markdown spacing; the default emits HTML entities
   // for consecutive empty paragraphs. The Markdown parser restores these gaps.

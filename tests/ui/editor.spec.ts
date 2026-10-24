@@ -25,13 +25,45 @@ async function chooseLanguage(input: Locator, language: string) {
  await input.press('Enter');
 }
 
+test('prose line spacing stays uniform across soft breaks, paragraphs and Enter', async ({ page }) => {
+ const original = '第一行\n第二行\n\n第三行\n\n第四行\n';
+ await seed(page, original);
+ const paragraphs = page.locator('.wysiwyg-content > p');
+ const checkSpacing = async (count: number) => {
+  await expect(paragraphs).toHaveCount(count);
+  const layout = await paragraphs.evaluateAll(elements => elements.map(element => {
+   const bounds = element.getBoundingClientRect(), style = getComputedStyle(element);
+   return { top: bounds.top, bottom: bounds.bottom, height: bounds.height, lineHeight: parseFloat(style.lineHeight) };
+  }));
+  expect(layout[0].height).toBeCloseTo(layout[0].lineHeight * 2, 0);
+  for (let index = 1; index < layout.length; index++) {
+   expect(Math.abs(layout[index].top - layout[index - 1].bottom)).toBeLessThan(1);
+   expect(layout[index].height).toBeCloseTo(layout[index].lineHeight, 0);
+  }
+ };
+ await checkSpacing(3);
+ expect(await saved(page)).toBe(original);
+ await paragraphs.nth(1).click();
+ await paragraphs.nth(1).evaluate(element => {
+  const range = document.createRange(); range.selectNodeContents(element); range.collapse(false);
+  const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+ });
+ await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+ await page.keyboard.press('Enter');
+ await checkSpacing(4);
+ await page.keyboard.insertText('新行');
+ await checkSpacing(4);
+ await expect.poll(() => saved(page)).toContain('第三行\n\n新行\n\n第四行\n');
+ await page.reload();
+ await checkSpacing(4);
+});
+
 for (const key of ['Backspace', 'Delete']) {
- test(`removes the blank line between prose paragraphs with ${key} while keeping a single line break`, async ({ page }) => {
-  const original = '第一段 **粗体**\n\n第二段 *斜体*\n\n第三段\n';
+ test(`joins prose paragraphs normally with ${key} without inserting an extra hard break`, async ({ page }) => {
+  const original = '第一段 **粗体**\n\n第二段 *斜体*\n';
   await seed(page, original);
   const paragraphs = page.locator('.wysiwyg-content > p');
-  await expect(paragraphs).toHaveCount(3);
-  expect(await saved(page)).toBe(original);
+  await expect(paragraphs).toHaveCount(2);
   const target = paragraphs.nth(key === 'Backspace' ? 1 : 0);
   await target.click();
   await target.evaluate((element, start) => {
@@ -40,22 +72,16 @@ for (const key of ['Backspace', 'Delete']) {
   }, key === 'Backspace');
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await page.keyboard.press(key);
-  const compact = '第一段 **粗体**  \n第二段 *斜体*\n\n第三段\n';
-  await expect.poll(() => saved(page)).toBe(compact);
-  await expect(paragraphs).toHaveCount(2);
+  const joined = '第一段 **粗体**第二段 *斜体*\n';
+  await expect.poll(() => saved(page)).toBe(joined);
+  await expect(paragraphs).toHaveCount(1);
   await page.keyboard.press('ControlOrMeta+z');
   await expect.poll(() => saved(page)).toBe(original);
-  await expect(paragraphs).toHaveCount(3);
-  await page.keyboard.press('ControlOrMeta+Shift+z');
-  await expect.poll(() => saved(page)).toBe(compact);
-  await page.keyboard.press(key);
-  await expect.poll(() => saved(page)).toBe('第一段 **粗体**第二段 *斜体*\n\n第三段\n');
-  await page.keyboard.press('ControlOrMeta+z');
-  await expect.poll(() => saved(page)).toBe(compact);
-  await page.reload();
   await expect(paragraphs).toHaveCount(2);
-  await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
-  await expect(page.locator('.source-editor .cm-line')).toHaveText(['第一段 **粗体**  ', '第二段 *斜体*', '', '第三段', '']);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(() => saved(page)).toBe(joined);
+  await page.reload();
+  await expect(paragraphs).toHaveCount(1);
  });
 }
 
