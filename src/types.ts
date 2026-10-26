@@ -13,7 +13,10 @@ export type FileDiff = { path: string; patch: string; whitespaceIgnoredPatch?: s
 export type VaultFile = { path: string; content: string; binary: boolean; image?: string };
 export type GitStatus = { branch: string; head?: string; changes: Change[]; ahead: number; behind: number; remote: string; lfs: boolean };
 export type Commit = { hash: string; author: string; date: string; message: string };
-export type CommitResult = { committed: boolean; restoredPaths: string[] };
+export type GitFileChange = { path: string; status: string; originalPath?: string };
+export type CommitResult = { committed: boolean; restoredPaths: string[]; hash?: string; changes: GitFileChange[] };
+export type PullResult = { before: string; after: string; commitCount: number; changes: GitFileChange[] };
+export type PullRecord = PullResult & { pulledAt: string };
 export type RevisionComparison = { content: string; previousContent: string; previousHash?: string };
 export type Settings = { autoCommit: boolean; interval: number; autoPull: boolean; pullInterval: number; author: string; email: string; remote: string };
 export type ExportFormat = 'pdf' | 'html' | 'md' | 'excalidraw';
@@ -66,7 +69,8 @@ export type Api = {
   openFile(path: string): Promise<VaultFile>;
   saveFile(path: string, content: string): Promise<SaveResult | void>;
   commit(message: string, stagedOnly?: boolean, ignoreWhitespace?: boolean): Promise<CommitResult>;
-  pull(): Promise<void>;
+  pull(): Promise<PullResult>;
+  pullDiff(before: string, after: string, path: string, originalPath?: string): Promise<FileDiff>;
   push(): Promise<void>;
   history(id?: string): Promise<Commit[]>;
   revision(id: string, hash: string): Promise<string>;

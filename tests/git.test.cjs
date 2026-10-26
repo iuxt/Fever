@@ -171,7 +171,7 @@ test('a whitespace-only staged selection is reset without committing later real 
  const head = await store.git(['rev-parse', 'HEAD']);
  await fs.writeFile(path.join(dir, file), original + '\n \n'); await store.stage(file);
  await fs.writeFile(path.join(dir, file), 'later real edit\n');
- assert.deepEqual(await store.commit('blank selection', true, true), { committed: false, restoredPaths: [file] });
+ assert.deepEqual(await store.commit('blank selection', true, true), { committed: false, restoredPaths: [file], changes: [] });
  assert.equal(await store.git(['rev-parse', 'HEAD']), head);
  assert.equal(await store.git(['show', `:${file}`]), original);
  assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), 'later real edit\n');
@@ -202,7 +202,11 @@ test('disabling the commit filter retains whitespace-only changes exactly', asyn
  const { store, dir, file } = await fixture(t);
  const original = await fs.readFile(path.join(dir, file), 'utf8'), content = original + '\n \n';
  await fs.writeFile(path.join(dir, file), content);
- assert.deepEqual(await store.commit('keep whitespace', false, false), { committed: true, restoredPaths: [] });
+ const result = await store.commit('keep whitespace', false, false);
+ assert.equal(result.committed, true);
+ assert.deepEqual(result.restoredPaths, []);
+ assert.deepEqual(result.changes, [{ status: 'M', path: file }]);
+ assert.match(result.hash, /^[0-9a-f]{40,64}$/);
  assert.equal(await store.git(['show', `HEAD:${file}`]), content);
  assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), content);
 });

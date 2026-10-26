@@ -192,10 +192,11 @@ export const demo: Api = {
   }
   const files = stagedOnly ? { ...state.stagedFiles! } : Object.fromEntries(fileChanges().map(change => [change.path, workingFiles()[change.path] ?? null]));
   if (!Object.keys(files).length) {
-   if (restoredPaths.length) return { committed: false, restoredPaths };
+   if (restoredPaths.length) return { committed: false, restoredPaths, changes: [] };
    throw new Error('没有需要提交的变更');
   }
   const commit = { hash: crypto.randomUUID().replaceAll('-', '') + '12345678', author: state.settings.author, date: new Date().toISOString(), message };
+  const changes = Object.entries(files).map(([path, content]) => ({ path, status: content === null ? 'D' : path in state.baseFiles! ? 'M' : 'A' }));
   for (const [path, content] of Object.entries(files)) {
    const id = noteIdFor(path);
    if (id && content !== null) (state.versions[id] ||= []).unshift({ commit, content });
@@ -203,9 +204,10 @@ export const demo: Api = {
    delete state.stagedFiles![path];
   }
   state.dirty = fileChanges().map(change => change.path); persist();
-  return { committed: true, restoredPaths };
+  return { committed: true, restoredPaths, hash: commit.hash, changes };
  },
  pull: async () => { throw new Error('浏览器演示不连接远程仓库，请使用 Electron 桌面应用'); },
+ pullDiff: async () => { throw new Error('远端变更对比请使用 Electron 桌面应用'); },
  push: async () => { throw new Error('浏览器演示不连接远程仓库，请使用 Electron 桌面应用'); },
  history: async id => id ? (state.versions[id] || []).map(v => v.commit) : Array.from(new Map(Object.values(state.versions).flat().map(v => [v.commit.hash, v.commit])).values()),
  revision: async (id, hash) => state.versions[id]?.find(v => v.commit.hash === hash)?.content || '',

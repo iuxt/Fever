@@ -173,6 +173,10 @@ button, select, .code-block-actions, .table-controls, .drawing-preview-header { 
 .git-changes .change:hover, .git-changes .change:focus-within { background: var(--selected); }
 .git-changes .changes-title { height: 34px; box-sizing: border-box; }
 .git-changes .virtual-changes-list { position: relative; }
+.remote-changes-meta { height: 30px; margin: 0 18px; color: var(--muted); font-size: .6875rem; line-height: 24px; }
+.git-operation-summary { flex-shrink: 0; margin: 0 18px 12px; padding: 9px 10px; background: var(--selected); border-radius: 5px; font-size: .75rem; line-height: 1.7; }
+.git-operation-summary strong, .git-operation-summary span, .toast-content > span, .toast-content small { display: block; }
+.git-operation-summary span, .toast-content small { color: var(--muted); }
 .virtual-changes-list .change { position: absolute; left: 12px; right: 12px; height: 34px; box-sizing: border-box; }
 .diff-pagination { display: flex; align-items: center; gap: 12px; padding: 8px 0; flex-shrink: 0; color: var(--muted); font-size: 0.8125rem; }
 .diff-fallback { display: flex; flex-direction: column; min-height: 0; }

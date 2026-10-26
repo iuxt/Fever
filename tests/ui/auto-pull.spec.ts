@@ -4,7 +4,7 @@ async function fixture(page: Page) {
  await page.addInitScript(() => {
   const note = { id: 'a', filename: 'a.md', title: '自动拉取测试', category: '', createdAt: '2026-10-18', updatedAt: '2026-10-18' };
   const other = { ...note, id: 'b', filename: 'b.md', title: '剩余文章' };
-  const controls = (window as any).autoPullControls = { tick: () => {}, pulls: 0, checks: 0, head: 'before', content: '# 原始正文', remote: 'https://example.com/notes.git', dirty: false, failure: false, hold: false, release: () => {}, unchanged: false, removed: false };
+  const controls = (window as any).autoPullControls = { tick: () => {}, pulls: 0, checks: 0, head: '1'.repeat(40), nextHead: '2'.repeat(40), content: '# 原始正文', remote: 'https://example.com/notes.git', dirty: false, failure: false, hold: false, release: () => {}, unchanged: false, removed: false, changes: [{ path: 'notes/a.md', status: 'M' }], diffRequest: null as unknown };
   window.fever = {
    desktop: true,
    current: async () => ({ path: '/test/auto-pull', name: '测试库', lfs: true, manifest: { version: 1, categories: [], notes: controls.removed ? [other] : [other, note] } }),
@@ -13,10 +13,16 @@ async function fixture(page: Page) {
    status: async () => { controls.checks++; return { branch: 'main', head: controls.head, changes: controls.dirty ? [{ path: 'notes/a.md', status: ' M', staged: false, unstaged: true }] : [], ahead: 0, behind: 0, remote: controls.remote, lfs: true }; },
    settings: async () => ({ autoCommit: false, interval: 10, autoPull: true, pullInterval: 1, author: '', email: '', remote: controls.remote }),
    pull: async () => {
+    const before = controls.head;
     controls.pulls++;
     if (controls.hold) await new Promise<void>(resolve => { controls.release = resolve; });
     if (controls.failure) throw new Error('网络连接失败');
-    if (!controls.unchanged) { controls.content = '# 远程更新后的正文'; controls.head = 'after'; }
+    if (!controls.unchanged) { controls.content = '# 远程更新后的正文'; controls.head = controls.nextHead; }
+    return { before, after: controls.head, commitCount: controls.unchanged ? 0 : 2, changes: controls.unchanged ? [] : controls.changes };
+   },
+   pullDiff: async (before, after, path, originalPath) => {
+    controls.diffRequest = { before, after, path, originalPath };
+    return { path, patch: '@@ -1 +1 @@\n-before pull\n+after pull\n' };
    },
    onAutoPull: callback => { controls.tick = callback; return () => { controls.tick = () => {}; }; },
    history: async () => [], cancelSearch: async () => {}, asset: src => src,
@@ -29,6 +35,68 @@ async function fixture(page: Page) {
 
 const tick = (page: Page) => page.evaluate(() => (window as any).autoPullControls.tick());
 const pulls = (page: Page) => page.evaluate(() => (window as any).autoPullControls.pulls);
+
+test('each updated pull replaces the remote file list instead of accumulating older files', async ({ page }) => {
+ await fixture(page);
+ await pull(page, false);
+ const remote = page.getByRole('region', { name: '远端变更', exact: true });
+ await expect(remote.getByRole('button', { name: '查看远端差异：自动拉取测试', exact: true })).toBeVisible();
+ await page.evaluate(() => {
+  const controls = (window as any).autoPullControls;
+  controls.nextHead = '3'.repeat(40);
+  controls.changes = [{ path: 'notes/b.md', status: 'M' }];
+ });
+ await tick(page);
+ await expect.poll(() => pulls(page)).toBe(2);
+ await expect(remote.getByRole('button', { name: '查看远端差异：剩余文章', exact: true })).toBeVisible();
+ await expect(remote.getByRole('button', { name: '查看远端差异：自动拉取测试', exact: true })).toHaveCount(0);
+ await expect(remote.locator('.changes-count')).toHaveText('1');
+ const record = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-last-pull:/test/auto-pull')!));
+ expect(record.before).toBe('2'.repeat(40));
+ expect(record.after).toBe('3'.repeat(40));
+ expect(record.changes).toEqual([{ path: 'notes/b.md', status: 'M' }]);
+});
+
+test('pull reports file totals and keeps a persistent, read-only remote change list', async ({ page }) => {
+ await fixture(page);
+ await page.getByTitle('关闭标签', { exact: true }).click();
+ await page.evaluate(() => { (window as any).autoPullControls.changes = [
+  { path: 'notes/a.md', status: 'M' }, { path: 'notes/new.txt', status: 'A' },
+  { path: 'notes/deleted.txt', status: 'D' }, { path: 'notes/renamed.txt', originalPath: 'notes/old.txt', status: 'R' },
+ ]; });
+ await pull(page, false);
+ await expect(page.locator('.toast')).toContainText('2 个提交 · 4 个文件（新增 1 · 修改 1 · 删除 1 · 重命名 1）');
+ await expect(page.locator('.git-operation-summary')).toContainText('4 个文件');
+ const remote = page.getByRole('region', { name: '远端变更', exact: true });
+ await expect(page.locator('.changes-heading')).toHaveText(['已暂存变更', '工作区变更', '远端变更']);
+ await expect(remote.locator('.changes-count')).toHaveText('4');
+ await expect(page.getByRole('region', { name: '工作区变更', exact: true }).locator('.changes-count')).toHaveText('0');
+ await expect(remote.getByRole('button', { name: /暂存|撤销|还原/ })).toHaveCount(0);
+ await expect(remote.getByTitle('打开远端变更：notes/deleted.txt', { exact: true })).toBeDisabled();
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await remote.getByRole('button', { name: '查看远端差异：自动拉取测试', exact: true }).click();
+ await expect(page.locator('.tab.current')).toContainText('远端对比');
+ await expect(page.locator('.diff-editor')).toContainText('+after pull');
+ expect(await page.evaluate(() => (window as any).autoPullControls.diffRequest)).toEqual({ before: '1'.repeat(40), after: '2'.repeat(40), path: 'notes/a.md', originalPath: undefined });
+ await page.getByRole('switch', { name: '忽略空格和空行' }).uncheck();
+ await expect(remote.locator('.changes-count')).toHaveText('4');
+ await page.screenshot({ path: 'test-results/git-remote-changes.png' });
+ // A pull with no updates preserves both the list and the current diff tab.
+ await page.evaluate(() => { (window as any).autoPullControls.unchanged = true; });
+ await page.getByRole('button', { name: '拉取', exact: true }).click();
+ await expect(page.locator('.toast')).toContainText('已是最新，无远端更新');
+ await expect(page.locator('.toast')).toContainText('0 个提交 · 0 个文件');
+ await expect(remote.locator('.changes-count')).toHaveText('4');
+ await expect(page.locator('.tab.current')).toContainText('远端对比');
+ await page.reload();
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await expect(remote.locator('.changes-count')).toHaveText('4');
+ // A failed pull must not replace the last successful result.
+ await page.evaluate(() => { (window as any).autoPullControls.failure = true; });
+ await page.getByRole('button', { name: '拉取', exact: true }).click();
+ await expect(page.locator('.toast.error')).toContainText('网络连接失败');
+ await expect(remote.locator('.changes-count')).toHaveText('4');
+});
 
 async function pull(page: Page, automatic: boolean) {
  if (automatic) await tick(page);

@@ -108,6 +108,8 @@ for (const variant of ['all', 'staged', 'disabled'] as const) {
   await page.getByPlaceholder('这次记录了什么？').fill('commit with whitespace preference');
   await page.getByRole('button', { name: variant === 'staged' ? '提交已暂存变更 (2)' : '提交所有笔记变更', exact: true }).click();
   await expect(page.getByText(variant === 'disabled' ? '已创建 Git 提交' : '已创建 Git 提交，并还原 1 个文件的空白变更', { exact: true })).toBeVisible();
+  await expect(page.locator('.toast small')).toContainText(`提交 ${variant === 'disabled' ? 2 : 1} 个文件`);
+  await expect(page.locator('.git-operation-summary')).toContainText(`提交 ${variant === 'disabled' ? 2 : 1} 个文件`);
   const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
   const expected = variant === 'disabled' ? 'alpha  beta  \n\nsecond line\n\n' : 'alpha beta\nsecond line\n';
   expect(state.contents['demo-1']).toBe(expected);
@@ -137,6 +139,7 @@ test('a whitespace-only commit restores the active editor and skips creating his
  await page.getByPlaceholder('这次记录了什么？').fill('only whitespace');
  await page.getByRole('button', { name: '提交所有笔记变更', exact: true }).click();
  await expect(page.getByText('已还原空白变更，本次未创建提交', { exact: true })).toBeVisible();
+ await expect(page.locator('.toast small')).toContainText('提交 0 个文件 · 已还原 1 个文件的空白变更');
  await expect.poll(() => page.locator('.source-editor .cm-line').first().textContent()).toBe('alpha beta');
  const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
  expect(state.contents['demo-1']).toBe('alpha beta\n');

@@ -68,7 +68,14 @@ try {
  await writer.commit('remote update'); await writer.push();
  await tick();
  await expect(page.locator('.wysiwyg-content')).toContainText('Pulled automatically');
+ await expect(page.locator('.toast')).toContainText('1 个提交 · 2 个文件');
  assert.equal(await readFile(path.join(folder, 'notes', note.filename), 'utf8'), '# Remote update\n\nPulled automatically\n');
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ const remoteChanges = page.getByRole('region', { name: '远端变更', exact: true });
+ await expect(remoteChanges.locator('.changes-count')).toHaveText('2');
+ await remoteChanges.getByRole('button', { name: `查看远端差异：${note.title}`, exact: true }).click();
+ await expect(page.locator('.diff-editor')).toContainText('+Pulled automatically');
+ await page.getByTitle(`关闭对比：notes/${note.filename}`, { exact: true }).click();
  // No new remote commit must preserve the editor and its undo history.
  const editor = await page.locator('.wysiwyg-content').elementHandle();
  await tick();
@@ -101,6 +108,8 @@ try {
  app = await electron.launch({ args: ['.', `--fever-data=${data}`], env });
  page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
  await expect(page.getByTitle('设置', { exact: true })).toBeVisible();
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await expect(page.getByRole('region', { name: '远端变更', exact: true }).locator('.changes-count')).toHaveText('2');
  const restored = await page.evaluate(() => window.fever.settings());
  assert.equal(restored.autoPull, true); assert.equal(restored.pullInterval, 3);
  await page.getByTitle('设置', { exact: true }).click();

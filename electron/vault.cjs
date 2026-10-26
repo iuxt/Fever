@@ -1,6 +1,6 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { randomUUID } = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
 const { isUtf8 } = require('node:buffer');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
@@ -623,12 +623,23 @@ class VaultStore {
     const restoredPaths = ignoreWhitespace ? await this.resetWhitespaceChanges() : [];
     if (restoredPaths.length) staged = await this.git(['diff', '--cached', '--name-only', '-z']);
     if (!staged.trim()) {
-      if (restoredPaths.length) return { committed: false, restoredPaths };
+      if (restoredPaths.length) return { committed: false, restoredPaths, changes: [] };
       throw new Error('没有需要提交的变更');
     }
     await this.git(['commit', '-m', message.trim()]);
-    return { committed: true, restoredPaths };
+    const hash = (await this.git(['rev-parse', 'HEAD'])).trim();
+    const changes = this.parseFileChanges(await this.git(['diff-tree', '--root', '--no-commit-id', '-r', '--name-status', '-z', '-M', hash, '--']));
+    return { committed: true, restoredPaths, hash, changes };
   }); }
+  parseFileChanges(raw) {
+    const fields = raw.split('\0'), changes = [];
+    for (let i = 0; i < fields.length && fields[i];) {
+      const status = fields[i++][0], first = fields[i++];
+      if (status === 'R' || status === 'C') changes.push({ status, originalPath: first, path: fields[i++] });
+      else changes.push({ status, path: first });
+    }
+    return changes;
+  }
   pull() { return this.queued(async () => {
     const status = await this.status();
     if (!status.remote) throw new Error('请先在设置中配置远程仓库');
@@ -639,6 +650,25 @@ class VaultStore {
     let manifest = JSON.parse(text);
     manifest = readManifest(manifest);
     this.manifest = manifest;
+    const before = /^[0-9a-f]{40,64}$/.test(status.head) ? status.head : '';
+    const after = (await this.git(['rev-parse', 'HEAD'])).trim();
+    const changes = before === after ? [] : before
+      ? this.parseFileChanges(await this.git(['diff', '--name-status', '-z', '-M', before, after, '--']))
+      : (await this.git(['ls-tree', '-r', '--name-only', '-z', after])).split('\0').filter(Boolean).map(path => ({ path, status: 'A' }));
+    const commitCount = before === after ? 0 : Number((await this.git(['rev-list', '--count', before ? `${before}..${after}` : after])).trim());
+    return { before, after, changes, commitCount };
+  }); }
+  pullDiff(before, after, relative, originalPath) { return this.queued(async () => {
+    if ((before && !/^[0-9a-f]{40,64}$/.test(before)) || !/^[0-9a-f]{40,64}$/.test(after)) throw new Error('提交标识无效');
+    const paths = [relative, ...(originalPath ? [originalPath] : [])];
+    for (const relative of paths) await this.changeFile(relative);
+    const base = before || createHash((await this.git(['rev-parse', '--show-object-format'])).trim()).update('tree 0\0').digest('hex');
+    const args = ['diff', base, after];
+    const options = ['--no-ext-diff', '--no-textconv', '--no-color', '-M'];
+    const literalPaths = paths.map(relative => `:(literal)${relative}`);
+    const patch = await this.git([...args, ...options, '--', ...literalPaths]);
+    const whitespaceIgnoredPatch = await this.git([...args, ...options, '--ignore-all-space', '--ignore-blank-lines', '--', ...literalPaths]);
+    return { path: relative, patch: patch || '没有文本差异（文件权限或属性发生变化）。', whitespaceIgnoredPatch: whitespaceIgnoredPatch || (patch ? '已忽略空格和空行变化，没有其他文本差异。' : '没有文本差异（文件权限或属性发生变化）。') };
   }); }
   push() { return this.queued(async () => { const s = await this.status(); if (!s.remote) throw new Error('请先在设置中配置远程仓库'); if (s.branch === 'HEAD') throw new Error('请先切换到分支再推送'); await this.git(['push', '--set-upstream', 'origin', s.branch]); }); }
   async history(id) {
