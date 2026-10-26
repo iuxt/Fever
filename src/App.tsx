@@ -114,6 +114,8 @@ export default function App() {
  const revision = revisionComparison?.content ?? '';
  const [editorTabs, setEditorTabs] = useState<EditorTab[]>([]), [activeEditorKey, setActiveEditorKey] = useState<string | null>(null);
  const activeEditor = editorTabs.find(tab => tab.key === activeEditorKey);
+ const activeEditorRef = useRef(activeEditor);
+ activeEditorRef.current = activeEditor;
  const [discardChange, setDiscardChange] = useState<Change | null>(null);
  const stagedCount = status?.changes.filter(change => change.staged).length || 0;
  const [commitMessage, setCommitMessage] = useState(defaultCommitMessage), [busy, setBusy] = useState(false), [saved, setSaved] = useState(true);
@@ -226,6 +228,11 @@ export default function App() {
   ++readToken.current;
   setActiveId(''); setContent(''); setSelectedCommit(null); setRevisionComparison(null);
  }, []);
+ function clearRemovedEditor(key: string) {
+  if (activeEditorRef.current?.key !== key) return;
+  // Automatic tab removal must leave the workspace empty, without selecting a background note.
+  clearDocument(); setActiveEditorKey(null);
+ }
  const navigateNote = useCallback((href: string) => {
   const note = resolveNoteLink(href, allNotes);
   if (!note) return false;
@@ -345,20 +352,21 @@ export default function App() {
     setCommitMessage(defaultCommitMessage());
     const restored = new Set(result.restoredPaths);
     setEditorTabs(previous => previous.filter(tab => tab.kind !== 'diff' || !restored.has(tab.path)));
-    if (activeEditor?.kind === 'diff' && restored.has(activeEditor.path)) setActiveEditorKey(previous => previous === activeEditor.key ? null : previous);
+    const currentEditor = activeEditorRef.current;
+    if (currentEditor?.kind === 'diff' && restored.has(currentEditor.path)) clearRemovedEditor(currentEditor.key);
     successMessage = result.committed ? (restored.size ? `已创建 Git 提交，并还原 ${restored.size} 个文件的空白变更` : '已创建 Git 提交') : '已还原空白变更，本次未创建提交';
    } finally {
     // Restores may reach disk even if a later Git operation fails.
     if (reloadRestoredFiles) {
      const v = await api.current(); vaultRef.current = v; setVault(v);
      const currentId = currentDocument.current.id;
-     if (currentId) await select(currentId, true);
+     if (currentId && !activeEditorRef.current) await select(currentId, true);
      const files = await Promise.all(editorTabs.filter(tab => tab.kind === 'file').map(async tab => ({ key: tab.key, file: await api.openFile(tab.path).catch(() => null) })));
      setEditorTabs(previous => previous.flatMap(tab => {
       const refreshed = files.find(file => file.key === tab.key);
       return tab.kind === 'file' && refreshed ? (refreshed.file ? [{ ...tab, file: refreshed.file }] : []) : [tab];
      }));
-     setActiveEditorKey(previous => files.some(file => file.key === previous && !file.file) ? null : previous);
+     for (const file of files) if (!file.file) clearRemovedEditor(file.key);
      setSearchVersion(version => version + 1);
     }
     await refresh();
@@ -379,7 +387,6 @@ export default function App() {
     setEditorTabs([]); setActiveEditorKey(null);
     setTabs(previous => previous.filter(id => v?.manifest.notes.some(note => note.id === id) || v?.manifest.trash?.some(note => note.id === id)));
     if (v?.manifest.notes.some(note => note.id === activeId) || v?.manifest.trash?.some(note => note.id === activeId)) await select(activeId);
-    else if ((!automatic || activeId) && v?.manifest.notes[0]) await select(v.manifest.notes[0].id);
     else clearDocument();
     notify(automatic ? '已自动拉取远程更新' : '已拉取远程更新');
    } catch (e) { throw new Error(`${automatic ? '自动拉取失败：' : ''}${(e as Error).message}`); }
@@ -525,12 +532,13 @@ export default function App() {
     const v = await api.current(); vaultRef.current = v; setVault(v);
     setTabs(previous => previous.filter(id => v?.manifest.notes.some(note => note.id === id)));
     const next = v?.manifest.notes.find(note => note.id === activeId);
-    if (next) await select(next.id, true); else clearDocument();
+    if (!next) clearDocument();
+    else if (!activeEditor) await select(next.id, true);
     if (activeEditor?.kind === 'file') {
      try { showEditorTab({ ...activeEditor, file: await api.openFile(activeEditor.path) }); }
-     catch { setEditorTabs(previous => previous.filter(tab => tab.key !== activeEditor.key)); setActiveEditorKey(null); }
+     catch { setEditorTabs(previous => previous.filter(tab => tab.key !== activeEditor.key)); clearRemovedEditor(activeEditor.key); }
     } else if (activeEditor?.kind === 'diff' && paths.has(activeEditor.path)) {
-     setActiveEditorKey(null);
+     clearRemovedEditor(activeEditor.key);
     }
     setEditorTabs(previous => previous.filter(tab => !paths.has(tab.path) || (tab.kind === 'file' && tab.key === activeEditor?.key)));
     await refreshStatus();

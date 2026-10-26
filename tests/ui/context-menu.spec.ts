@@ -16,6 +16,31 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(({ page }) => { expect((page as Page & { errors: string[] }).errors).toEqual([]); });
 
 const menu = (page: Page) => page.getByRole('menu');
+
+for (const macos of [false, true]) {
+ test(`tab menu dismisses on blank areas${macos ? ' with macOS window chrome' : ''}`, async ({ page }) => {
+  if (macos) await page.evaluate(() => { document.documentElement.dataset.windowChrome = 'macos'; });
+  const tab = page.locator('.tab');
+  const regions = [page.locator('.tabs'), page.locator('.sidebar-brand')];
+  for (const region of regions) {
+   await tab.click({ button: 'right' });
+   await expect(menu(page)).toHaveAttribute('aria-label', '选项卡菜单');
+   if (macos) {
+    await expect(page.locator('.tab-bar')).toHaveCSS('-webkit-app-region', 'no-drag');
+    await expect(page.locator('.sidebar-brand')).toHaveCSS('-webkit-app-region', 'no-drag');
+   }
+   const bounds = await region.boundingBox();
+   await region.click({ position: { x: bounds!.width - 8, y: 8 } });
+   await expect(menu(page)).toHaveCount(0);
+   await expect(tab).toHaveCount(1);
+   if (macos) {
+    await expect(page.locator('.tab-bar')).toHaveCSS('-webkit-app-region', 'drag');
+    await expect(page.locator('.sidebar-brand')).toHaveCSS('-webkit-app-region', 'drag');
+   }
+  }
+ });
+}
+
 async function selectProse(page: Page) {
  await page.getByRole('textbox', { name: '笔记正文' }).focus();
  await page.locator('.wysiwyg-content > p').first().evaluate(p => {

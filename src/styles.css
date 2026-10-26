@@ -464,6 +464,8 @@ button.category-expand:hover:not(:disabled) { color: var(--green); background: v
 :root[data-window-chrome='macos'] .tab-bar { -webkit-app-region: drag; }
 :root[data-window-chrome='macos'] .app-shell:not(:has(.sidebar)) .tab-bar { padding-left: 92px; }
 :root[data-window-chrome='macos'] :is(.sidebar-brand, .tab-bar) button, :root[data-window-chrome='macos'] .tab { -webkit-app-region: no-drag; }
+/* Draggable regions swallow pointer events, including clicks that dismiss a menu. */
+:root[data-window-chrome='macos']:has(.context-menu) :is(.sidebar-brand, .tab-bar) { -webkit-app-region: no-drag; }
 :root[data-window-chrome='macos'] .welcome::before { content: ''; position: absolute; inset: 0 0 auto; height: 48px; -webkit-app-region: drag; }
 
 /* Folder navigation, note summaries, and a spacious writing column. */

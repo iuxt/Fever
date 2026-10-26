@@ -1,5 +1,91 @@
 import { test, expect } from '@playwright/test';
 
+for (const operation of ['commit', 'discard', 'discardAll'] as const) {
+ test(`${operation} closes an unavailable file without revealing the background article`, async ({ page }) => {
+  await page.addInitScript(() => {
+   const note = { id: 'a', title: '后台文章', filename: 'a.md', category: '', createdAt: '', updatedAt: '' };
+   let restored = false;
+   window.fever = {
+    current: async () => ({ path: '/test/removed-file', name: '测试库', lfs: true, manifest: { version: 1, categories: [], notes: [note] } }),
+    read: async () => '# 后台文章',
+    status: async () => ({ branch: 'main', changes: restored ? [] : [{ path: 'settings.txt', status: '??', staged: false, unstaged: true }], ahead: 0, behind: 0, remote: '', lfs: true }),
+    settings: async () => ({ autoCommit: false, interval: 10, autoPull: false, pullInterval: 10, author: '', email: '', remote: '' }),
+    cancelSearch: async () => {}, asset: () => '',
+    openFile: async path => { if (restored) throw new Error('文件已不存在'); return { path, content: 'unsaved file', binary: false }; },
+    commit: async () => { restored = true; return { committed: false, restoredPaths: ['settings.txt'] }; },
+    discard: async () => { restored = true; },
+    discardAll: async () => { restored = true; return ['settings.txt']; },
+   } as typeof window.fever;
+  });
+  await page.goto('/');
+  await page.locator('.note-row').click();
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  await page.locator('.change').filter({ hasText: 'settings.txt' }).hover();
+  await page.getByTitle('打开文件：settings.txt', { exact: true }).click();
+  await expect(page.locator('.file-editor')).toBeVisible();
+  if (operation === 'commit') {
+   await page.getByRole('button', { name: '提交所有笔记变更', exact: true }).click();
+   await expect(page.getByText('已还原空白变更，本次未创建提交', { exact: true })).toBeVisible();
+  } else {
+   if (operation === 'discardAll') await page.getByRole('button', { name: '全部还原', exact: true }).click();
+   else {
+    await page.locator('.change').filter({ hasText: 'settings.txt' }).hover();
+    await page.getByTitle('撤销变更：settings.txt', { exact: true }).click();
+   }
+   await page.getByRole('dialog').getByRole('button', { name: operation === 'discardAll' ? '全部还原' : '撤销变更', exact: true }).click();
+   await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+  await expect(page.locator('.tab')).toHaveCount(1);
+  await expect(page.locator('.tab.current')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+  await expect(page.locator('.toast.error')).toHaveCount(0);
+  await page.locator('.tab').getByRole('button', { name: '后台文章', exact: true }).click();
+  await expect(page.locator('.wysiwyg-content')).toContainText('后台文章');
+ });
+
+ for (const backgroundOpen of [false, true]) {
+  test(`${operation} closes its comparison without revealing or reopening a ${backgroundOpen ? 'background' : 'closed'} article`, async ({ page }) => {
+   await page.goto('/');
+   await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
+    state.baseFiles['notes/demo-1.md'] = 'alpha beta\n';
+    state.contents['demo-1'] = 'alpha  beta  \n\n';
+    localStorage.setItem('fever-demo-v1', JSON.stringify(state));
+   });
+   await page.reload();
+   await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+   await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
+   await expect(page.locator('.wysiwyg-content')).toBeVisible();
+   await page.getByRole('button', { name: 'Git', exact: true }).click();
+   const toggle = page.getByRole('switch', { name: '忽略空格和空行' });
+   await toggle.uncheck();
+   await page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever', exact: true }).click();
+   if (!backgroundOpen) await page.getByTitle('关闭标签', { exact: true }).click();
+   if (operation === 'commit') {
+    await toggle.check();
+    await page.getByRole('button', { name: '提交所有笔记变更', exact: true }).click();
+    await expect(page.getByText('已还原空白变更，本次未创建提交', { exact: true })).toBeVisible();
+   } else {
+    if (operation === 'discardAll') await page.getByRole('region', { name: '工作区变更', exact: true }).getByRole('button', { name: '全部还原', exact: true }).click();
+    else {
+     await page.locator('.change').filter({ hasText: '欢迎使用 Fever' }).hover();
+     await page.getByTitle('撤销变更：notes/demo-1.md', { exact: true }).click();
+    }
+    await page.getByRole('dialog').getByRole('button', { name: operation === 'discardAll' ? '全部还原' : '撤销变更', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+   }
+   await expect(page.locator('.tab')).toHaveCount(backgroundOpen ? 1 : 0);
+   await expect(page.locator('.tab.current')).toHaveCount(0);
+   await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+   await expect(page.locator('.toast.error')).toHaveCount(0);
+   // Background tabs remain usable and read the restored content when explicitly selected.
+   if (backgroundOpen) await page.locator('.tab').getByRole('button', { name: '欢迎使用 Fever', exact: true }).click();
+   else await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
+   await expect.poll(() => page.locator('.wysiwyg-content').textContent()).toBe('alpha beta');
+  });
+ }
+}
+
 for (const variant of ['all', 'staged', 'disabled'] as const) {
  test(`commit ${variant} restores only whitespace-only files when filtering is enabled`, async ({ page }) => {
   await page.goto('/');
