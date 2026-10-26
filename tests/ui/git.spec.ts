@@ -360,7 +360,8 @@ test('workspace heading restores all working changes after confirmation and reta
  await expect(working.getByRole('button', { name: '全部暂存', exact: true })).toBeDisabled();
  await expect(staged.locator('.changes-count')).toHaveText('1');
  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest.notes.map((note: { title: string }) => note.title))).not.toContain('全部还原时删除的新笔记');
- await expect(page.locator('.wysiwyg-content')).toContainText('让每一个想法，都有迹可循。');
+ await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await expect(page.locator('.tab.current')).toHaveCount(0);
  await page.getByRole('button', { name: '查看已暂存差异：Markdown 语法指南' }).click();
  await expect(page.locator('.diff-editor')).toContainText('+# 保留已暂存内容');
  await page.locator('.inspector').screenshot({ path: 'test-results/git-workspace-heading.png' });
@@ -369,3 +370,37 @@ test('workspace heading restores all working changes after confirmation and reta
  await expect(working.locator('.changes-count')).toHaveText('0');
  await expect(staged.locator('.changes-count')).toHaveText('1');
 });
+
+for (const view of ['empty', 'diff', 'note'] as const) {
+ test(`bulk discard preserves the ${view} workspace without opening the first note`, async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+   const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
+   state.contents['demo-2'] = '# Bulk discard regression\n';
+   localStorage.setItem('fever-demo-v1', JSON.stringify(state));
+  });
+  await page.reload();
+  if (view === 'note') {
+   await page.getByPlaceholder('搜索你的笔记…').fill('Markdown 语法指南');
+   await page.locator('.note-row').click();
+   await page.getByPlaceholder('搜索你的笔记…').fill('');
+  }
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  if (view === 'diff') {
+   await page.getByRole('button', { name: '查看工作区差异：Markdown 语法指南' }).click();
+   await expect(page.locator('.diff-editor')).toContainText('Bulk discard regression');
+  }
+  await page.getByRole('region', { name: '工作区变更', exact: true }).getByRole('button', { name: '全部还原', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '全部还原', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByText('无待提交变更', { exact: true })).toBeVisible();
+  if (view === 'note') {
+   await expect(page.locator('.tab')).toHaveCount(1);
+   await expect(page.locator('.tab.current')).toContainText('Markdown 语法指南');
+   await expect(page.locator('.wysiwyg-content')).not.toContainText('Bulk discard regression');
+  } else {
+   await expect(page.locator('.tab')).toHaveCount(0);
+   await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+  }
+ });
+}

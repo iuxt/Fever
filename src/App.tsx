@@ -524,7 +524,7 @@ export default function App() {
     // Refresh even if one file fails after earlier files have been restored.
     const v = await api.current(); vaultRef.current = v; setVault(v);
     setTabs(previous => previous.filter(id => v?.manifest.notes.some(note => note.id === id)));
-    const next = v?.manifest.notes.find(note => note.id === activeId) || v?.manifest.notes[0];
+    const next = v?.manifest.notes.find(note => note.id === activeId);
     if (next) await select(next.id, true); else clearDocument();
     if (activeEditor?.kind === 'file') {
      try { showEditorTab({ ...activeEditor, file: await api.openFile(activeEditor.path) }); }
