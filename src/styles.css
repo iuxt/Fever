@@ -592,3 +592,13 @@ button.category-expand:hover:not(:disabled) { color: var(--green); background: v
 .document-space.source { display: flex; overflow: hidden; }
 .document-space.source > .source-editor { width: 100%; min-width: 0; flex: 1; }
 .inspector:has(.outline) .inspector-tabs { position: sticky; top: 0; z-index: 1; background: var(--panel); }
+
+/* Expand the writing workspace without unmounting editors or changing panel preferences. */
+.editor-toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.editor-fullscreen-button { flex-shrink: 0; }
+.app-shell.editor-fullscreen { min-height: 0; }
+.app-shell.editor-fullscreen > :is(.sidebar, .file-list-panel, .inspector),
+.editor-fullscreen > .workspace > .tab-bar { display: none; }
+:root[data-window-chrome='macos'] .editor-fullscreen .editor-toolbar { padding-left: 92px; -webkit-app-region: drag; }
+:root[data-window-chrome='macos'] .editor-fullscreen .editor-toolbar :is(button, .dropdown, .editor-width-popover) { -webkit-app-region: no-drag; }
+:root[data-window-chrome='macos']:has(.context-menu) .editor-fullscreen .editor-toolbar { -webkit-app-region: no-drag; }
