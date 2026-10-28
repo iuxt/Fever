@@ -70,6 +70,29 @@ try {
  await app.evaluate(({ Menu, BrowserWindow }) => Menu.getApplicationMenu().getMenuItemById('close-tab').click(undefined, BrowserWindow.getAllWindows()[0]));
  await expect(page.locator('.tab')).toHaveCount(0);
  expect(page.isClosed()).toBe(false);
+ // Reuse the same profile across full process exits to verify persisted tab state.
+ const relaunch = async () => {
+  await app.close();
+  app = await electron.launch({ ...(process.env.FEVER_EXECUTABLE ? { executablePath: process.env.FEVER_EXECUTABLE } : {}), args: [...(process.env.FEVER_EXECUTABLE ? [] : ['.']), `--fever-data=${data}`], env });
+  const reopened = await app.firstWindow();
+  reopened.on('pageerror', error => errors.push(error.message));
+  return reopened;
+ };
+ let reopened = await relaunch();
+ await expect(reopened.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await expect(reopened.locator('.tab')).toHaveCount(0);
+ await reopened.locator('.folder-row').filter({ hasText: '收件箱' }).click();
+ await reopened.locator('.note-row').filter({ hasText: '快捷键测试' }).click();
+ await expect(reopened.locator('.tab.current')).toContainText('快捷键测试');
+ reopened = await relaunch();
+ await expect(reopened.locator('.tab')).toHaveCount(1);
+ await expect(reopened.locator('.tab.current')).toContainText('快捷键测试');
+ await expect(reopened.locator('.wysiwyg-content')).toContainText('快捷键关闭前的修改');
+ await reopened.getByTitle('关闭标签', { exact: true }).click();
+ await expect(reopened.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ reopened = await relaunch();
+ await expect(reopened.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ await expect(reopened.locator('.tab')).toHaveCount(0);
  expect(errors).toEqual([]);
- console.log('PASS: native settings/format shortcuts, close-tab accelerator/menu, save before close, last tab and empty workspace');
+ console.log('PASS: native settings/format shortcuts, close-tab accelerator/menu, save before close, last tab and persisted empty workspace across restarts');
 } finally { await app?.close(); await rm(scratch, { recursive: true, force: true }); }

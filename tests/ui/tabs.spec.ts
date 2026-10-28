@@ -1,5 +1,31 @@
 import { test, expect } from '@playwright/test';
 
+for (const method of ['button', 'shortcut', 'context menu'] as const) {
+ test(`closing the last note via ${method} keeps the workspace empty after reopening`, async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
+  await page.locator('.note-row').filter({ hasText: '欢迎使用 Fever' }).click();
+  await page.locator('.note-row').filter({ hasText: 'Markdown 语法指南' }).click();
+  await page.getByTitle('关闭标签', { exact: true }).last().click();
+  await expect(page.locator('.tab.current')).toContainText('欢迎使用 Fever');
+  await page.reload();
+  await expect(page.locator('.tab')).toHaveCount(1);
+  await expect(page.locator('.tab.current')).toContainText('欢迎使用 Fever');
+  if (method === 'button') await page.getByTitle('关闭标签', { exact: true }).click();
+  else if (method === 'shortcut') await page.keyboard.press('ControlOrMeta+w');
+  else {
+   await page.locator('.tab').click({ button: 'right' });
+   await page.getByRole('menuitem', { name: '关闭选项卡', exact: true }).click();
+  }
+  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+  for (let reopen = 0; reopen < 2; reopen++) {
+   await page.reload();
+   await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+   await expect(page.locator('.tab')).toHaveCount(0);
+  }
+ });
+}
+
 for (const target of ['note', 'file', 'diff'] as const) {
  test(`tab context menu keeps the clicked ${target} and saves edits before closing others`, async ({ page }) => {
   await page.goto('/');
@@ -40,6 +66,9 @@ for (const target of ['note', 'file', 'diff'] as const) {
   await page.getByRole('menuitem', { name: '关闭选项卡', exact: true }).click();
   await expect(page.locator('.tab')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+  await expect(page.locator('.tab')).toHaveCount(0);
  });
 }
 

@@ -262,10 +262,15 @@ export default function App() {
  const toggleFolder = useCallback((path: string) => setCollapsed(prev => { const next = new Set(prev); next.has(path) ? next.delete(path) : next.add(path); return next; }), []);
  useEffect(() => { let mounted = true; api.current().then(async v => { if (!mounted) return; vaultRef.current = v; setVault(v); if (v) { setCollapsed(collapsedFolders(v)); const id = lastOpenedNote(v); if (id) await select(id); await refreshStatus(); await loadSettings(); } }).catch(e => notify(e.message, true)).finally(() => setLoading(false)); return () => { mounted = false; }; }, [select, notify, refreshStatus, loadSettings]);
  useEffect(() => {
-  if (!vault || !vault.manifest.notes.some(note => note.id === activeId)) return;
-  try { localStorage.setItem(lastOpenedNoteKey(vault.path), activeId); }
+  // Wait for startup/library restoration before persisting the workspace state.
+  if (!vault || loading || workspaceLocked) return;
+  try {
+   const key = lastOpenedNoteKey(vault.path);
+   if (tabs.includes(activeId) && vault.manifest.notes.some(note => note.id === activeId)) localStorage.setItem(key, activeId);
+   else localStorage.removeItem(key);
+  }
   catch { /* Keep navigation working when storage is unavailable. */ }
- }, [vault, activeId]);
+ }, [vault, activeId, tabs, loading, workspaceLocked]);
  useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 6000); return () => clearTimeout(timer); }, [notice]);
  useEffect(() => {
   if (!menu) return;
