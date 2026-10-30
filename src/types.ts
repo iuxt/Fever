@@ -69,7 +69,9 @@ export type Api = {
   openFile(path: string): Promise<VaultFile>;
   saveFile(path: string, content: string): Promise<SaveResult | void>;
   commit(message: string, stagedOnly?: boolean, ignoreWhitespace?: boolean): Promise<CommitResult>;
-  pull(): Promise<PullResult>;
+  preparePull(): Promise<string>;
+  cancelPull(token: string): Promise<void>;
+  pull(token?: string): Promise<PullResult>;
   pullDiff(before: string, after: string, path: string, originalPath?: string): Promise<FileDiff>;
   push(): Promise<void>;
   history(id?: string): Promise<Commit[]>;

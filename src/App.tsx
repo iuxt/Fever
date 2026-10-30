@@ -128,6 +128,7 @@ export default function App() {
  const [notice, setNotice] = useState<{ message: string; error: boolean; detail?: string } | null>(null), [menu, setMenu] = useState(false);
  const { dark, themeMode, fontSize, editorWidth, editorFullWidth, setThemeMode, setFontSize, setEditorWidth, setEditorFullWidth } = useAppearance();
  const pending = useRef(new Map<string, string>()), saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null), readToken = useRef(0);
+ const selecting = useRef<number | null>(null);
  const editVersion = useRef(0);
  const saving = useRef<Promise<void> | null>(null);
  const statusToken = useRef(0);
@@ -135,6 +136,10 @@ export default function App() {
  const workspaceLock = useRef(false);
  const closingTab = useRef(false);
  const [workspaceLocked, setWorkspaceLocked] = useState(false);
+ const [pulling, setPulling] = useState(false);
+ const pullInFlight = useRef(false);
+ const pullSession = useRef({ path: vault?.path });
+ if (pullSession.current.path !== vault?.path) pullSession.current = { path: vault?.path };
  const [searchVersion, setSearchVersion] = useState(0);
  const editorWidthProps = { width: editorWidth, fullWidth: editorFullWidth, onWidthChange: setEditorWidth, onFullWidthChange: setEditorFullWidth };
  const currentDocument = useRef({ id: activeId, content });
@@ -206,6 +211,7 @@ export default function App() {
  }, []);
  const select = useCallback(async (id: string, preserveEditor = false) => {
   const token = ++readToken.current, version = editVersion.current;
+  selecting.current = token;
   setSelectedCommit(null); setRevisionComparison(null);
   try {
    await flush();
@@ -237,6 +243,7 @@ export default function App() {
    return true;
   }
   catch (e) { notify(String((e as Error).message), true); }
+  finally { if (selecting.current === token) selecting.current = null; }
  }, [flush, notify]);
  const clearDocument = useCallback(() => {
   // Cancel old reads before starting the next selection, never in a later effect.
@@ -397,20 +404,26 @@ export default function App() {
    notify(successMessage, false, detail);
   }, undefined, false);
  }
- async function pull(automatic = false) {
-  if (automatic && (!vault || loading || busy || modal || workspaceLock.current || importingImages.current || editorRef.current?.isDirty() || pending.current.size || saving.current)) return;
+ const applyPullRef = useRef(async (_token: string, _automatic: boolean) => {});
+ // Resolve this callback after fetching so navigation, dialogs and editor state
+ // come from the latest render, rather than the moment the network request began.
+ applyPullRef.current = async (token, automatic) => {
+  if (loading || busy || modal || workspaceLock.current || selecting.current !== null || importingImages.current || editorRef.current?.isDirty() || pending.current.size || saving.current) {
+   if (!automatic) notify('远端内容已获取，当前操作完成后请重新拉取');
+   return;
+  }
   await runLocked(async () => {
    try {
-    const before = automatic ? await api.status() : null;
-    if (before && (!before.remote || before.changes.length || before.branch === 'HEAD')) return;
-    const result = await api.pull();
+    const before = await api.status();
+    if (before.changes.length) { if (!automatic) notify('远端内容已获取，请先提交本地变更再拉取'); return; }
+    ++readToken.current;
+    const result = await api.pull(token);
     const detail = result ? `${result.commitCount} 个提交 · ${fileChangeSummary(result.changes)}` : '';
     setGitOperation({ title: automatic ? '最近自动拉取' : '最近拉取', detail });
     if (result && result.before !== result.after && vault) {
      const record = { ...result, pulledAt: new Date().toISOString() };
      setLastPull(record); saveLastPull(vault.path, record);
     }
-    if (before?.head && (await api.status()).head === before.head) return;
     if (result && result.before === result.after) { if (!automatic) notify('已是最新，无远端更新', false, detail); return; }
     const v = await api.current(); vaultRef.current = v; setVault(v);
     setSearchVersion(version => version + 1);
@@ -421,6 +434,27 @@ export default function App() {
     notify(automatic ? '已自动拉取远程更新' : '已拉取远程更新', false, detail);
    } catch (e) { throw new Error(`${automatic ? '自动拉取失败：' : ''}${(e as Error).message}`); }
   });
+ };
+ async function pull(automatic = false) {
+  if (pullInFlight.current || !vault || loading || busy || workspaceLock.current) return;
+  if (automatic && (modal || importingImages.current || editorRef.current?.isDirty() || pending.current.size || saving.current)) return;
+  const session = pullSession.current;
+  pullInFlight.current = true; setPulling(true);
+  let token: string | undefined;
+  try {
+   await flush();
+   const before = await api.status();
+   if (session !== pullSession.current) return;
+   if (automatic && (!before.remote || before.changes.length || before.branch === 'HEAD')) return;
+   token = await api.preparePull();
+   if (session !== pullSession.current) return;
+   await applyPullRef.current(token, automatic);
+  } catch (e) {
+   if (session === pullSession.current) notify(`${automatic ? '自动拉取失败：' : ''}${(e as Error).message}`, true);
+  } finally {
+   if (token) await api.cancelPull(token).catch(() => {});
+   pullInFlight.current = false; setPulling(false);
+  }
  }
  const autoPullRef = useRef(() => {});
  autoPullRef.current = () => { void pull(true); };
@@ -879,7 +913,7 @@ export default function App() {
     <div className="inspector-title">源代码管理</div>
     <div className="git-toolbar" role="toolbar" aria-label="Git 全局操作">
      <button className="icon-button" title="推送" aria-label="推送" disabled={busy} onClick={() => void run(() => api.push(), '已推送到远程仓库')}><Upload size={17} /></button>
-     <button className="icon-button" title="拉取" aria-label="拉取" disabled={busy} onClick={() => void pull()}><ArrowDownToLine size={17} /></button>
+     <button className="icon-button" title={pulling ? '正在后台拉取，可继续编辑' : '拉取'} aria-label="拉取" aria-busy={pulling} disabled={busy || pulling} onClick={() => void pull()}>{pulling ? <LoaderCircle size={17} className="spin" /> : <ArrowDownToLine size={17} />}</button>
      <span className="git-toolbar-separator" />
      <button className="icon-button" title="全部取消暂存" aria-label="全部取消暂存" disabled={busy || !stagedCount} onClick={unstageAll}><Minus size={19} /></button>
      <button className="icon-button git-refresh" title="刷新 Git 状态" aria-label="刷新 Git 状态" disabled={busy} onClick={() => void run(refresh)}><RefreshCw size={16} /></button>
@@ -887,6 +921,7 @@ export default function App() {
     <div className="git-branch-card"><div><GitBranch size={15} /><strong title={status?.branch}>{status?.branch}</strong><div className="sync-counts"><span title={`${status?.ahead || 0} 个提交待推送`}><ArrowUp size={12} />{status?.ahead || 0}</span><span title={`${status?.behind || 0} 个提交待拉取`}><ArrowDown size={12} />{status?.behind || 0}</span></div></div><p title={status?.remote || '本地仓库 · 未配置远程'}>{status?.remote || '本地仓库 · 未配置远程'}</p></div>
     <div className="commit-box"><textarea aria-label="提交说明" placeholder="这次记录了什么？" value={commitMessage} onChange={e => setCommitMessage(e.target.value)} /><button className="primary" disabled={busy || !commitMessage.trim() || !status?.changes.length} onClick={() => void commitChanges()}><GitCommitHorizontal size={17} />{busy ? '正在处理…' : stagedCount ? `提交已暂存变更 (${stagedCount})` : '提交所有笔记变更'}</button></div>
     <label className="git-whitespace-filter" title="隐藏纯空白变更，并在提交时还原这些变更，不纳入提交"><span>忽略空格和空行</span><input type="checkbox" role="switch" checked={ignoreWhitespace} disabled={busy} onChange={event => setIgnoreWhitespace(event.target.checked)} /></label>
+    {pulling && <div className="git-operation-summary" role="status">正在后台拉取，可继续编辑…</div>}
     {gitOperation && <div className="git-operation-summary" role="status"><strong>{gitOperation.title}</strong><span>{gitOperation.detail}</span></div>}
     <GitChanges lastPull={lastPull} onRemoteDiff={change => void openRemoteDiff(change)} ignoreWhitespace={ignoreWhitespace} onStageAll={stageAll} onDiscardAll={() => setModal('discardAll')} status={status} notes={allNotes} trash={vault.manifest.trash} busy={busy} onDiff={(change, staged) => void openDiff(change, staged)} onStage={change => void run(() => api.stage(change.path), '已暂存文件变更')} onUnstage={change => void run(() => api.unstage(change.path), '已取消暂存')} onDiscard={change => { setDiscardChange(change); setModal('discard'); }} onOpen={change => void openChangedFile(change)} />
    </>}

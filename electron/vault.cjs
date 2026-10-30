@@ -26,6 +26,7 @@ class VaultStore {
     this.imageImports = new Map();
     this.previewRequests = new Map(); this.previewQueue = []; this.activePreviews = 0;
     this.metadata = null; this.metadataTimer = null;
+    this.vaultGeneration = 0; this.fetchTask = null; this.preparedPull = null;
     this.environment = { ...process.env };
     // Finder-launched macOS apps do not inherit an interactive shell's Homebrew PATH.
     if (process.platform === 'darwin') this.environment.PATH = [...new Set([...(process.env.PATH || '').split(path.delimiter), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])].join(path.delimiter);
@@ -42,9 +43,9 @@ class VaultStore {
     }, 5000);
     this.metadataTimer.unref?.();
   }
-  async git(args, allowedFailure = false) {
-    if (!this.root) throw new Error('请先打开笔记库');
-    try { return (await exec('git', args, { cwd: this.root, env: this.environment, windowsHide: true, timeout: 120000, maxBuffer: 12 * 1024 * 1024 })).stdout; }
+  async git(args, allowedFailure = false, root = this.root) {
+    if (!root) throw new Error('请先打开笔记库');
+    try { return (await exec('git', args, { cwd: root, env: this.environment, windowsHide: true, timeout: 120000, maxBuffer: 12 * 1024 * 1024 })).stdout; }
     catch (e) { if (allowedFailure) return ''; throw new Error((e.stderr || e.message).trim()); }
   }
   async safe(relative) {
@@ -147,6 +148,7 @@ class VaultStore {
   snapshot() { return { path: this.root, name: path.basename(this.root), manifest: manifestView(this.manifest), lfs: this.lfs }; }
   async open(folder) {
     return this.queued(async () => {
+      ++this.vaultGeneration;
       this.cancelSearch();
       for (const requestId of this.previewRequests.keys()) this.cancelPreview(requestId);
       this.searchCache = null;
@@ -640,24 +642,71 @@ class VaultStore {
     }
     return changes;
   }
-  pull() { return this.queued(async () => {
-    const status = await this.status();
-    if (!status.remote) throw new Error('请先在设置中配置远程仓库');
-    if (status.changes.length) throw new Error('请先提交本地变更再拉取');
-    await this.git(['pull', '--ff-only', 'origin', status.branch]);
-    this.cancelSearch();
-    const text = await fs.readFile(await this.safe(MANIFEST), 'utf8');
-    let manifest = JSON.parse(text);
-    manifest = readManifest(manifest);
-    this.manifest = manifest;
-    const before = /^[0-9a-f]{40,64}$/.test(status.head) ? status.head : '';
-    const after = (await this.git(['rev-parse', 'HEAD'])).trim();
-    const changes = before === after ? [] : before
-      ? this.parseFileChanges(await this.git(['diff', '--name-status', '-z', '-M', before, after, '--']))
-      : (await this.git(['ls-tree', '-r', '--name-only', '-z', after])).split('\0').filter(Boolean).map(path => ({ path, status: 'A' }));
-    const commitCount = before === after ? 0 : Number((await this.git(['rev-list', '--count', before ? `${before}..${after}` : after])).trim());
-    return { before, after, changes, commitCount };
-  }); }
+  preparePull() {
+    if (this.fetchTask) return this.fetchTask;
+    const root = this.root, generation = this.vaultGeneration;
+    const checkVault = () => { if (this.root !== root || this.vaultGeneration !== generation) throw new Error('笔记库已变化'); };
+    const task = (async () => {
+      if (this.preparedPull) await this.cancelPull(this.preparedPull.token);
+      checkVault();
+      const status = await this.status();
+      checkVault();
+      if (!status.remote) throw new Error('请先在设置中配置远程仓库');
+      if (status.branch === 'HEAD') throw new Error('请先切换到分支再拉取');
+      if (status.changes.length) throw new Error('请先提交本地变更再拉取');
+      const token = randomUUID(), ref = `refs/fever/pulls/${token}`;
+      try {
+        // Network I/O must not hold the write queue. Pin this request's exact
+        // commit in its own ref, independent of FETCH_HEAD and later fetches.
+        await this.git(['fetch', '--no-tags', '--no-write-fetch-head', 'origin', `+refs/heads/${status.branch}:${ref}`], false, root);
+        checkVault();
+        const target = (await this.git(['rev-parse', ref], false, root)).trim();
+        // Download LFS objects before checkout, while the workspace remains usable.
+        if (this.lfs) await this.git(['lfs', 'fetch', 'origin', target], false, root);
+        checkVault();
+        this.preparedPull = { token, root, generation, ref, target, branch: status.branch, remote: status.remote, head: status.head };
+        return token;
+      } catch (error) {
+        await this.git(['update-ref', '-d', ref], true, root);
+        throw error;
+      }
+    })();
+    this.fetchTask = task.finally(() => { this.fetchTask = null; });
+    return this.fetchTask;
+  }
+  async cancelPull(token) {
+    const prepared = this.preparedPull;
+    if (!prepared || prepared.token !== token) return;
+    this.preparedPull = null;
+    await this.git(['update-ref', '-d', prepared.ref], true, prepared.root);
+  }
+  async pull(token) {
+    if (token === undefined) token = await this.preparePull();
+    try { return await this.queued(async () => {
+      const prepared = this.preparedPull;
+      if (!prepared || prepared.token !== token) throw new Error('拉取请求已失效，请重新拉取');
+      this.preparedPull = null;
+      try {
+        if (this.root !== prepared.root || this.vaultGeneration !== prepared.generation) throw new Error('笔记库已变化');
+        const status = await this.status();
+        if (status.branch !== prepared.branch || status.remote !== prepared.remote || status.head !== prepared.head) throw new Error('本地版本或远程配置已变化，请重新拉取');
+        if (status.changes.length) throw new Error('请先提交本地变更再拉取');
+        await this.git(['merge', '--ff-only', prepared.target]);
+        this.cancelSearch();
+        const text = await fs.readFile(await this.safe(MANIFEST), 'utf8');
+        let manifest = JSON.parse(text);
+        manifest = readManifest(manifest);
+        this.manifest = manifest;
+        const before = /^[0-9a-f]{40,64}$/.test(status.head) ? status.head : '';
+        const after = (await this.git(['rev-parse', 'HEAD'])).trim();
+        const changes = before === after ? [] : before
+          ? this.parseFileChanges(await this.git(['diff', '--name-status', '-z', '-M', before, after, '--']))
+          : (await this.git(['ls-tree', '-r', '--name-only', '-z', after])).split('\0').filter(Boolean).map(path => ({ path, status: 'A' }));
+        const commitCount = before === after ? 0 : Number((await this.git(['rev-list', '--count', before ? `${before}..${after}` : after])).trim());
+        return { before, after, changes, commitCount };
+      } finally { await this.git(['update-ref', '-d', prepared.ref], true, prepared.root); }
+    }); } finally { await this.cancelPull(token); }
+  }
   pullDiff(before, after, relative, originalPath) { return this.queued(async () => {
     if ((before && !/^[0-9a-f]{40,64}$/.test(before)) || !/^[0-9a-f]{40,64}$/.test(after)) throw new Error('提交标识无效');
     const paths = [relative, ...(originalPath ? [originalPath] : [])];

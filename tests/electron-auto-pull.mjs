@@ -23,10 +23,30 @@ await writer.configure({ author: 'Remote Writer', email: 'writer@example.com', r
 await writer.git(['config', '--local', `url.${remotePath}.insteadOf`, remote]);
 const note = store.manifest.notes[0];
 await writeFile(path.join(data, 'preferences.json'), JSON.stringify({ vault: folder }));
+// Exercise the production file:// renderer and real preload/IPC without a dev server.
+const bootstrap = path.join(scratch, 'main.cjs');
+await writeFile(bootstrap, `
+const { BrowserWindow } = require('electron');
+const { VaultStore } = require(${JSON.stringify(path.resolve('electron/vault.cjs'))});
+const settings = VaultStore.prototype.settings;
+VaultStore.prototype.settings = function() {
+ return globalThis.feverSettingsTask = settings.call(this);
+};
+const git = VaultStore.prototype.git;
+VaultStore.prototype.git = async function(args, ...options) {
+ if (args[0] === 'fetch' && globalThis.feverFetchGate) {
+  globalThis.feverFetchWaiting = true;
+  await globalThis.feverFetchGate;
+ }
+ return git.call(this, args, ...options);
+};
+BrowserWindow.prototype.loadURL = function() { return this.loadFile(${JSON.stringify(path.resolve('dist/index.html'))}); };
+require(${JSON.stringify(path.resolve('electron/main.cjs'))});
+`);
 const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
 let app;
 try {
- app = await electron.launch({ args: ['.', `--fever-data=${data}`], env });
+ app = await electron.launch({ args: [bootstrap, `--fever-data=${data}`], env });
  let page = await app.firstWindow();
  const errors = []; page.on('pageerror', error => errors.push(error.message));
  await expect(page.getByTitle('设置', { exact: true })).toBeVisible();
@@ -50,6 +70,8 @@ try {
  const timerIntervals = () => app.evaluate(() => [...globalThis.feverPullTimers.values()].map(timer => timer.milliseconds));
  await page.getByTitle('设置', { exact: true }).click();
  await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
+ // Wait for the IPC settings load before replacing the fixture's rewritten URL.
+ await app.evaluate(async () => { await globalThis.feverSettingsTask; });
  const toggle = page.getByRole('switch', { name: '定时自动拉取', exact: true });
  await expect(toggle).toHaveAttribute('aria-checked', 'false');
  await expect(page.getByLabel('拉取间隔（分钟）', { exact: true })).toHaveCount(0);
@@ -81,10 +103,21 @@ try {
  await tick();
  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
  assert.equal(await editor.evaluate(element => element.isConnected), true);
- // Uncommitted local changes are skipped quietly and never overwritten.
+ // A stalled real fetch must not hold the write queue or disable the editor.
+ await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
+ await app.evaluate(() => {
+  globalThis.feverFetchWaiting = false;
+  globalThis.feverFetchGate = new Promise(resolve => { globalThis.feverReleaseFetch = resolve; });
+ });
+ await tick();
+ await expect.poll(() => app.evaluate(() => globalThis.feverFetchWaiting)).toBe(true);
+ await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
  await page.locator('.wysiwyg-content').fill('Local draft must survive');
  await expect(page.getByText('所有更改已保存')).toBeVisible();
  await writer.save(note.id, '# Another remote update\n'); await writer.commit('next update'); await writer.push();
+ await app.evaluate(() => { globalThis.feverReleaseFetch(); globalThis.feverFetchGate = null; });
+ await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
+ // Uncommitted local changes are skipped quietly and never overwritten.
  await tick();
  await expect(page.locator('.wysiwyg-content')).toContainText('Local draft must survive');
  assert.match(await readFile(path.join(folder, 'notes', note.filename), 'utf8'), /Local draft must survive/);
@@ -92,11 +125,15 @@ try {
  // Changing unsaved settings, then cancelling, must leave the active timer alone.
  await page.getByTitle('设置', { exact: true }).click();
  await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
+ // Wait for the IPC settings load before replacing the fixture's rewritten URL.
+ await app.evaluate(async () => { await globalThis.feverSettingsTask; });
  await page.getByLabel('拉取间隔（分钟）', { exact: true }).fill('7');
  await page.getByRole('button', { name: '取消', exact: true }).click();
  assert.deepEqual(await timerIntervals(), [60000]);
  await page.getByTitle('设置', { exact: true }).click();
  await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
+ // Wait for the IPC settings load before replacing the fixture's rewritten URL.
+ await app.evaluate(async () => { await globalThis.feverSettingsTask; });
  await expect(page.getByLabel('拉取间隔（分钟）', { exact: true })).toHaveValue('1');
  await page.getByLabel('拉取间隔（分钟）', { exact: true }).fill('3');
  await page.getByLabel('远程仓库（origin）', { exact: true }).fill(remote);
@@ -105,7 +142,7 @@ try {
  assert.deepEqual(await timerIntervals(), [180000]);
  // A full restart restores the saved switch and interval.
  await app.close();
- app = await electron.launch({ args: ['.', `--fever-data=${data}`], env });
+ app = await electron.launch({ args: [bootstrap, `--fever-data=${data}`], env });
  page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
  await expect(page.getByTitle('设置', { exact: true })).toBeVisible();
  await page.getByRole('button', { name: 'Git', exact: true }).click();
@@ -114,6 +151,8 @@ try {
  assert.equal(restored.autoPull, true); assert.equal(restored.pullInterval, 3);
  await page.getByTitle('设置', { exact: true }).click();
  await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
+ // Wait for the IPC settings load before replacing the fixture's rewritten URL.
+ await app.evaluate(async () => { await globalThis.feverSettingsTask; });
  await expect(page.getByRole('switch', { name: '定时自动拉取', exact: true })).toHaveAttribute('aria-checked', 'true');
  await expect(page.getByLabel('拉取间隔（分钟）', { exact: true })).toHaveValue('3');
  await page.getByRole('switch', { name: '定时自动拉取', exact: true }).click();
@@ -122,7 +161,13 @@ try {
  await expect(page.getByRole('dialog')).toHaveCount(0);
  assert.equal(JSON.parse(await readFile(path.join(data, 'preferences.json'), 'utf8')).settings.autoPull, false);
  assert.deepEqual(errors, []);
- console.log('Automatic pull: settings, interval rescheduling, persistence, real Git updates and local draft protection passed.');
+ console.log('Automatic pull: production renderer, settings, real Git updates, editing/saving during a stalled fetch and local draft protection passed.');
+} catch (error) {
+ if (app) {
+  const page = await app.firstWindow();
+  console.error('Desktop state:', await page.locator('.toast, [role="dialog"]').allTextContents());
+ }
+ throw error;
 } finally {
  if (app) await app.close();
  await rm(scratch, { recursive: true, force: true });

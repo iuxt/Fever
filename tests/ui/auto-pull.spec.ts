@@ -8,15 +8,19 @@ async function fixture(page: Page) {
   window.fever = {
    desktop: true,
    current: async () => ({ path: '/test/auto-pull', name: '测试库', lfs: true, manifest: { version: 1, categories: [], notes: controls.removed ? [other] : [other, note] } }),
-   read: async () => controls.content,
+   read: async id => id === 'a' ? controls.content : '# 剩余文章正文',
    save: async (_id, content) => { controls.content = content; controls.dirty = true; },
    status: async () => { controls.checks++; return { branch: 'main', head: controls.head, changes: controls.dirty ? [{ path: 'notes/a.md', status: ' M', staged: false, unstaged: true }] : [], ahead: 0, behind: 0, remote: controls.remote, lfs: true }; },
    settings: async () => ({ autoCommit: false, interval: 10, autoPull: true, pullInterval: 1, author: '', email: '', remote: controls.remote }),
-   pull: async () => {
-    const before = controls.head;
+   preparePull: async () => {
     controls.pulls++;
     if (controls.hold) await new Promise<void>(resolve => { controls.release = resolve; });
     if (controls.failure) throw new Error('网络连接失败');
+    return 'prepared-pull';
+   },
+   cancelPull: async () => {},
+   pull: async () => {
+    const before = controls.head;
     if (!controls.unchanged) { controls.content = '# 远程更新后的正文'; controls.head = controls.nextHead; }
     return { before, after: controls.head, commitCount: controls.unchanged ? 0 : 2, changes: controls.unchanged ? [] : controls.changes };
    },
@@ -99,16 +103,66 @@ test('pull reports file totals and keeps a persistent, read-only remote change l
 });
 
 async function pull(page: Page, automatic: boolean) {
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
  if (automatic) await tick(page);
  else {
-  await page.getByRole('button', { name: 'Git', exact: true }).click();
   await page.getByRole('button', { name: '拉取', exact: true }).click();
  }
  await expect.poll(() => pulls(page)).toBe(1);
+ await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
 }
 
 for (const automatic of [false, true]) {
+ test(`${automatic ? 'automatic' : 'manual'} network wait permits navigation and refreshes the latest selection`, async ({ page }) => {
+  await fixture(page);
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  await page.evaluate(() => { (window as any).autoPullControls.hold = true; });
+  if (automatic) await tick(page);
+  else await page.getByRole('button', { name: '拉取', exact: true }).click();
+  await expect.poll(() => pulls(page)).toBe(1);
+  await expect(page.getByRole('button', { name: '拉取', exact: true })).toBeDisabled();
+  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
+  await page.locator('.note-row').filter({ hasText: '剩余文章' }).click();
+  await expect(page.locator('.wysiwyg-content')).toContainText('剩余文章正文');
+  await page.evaluate(() => (window as any).autoPullControls.release());
+  await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('.tab.current')).toContainText('剩余文章');
+  await expect(page.locator('.wysiwyg-content')).toContainText('剩余文章正文');
+  await expect(page.locator('.toast.error')).toHaveCount(0);
+ });
+
+ test(`${automatic ? 'automatic' : 'manual'} network wait permits closing the last tab`, async ({ page }) => {
+  await fixture(page);
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  await page.evaluate(() => { (window as any).autoPullControls.hold = true; });
+  if (automatic) await tick(page);
+  else await page.getByRole('button', { name: '拉取', exact: true }).click();
+  await expect.poll(() => pulls(page)).toBe(1);
+  await page.getByTitle('关闭标签', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+  await page.evaluate(() => (window as any).autoPullControls.release());
+  await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('.tab')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
+ });
+
+ test(`${automatic ? 'automatic' : 'manual'} pull leaves a settings dialog opened during fetching usable`, async ({ page }) => {
+  await fixture(page);
+  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  await page.evaluate(() => { (window as any).autoPullControls.hold = true; });
+  if (automatic) await tick(page);
+  else await page.getByRole('button', { name: '拉取', exact: true }).click();
+  await expect.poll(() => pulls(page)).toBe(1);
+  await page.getByTitle('设置', { exact: true }).click();
+  await page.evaluate(() => (window as any).autoPullControls.release());
+  await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.locator('.wysiwyg-content')).toContainText('原始正文');
+  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
+ });
+
  for (const unchanged of [false, true]) {
   test(`${automatic ? 'automatic' : 'manual'} pull keeps all tabs closed (${unchanged ? 'no remote update' : 'remote update'})`, async ({ page }) => {
    await fixture(page);
@@ -149,19 +203,61 @@ for (const automatic of [false, true]) {
  }
 }
 
-test('automatic pulls serialize ticks, protect the editor and refresh remote content', async ({ page }) => {
+test('automatic pulls serialize ticks and allow editing and saving during the network wait', async ({ page }) => {
  await fixture(page);
  await page.evaluate(() => { (window as any).autoPullControls.hold = true; });
  await tick(page);
  await expect.poll(() => pulls(page)).toBe(1);
- await expect(page.locator('.app-shell')).toHaveAttribute('inert');
+ await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
  await tick(page);
- await page.keyboard.insertText('不能写入旧文档');
+ await page.locator('.wysiwyg-content').fill('拉取期间继续编辑');
+ await page.locator('.wysiwyg-content').press('ControlOrMeta+s');
+ await expect.poll(() => page.evaluate(() => (window as any).autoPullControls.content)).toContain('拉取期间继续编辑');
  expect(await pulls(page)).toBe(1);
  await page.evaluate(() => (window as any).autoPullControls.release());
- await expect(page.locator('.wysiwyg-content')).toContainText('远程更新后的正文');
- await expect(page.locator('.wysiwyg-content')).not.toContainText('不能写入旧文档');
+ await expect(page.locator('.wysiwyg-content')).toContainText('拉取期间继续编辑');
+ await expect(page.locator('.wysiwyg-content')).not.toContainText('远程更新后的正文');
  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
+});
+
+test('manual fetch preserves an unsaved edit made immediately before the network reply', async ({ page }) => {
+ await fixture(page);
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await page.evaluate(() => { (window as any).autoPullControls.hold = true; });
+ await page.getByRole('button', { name: '拉取', exact: true }).click();
+ await expect.poll(() => pulls(page)).toBe(1);
+ await page.locator('.wysiwyg-content').evaluate(element => {
+  (element as any).editor.commands.setContent('<p>网络返回前的最后输入</p>');
+  (window as any).autoPullControls.release();
+ });
+ await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
+ await expect(page.locator('.wysiwyg-content')).toContainText('网络返回前的最后输入');
+ await expect.poll(() => page.evaluate(() => (window as any).autoPullControls.content)).toContain('网络返回前的最后输入');
+ await expect(page.locator('.toast.error')).toHaveCount(0);
+});
+
+test('a network reply does not cancel a note selection that is still reading', async ({ page }) => {
+ await fixture(page);
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await page.evaluate(() => {
+  const controls = (window as any).autoPullControls;
+  controls.hold = true;
+  const read = window.fever!.read;
+  window.fever!.read = async (id, scope) => {
+   if (id === 'b') await new Promise<void>(resolve => { controls.releaseRead = resolve; });
+   return read(id, scope);
+  };
+ });
+ await page.getByRole('button', { name: '拉取', exact: true }).click();
+ await expect.poll(() => pulls(page)).toBe(1);
+ await page.locator('.note-row').filter({ hasText: '剩余文章' }).click();
+ await expect.poll(() => page.evaluate(() => typeof (window as any).autoPullControls.releaseRead)).toBe('function');
+ await page.evaluate(() => (window as any).autoPullControls.release());
+ await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
+ await page.evaluate(() => (window as any).autoPullControls.releaseRead());
+ await expect(page.locator('.tab.current')).toContainText('剩余文章');
+ await expect(page.locator('.wysiwyg-content')).toContainText('剩余文章正文');
+ expect(await page.evaluate(() => (window as any).autoPullControls.head)).toBe('1'.repeat(40));
 });
 
 test('automatic pulls skip missing remotes, local changes, pending drafts and settings dialogs', async ({ page }) => {

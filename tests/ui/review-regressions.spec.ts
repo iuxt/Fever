@@ -44,6 +44,7 @@ async function desktopFixture(page: Page, content = '# Note A\n\n[Other note](b.
    history: async () => [],
    cancelSearch: async () => {},
    asset: src => /^https?:\/\//i.test(src) ? src : '',
+   preparePull: async () => 'prepared-pull', cancelPull: async () => {},
   } as typeof window.fever;
  }, content);
  await page.goto('/');
@@ -276,6 +277,33 @@ test('pull prevents editing the old document while remote files are being replac
  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
  await page.locator('.wysiwyg-content').press('ControlOrMeta+s');
  expect(await page.evaluate(() => window.reviewControls.contents.a)).toContain('New remote content');
+});
+
+test('switching libraries during a background fetch discards the old reply', async ({ page }) => {
+ await desktopFixture(page);
+ await page.evaluate(() => {
+  window.fever!.preparePull = async () => {
+   await new Promise<void>(resolve => {
+    window.reviewControls.waiting = true;
+    window.reviewControls.release = resolve;
+   });
+   return 'old-library-pull';
+  };
+  window.fever!.pull = async () => { throw new Error('Old pull must never apply'); };
+ });
+ await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await page.getByRole('button', { name: '拉取', exact: true }).click();
+ await expect.poll(() => page.evaluate(() => window.reviewControls.waiting)).toBe(true);
+ await page.getByTitle('设置', { exact: true }).click();
+  await page.getByRole('tab', { name: '笔记库', exact: true }).click();
+ await page.getByRole('button', { name: '切换', exact: true }).click();
+ await expect(page.locator('.note-row')).toContainText('New vault note');
+ await page.locator('.note-row').filter({ hasText: 'New vault note' }).click();
+ await page.evaluate(() => window.reviewControls.release());
+ await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
+ await expect(page.locator('.wysiwyg-content')).toContainText('New library body');
+ await expect(page.locator('.toast.error')).toHaveCount(0);
+ await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
 });
 
 for (const kind of ['file', 'diff']) {

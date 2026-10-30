@@ -206,6 +206,8 @@ export const demo: Api = {
   state.dirty = fileChanges().map(change => change.path); persist();
   return { committed: true, restoredPaths, hash: commit.hash, changes };
  },
+ preparePull: async () => { throw new Error('浏览器演示不连接远程仓库，请使用 Electron 桌面应用'); },
+ cancelPull: async () => {},
  pull: async () => { throw new Error('浏览器演示不连接远程仓库，请使用 Electron 桌面应用'); },
  pullDiff: async () => { throw new Error('远端变更对比请使用 Electron 桌面应用'); },
  push: async () => { throw new Error('浏览器演示不连接远程仓库，请使用 Electron 桌面应用'); },
