@@ -35,9 +35,30 @@ test('diff and selected commits retain the staged snapshot and other working cha
  assert.ok((await store.status()).changes.some(c => c.path === 'fever.json'));
 });
 
+test('filtered commits and diffs preserve semantic Markdown whitespace on both index and working sides', async t => {
+ const { store, dir, file } = await fixture(t);
+ const before = '```python\nif enabled:\n    run()\nfinish()\n```\n\n- parent\n- child\n\nfirst\nsecond\n';
+ const after = '```python\nif enabled:\n    run()\n    finish()\n```\n\n- parent\n  - child\n\nfirst  \nsecond\n';
+ await fs.writeFile(path.join(dir, file), before); await store.commit('semantic baseline');
+ await fs.writeFile(path.join(dir, file), after);
+ assert.equal((await store.status(true)).changes.find(change => change.path === file).unstagedWhitespaceOnly, undefined);
+ assert.match((await store.diff(file)).whitespaceIgnoredPatch, /\+    finish\(\)/);
+ await store.stage(file);
+ assert.equal((await store.status(true)).changes.find(change => change.path === file).stagedWhitespaceOnly, undefined);
+ assert.match((await store.diff(file, true)).whitespaceIgnoredPatch, /\+    finish\(\)/);
+ const result = await store.commit('keep semantic whitespace', true, true);
+ assert.deepEqual(result.restoredPaths, []);
+ assert.equal(await store.git(['show', `HEAD:${file}`]), after);
+ assert.equal(await fs.readFile(path.join(dir, file), 'utf8'), after);
+ await fs.writeFile(path.join(dir, file), before);
+ const full = await store.commit('keep working semantic whitespace', false, true);
+ assert.deepEqual(full.restoredPaths, []);
+ assert.equal(await store.git(['show', `HEAD:${file}`]), before);
+});
+
 test('diff filters whitespace and blank lines while preserving raw staged and working snapshots', async t => {
  const { store, dir, file } = await fixture(t);
- const original = '# Title\nalpha beta\nsecond line\n';
+ const original = '# Title\nalpha beta\n\nsecond line\n';
  const stagedContent = '#  Title  \nalpha  beta\n\n\t\nsecond line\n';
  await fs.writeFile(path.join(dir, file), original); await store.commit('whitespace baseline');
  await fs.writeFile(path.join(dir, file), stagedContent);

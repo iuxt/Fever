@@ -50,6 +50,17 @@ try {
  assertBytes(await image.evaluate(async element => Array.from(new Uint8Array(await (await fetch(element.src)).arrayBuffer()))), second);
  const manifest = JSON.parse(await readFile(path.join(folder, 'fever.json'), 'utf8'));
  if (Object.hasOwn(manifest, 'assets')) throw new Error('Obsolete assets field remains');
+ // Current BMP assets use the same restricted production protocol as migrated ones.
+ const bmp = Buffer.from('424d3a00000000000000360000002800000001000000010000000100180000000000040000000000000000000000000000000000000000000000', 'hex');
+ await page.evaluate(async bytes => {
+  const vault = await window.fever.current(), note = vault.manifest.notes[0];
+  const src = await window.fever.image(bytes, 'bitmap.bmp', note.id);
+  await window.fever.save(note.id, (await window.fever.read(note.id)) + `\n\n![bitmap](${src})\n`);
+ }, Array.from(bmp));
+ await page.locator('.tab').getByRole('button', { name: 'History', exact: true }).click();
+ const bitmap = page.locator('.wysiwyg-content img[alt="bitmap"]');
+ await expect.poll(() => bitmap.evaluate(element => element.complete && element.naturalWidth)).toBe(1);
+ assertBytes(await bitmap.evaluate(async element => Array.from(new Uint8Array(await (await fetch(element.src)).arrayBuffer()))), bmp);
  if (errors.length) throw new Error(errors.join('\n'));
  console.log('Desktop historical wiki images and LFS images render from their selected commits with current image files deleted.');
 } finally { if (app) await app.close(); await rm(scratch, { recursive: true, force: true }); }

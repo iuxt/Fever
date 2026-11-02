@@ -9,6 +9,7 @@ const { downloadImage } = require('./remote-images.cjs');
 const { readBounded, readPrefix } = require('./files.cjs');
 const { RevisionImages } = require('./revision-images.cjs');
 const { MetadataJournal } = require('./metadata.cjs');
+const { canIgnoreWhitespace } = require('./markdown-safety.mjs');
 const MANIFEST = 'fever.json';
 const notePath = note => `${note.directory || 'notes'}/${note.filename}`;
 const { readManifest, manifestView, noteView, noteCategory, folderPaths, validCategory, ensureFolder, moveCategory, removeCategory } = require('./manifest.mjs');
@@ -331,7 +332,7 @@ class VaultStore {
     const note = this.note(noteId);
     const ext = typeof name === 'string' ? path.extname(name) : '';
     const size = ArrayBuffer.isView(bytes) ? bytes.byteLength : Array.isArray(bytes) ? bytes.length : 0;
-    if (!['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif'].includes(ext.toLowerCase()) || size > 20 * 1024 * 1024 || !size) throw new Error('支持 PNG/JPEG/GIF/WebP/AVIF 图片，最大 20 MB');
+    if (!['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp'].includes(ext.toLowerCase()) || size > 20 * 1024 * 1024 || !size) throw new Error('支持 PNG/JPEG/GIF/WebP/AVIF/BMP 图片，最大 20 MB');
     const buffer = ArrayBuffer.isView(bytes) ? Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength) : Buffer.from(bytes);
     const now = new Date(), pad = (value, width = 2) => String(value).padStart(width, '0');
     const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${pad(now.getMilliseconds(), 3)}`;
@@ -401,7 +402,9 @@ class VaultStore {
       for (const side of ['staged', 'unstaged']) {
         if (!whitespaceCandidates[side].size) continue;
         const meaningful = new Set((await this.git(['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--name-only', '-z', '--ignore-all-space', '--ignore-blank-lines', ...(side === 'staged' ? ['--cached'] : []), '--'])).split('\0').filter(Boolean));
-        for (const change of changes) if (whitespaceCandidates[side].has(change.path) && !meaningful.has(change.path)) change[`${side}WhitespaceOnly`] = true;
+        for (const change of changes) if (whitespaceCandidates[side].has(change.path) && !meaningful.has(change.path)) {
+          if (await this.ignorableWhitespace(change.path, side === 'staged')) change[`${side}WhitespaceOnly`] = true;
+        }
       }
     }
     // The journal is private; expose the pending manifest edit until materialized.
@@ -416,12 +419,23 @@ class VaultStore {
     if (typeof relative !== 'string' || !relative || relative.includes('\0') || relative.includes('\\') || relative.split('/').some(part => !part || /^\.git$/i.test(part) || part === '.' || part === '..') || path.isAbsolute(relative)) throw new Error('文件路径无效');
     return this.safe(relative);
   }
+  async ignorableWhitespace(relative, staged) {
+    // Plain text retains the explicit whitespace filter. Other formats need a
+    // semantic check against the exact index/HEAD side that would be restored.
+    if (/\.txt$/i.test(relative)) return true;
+    if (!/\.(md|markdown|json)$/i.test(relative)) return false;
+    const [before, after] = await Promise.all([
+      this.git(['show', `${staged ? 'HEAD' : ''}:${relative}`]),
+      staged ? this.git(['show', `:${relative}`]) : readBounded(await this.changeFile(relative)).then(bytes => bytes.toString('utf8')),
+    ]);
+    return canIgnoreWhitespace(relative, before, after);
+  }
   openFile(relative) { return this.queued(async () => {
     const file = await this.changeFile(relative), stat = await fs.stat(file);
     if (!stat.isFile()) throw new Error('请选择文件');
     if (stat.size > 20 * 1024 * 1024) throw new Error('文件最大为 20 MB');
     const bytes = await readBounded(file, { limit: 20 * 1024 * 1024, message: '文件最大为 20 MB' }), ext = path.extname(relative).toLowerCase();
-    const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif' }[ext];
+    const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.bmp': 'image/bmp' }[ext];
     const binary = Boolean(mime) || bytes.includes(0) || !isUtf8(bytes);
     if (!binary && bytes.length > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');
     return { path: relative, content: binary ? '' : bytes.toString('utf8'), binary, ...(mime ? { image: `data:${mime};base64,${bytes.toString('base64')}` } : {}) };
@@ -434,7 +448,7 @@ class VaultStore {
       const file = await this.changeFile(relative);
       if (typeof content !== 'string' || Buffer.byteLength(content) > 10 * 1024 * 1024) throw new Error('文本文件最大为 10 MB');
       const bytes = await readBounded(file);
-      if (bytes.includes(0) || !isUtf8(bytes) || /\.(png|jpe?g|gif|webp|avif)$/i.test(relative)) throw new Error('二进制文件不能作为文本保存');
+      if (bytes.includes(0) || !isUtf8(bytes) || /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(relative)) throw new Error('二进制文件不能作为文本保存');
       let manifest;
       if (relative === MANIFEST) {
         const parsed = JSON.parse(content);
@@ -476,7 +490,8 @@ class VaultStore {
     const paths = [relative, ...(change.originalPath ? [change.originalPath] : [])].map(p => `:(literal)${p}`);
     const args = ['diff', '--no-ext-diff', '--no-textconv', '--no-color', ...(staged ? ['--cached'] : [])];
     const patch = await this.git([...args, '--', ...paths]);
-    const whitespaceIgnoredPatch = patch ? await this.git([...args, '--ignore-all-space', '--ignore-blank-lines', '--', ...paths]) : '';
+    let whitespaceIgnoredPatch = patch ? await this.git([...args, '--ignore-all-space', '--ignore-blank-lines', '--', ...paths]) : '';
+    if (patch && !whitespaceIgnoredPatch && !await this.ignorableWhitespace(relative, staged)) whitespaceIgnoredPatch = patch;
     return {
       path: relative,
       patch: patch || '没有文本差异（文件权限或属性发生变化）。',
@@ -691,14 +706,17 @@ class VaultStore {
         const status = await this.status();
         if (status.branch !== prepared.branch || status.remote !== prepared.remote || status.head !== prepared.head) throw new Error('本地版本或远程配置已变化，请重新拉取');
         if (status.changes.length) throw new Error('请先提交本地变更再拉取');
+        // Reject malformed or missing remote metadata before touching HEAD,
+        // the index or the worktree. Never leave an old in-memory tree active.
+        const entry = await this.git(['ls-tree', '-z', prepared.target, '--', MANIFEST]);
+        if (!/^(100644|100755) blob /.test(entry)) throw new Error('远端笔记清单必须为普通文件');
+        const incoming = readManifest(JSON.parse(await this.git(['show', `${prepared.target}:${MANIFEST}`])), this.manifest);
         await this.git(['merge', '--ff-only', prepared.target]);
         this.cancelSearch();
-        const text = await fs.readFile(await this.safe(MANIFEST), 'utf8');
-        let manifest = JSON.parse(text);
-        manifest = readManifest(manifest);
-        this.manifest = manifest;
         const before = /^[0-9a-f]{40,64}$/.test(status.head) ? status.head : '';
         const after = (await this.git(['rev-parse', 'HEAD'])).trim();
+        // A remote ancestor is already merged: keep the newer local metadata.
+        if (after === prepared.target) this.manifest = incoming;
         const changes = before === after ? [] : before
           ? this.parseFileChanges(await this.git(['diff', '--name-status', '-z', '-M', before, after, '--']))
           : (await this.git(['ls-tree', '-r', '--name-only', '-z', after])).split('\0').filter(Boolean).map(path => ({ path, status: 'A' }));
@@ -785,7 +803,7 @@ class VaultStore {
           if (resolved.has(key)) return resolved.get(key);
           const image = await this.revisionImage(id, hash, source, wiki);
           // Reuse only an identical current file at a path supported by the editor.
-          if (/^\.\.\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif)$/i.test(source)) {
+          if (/^\.\.\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(source)) {
             const current = await readBounded(await this.safe(source.slice(3)), { limit: 20 * 1024 * 1024 }).catch(() => null);
             if (current?.equals(image.bytes)) { resolved.set(key, source); return source; }
           }

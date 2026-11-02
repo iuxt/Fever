@@ -22,7 +22,7 @@ async function fixture(t) {
   const note = store.manifest.notes[0];
   await writer.save(note.id, '# Remote update\n'); await writer.commit('remote update');
   await writer.git(['push', 'origin', 'main']);
-  return { scratch, dir, store, note };
+  return { scratch, dir, store, note, writer, clone };
 }
 
 function holdFetch(store) {
@@ -36,6 +36,45 @@ function holdFetch(store) {
   };
   return { waiting, release };
 }
+
+for (const invalid of ['json', 'schema', 'missing', 'symlink']) test(`invalid remote manifest (${invalid}) leaves HEAD, worktree, index and memory unchanged`, async t => {
+  const { dir, store, note, writer, clone } = await fixture(t);
+  const file = path.join(clone, 'fever.json');
+  if (invalid === 'missing') await fs.rm(file);
+  else await fs.writeFile(file, invalid === 'json' ? '{ invalid' : JSON.stringify({ version: 2, folders: [], notes: invalid === 'symlink' ? [] : [{ ...note, folderId: 'missing' }] }));
+  await writer.git(['add', '-A']);
+  if (invalid === 'symlink') {
+    // Stage a Git symlink with valid JSON as its target, on every platform.
+    const oid = (await writer.git(['hash-object', 'fever.json'])).trim();
+    await writer.git(['update-index', '--cacheinfo', `120000,${oid},fever.json`]);
+  }
+  await writer.git(['commit', '-m', 'broken remote manifest']); await writer.git(['push', 'origin', 'main']);
+  const head = await store.git(['rev-parse', 'HEAD']), index = await store.git(['write-tree']);
+  const manifest = await fs.readFile(path.join(dir, 'fever.json'), 'utf8'), body = await store.read(note.id), snapshot = store.snapshot();
+  await assert.rejects(store.pull());
+  assert.equal(await store.git(['rev-parse', 'HEAD']), head);
+  assert.equal(await store.git(['write-tree']), index);
+  assert.equal(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'), manifest);
+  assert.equal(await store.read(note.id), body);
+  assert.deepEqual(store.snapshot(), snapshot);
+  assert.equal(await store.git(['status', '--porcelain']), '');
+  assert.equal(await store.git(['for-each-ref', '--format=%(refname)', 'refs/fever/pulls/']), '');
+  await store.save(note.id, '# Local edit after rejected pull\n'); await store.flushMetadata();
+  assert.equal(await store.git(['rev-parse', 'HEAD']), head);
+  assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'fever.json'), 'utf8')).notes[0].id, note.id);
+});
+
+test('pulling a remote ancestor preserves the newer local manifest', async t => {
+  const { store } = await fixture(t);
+  await store.pull();
+  const local = await store.create('Local note ahead of origin', 'Local'); await store.commit('local ahead');
+  const snapshot = store.snapshot(), head = await store.git(['rev-parse', 'HEAD']);
+  const result = await store.pull();
+  assert.equal(result.before, result.after);
+  assert.equal(await store.git(['rev-parse', 'HEAD']), head);
+  assert.deepEqual(store.snapshot(), snapshot);
+  assert.equal(await store.read(local.id), '# Local note ahead of origin\n\n');
+});
 
 test('a stalled fetch leaves saves, metadata flushes and status usable and preserves local edits', { timeout: 15000 }, async t => {
   const { store, note } = await fixture(t);

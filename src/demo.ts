@@ -1,5 +1,6 @@
 import { createTwoFilesPatch, formatPatch, structuredPatch } from 'diff';
 import { notePath } from './notePaths.ts';
+import { canIgnoreWhitespace } from '../electron/markdown-safety.mjs';
 import { readManifest, manifestView, noteView, noteCategory, folderPaths, ensureFolder, moveCategory, removeCategory } from '../electron/manifest.mjs';
 import type { Api, Commit, StoredManifest, StoredNote, Settings } from './types';
 const welcome = `# 让每一个想法，都有迹可循。\n\n欢迎来到 **Fever**，一个安静、自由、属于你的知识空间。\n\n在这里，零散的灵感可以慢慢长成系统。用 Markdown 记录，用文件夹整理，用 Git 留住每一次思考的轨迹。\n\n## 一个为长期思考准备的地方\n\n好的笔记工具应该让你专注于内容，而不是工具本身。Fever 把熟悉的编辑体验和可靠的版本管理放在一起，让记录成为一件自然的事。\n\n> 写下来，是思考的开始。\n> 每一次修改，都是理解向前的一小步。\n\n## 从一个小小的想法开始\n\n- [x] 创建你的第一个笔记库\n- [x] 认识 Markdown 的基本语法\n- [ ] 写下今天值得记住的一个想法\n- [ ] 提交一次 Git 备份\n\n### 你的笔记，始终属于你\n\n所有内容都保存在本地，没有专有格式，也没有迁移的负担。\n\n| 内容 | 存储位置 | 管理方式 |\n| --- | --- | --- |\n| 笔记正文 | \`notes/\` | Markdown · UUID 文件名 |\n| 图片附件 | \`images/\` | Git LFS |\n| 标题与分类 | \`fever.json\` | JSON 清单 |\n\n---\n\n不必一次整理好所有东西。先写下第一行，剩下的交给时间。\n`;
@@ -37,7 +38,6 @@ state.baseFiles ||= {
  ...Object.fromEntries(Object.entries(state.images).filter(([file]) => !state.dirty.includes(file.slice(3))).map(([file, data]) => [file.slice(3), data])),
 };
 state.stagedFiles ||= {};
-const withoutWhitespace = (text: string) => text.split('\n').map(line => line.replace(/[ \t\r\v\f]/g, '')).filter(Boolean).join('\n');
 const fileChanges = (inspectWhitespace = false) => {
  const files = workingFiles(), base = state.baseFiles!, staged = state.stagedFiles!;
  return [...new Set([...Object.keys(base), ...Object.keys(files), ...Object.keys(staged)])].flatMap(path => {
@@ -45,8 +45,8 @@ const fileChanges = (inspectWhitespace = false) => {
   const isStaged = index !== before, unstaged = after !== index;
   const text = inspectWhitespace && !path.startsWith('images/');
   return isStaged || unstaged ? [{ path, staged: isStaged, unstaged, status: before === null ? (isStaged ? 'A' : '??') : after === null ? 'D' : 'M',
-   ...(text && isStaged && before !== null && index !== null && withoutWhitespace(before) === withoutWhitespace(index) ? { stagedWhitespaceOnly: true } : {}),
-   ...(text && unstaged && index !== null && after !== null && withoutWhitespace(index) === withoutWhitespace(after) ? { unstagedWhitespaceOnly: true } : {}),
+   ...(text && isStaged && before !== null && index !== null && canIgnoreWhitespace(path, before, index) ? { stagedWhitespaceOnly: true } : {}),
+   ...(text && unstaged && index !== null && after !== null && canIgnoreWhitespace(path, index, after) ? { unstagedWhitespaceOnly: true } : {}),
   }] : [];
  });
 };
@@ -104,7 +104,7 @@ export const demo: Api = {
  image: async (bytes, name, noteId, importId) => {
   if (!state.manifest.notes.some(note => note.id === noteId)) throw new Error('笔记不存在');
   const ext = name.match(/\.[^.]+$/)?.[0] || '';
-  if (!/^\.(png|jpe?g|gif|webp|avif)$/i.test(ext) || !bytes.length || bytes.length > 20 * 1024 * 1024) throw new Error('支持 PNG/JPEG/GIF/WebP/AVIF 图片，最大 20 MB');
+  if (!/^\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(ext) || !bytes.length || bytes.length > 20 * 1024 * 1024) throw new Error('支持 PNG/JPEG/GIF/WebP/AVIF/BMP 图片，最大 20 MB');
   const blob = new Blob([new Uint8Array(bytes)]);
   const data = await new Promise<string>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.readAsDataURL(blob); });
   const now = new Date(), pad = (value: number, width = 2) => String(value).padStart(width, '0');
@@ -138,7 +138,7 @@ export const demo: Api = {
   const filtered = structuredPatch(`a/${path}`, `b/${path}`, before, after, '', '', options);
   if (!filtered) return { path, patch };
   filtered.hunks = filtered.hunks.filter(hunk => hunk.lines.some(line => /^[+-]/.test(line) && line.slice(1).trim()));
-  return { path, patch, whitespaceIgnoredPatch: filtered.hunks.length ? formatPatch(filtered) : '已忽略空格和空行变化，没有其他文本差异。' };
+  return { path, patch, whitespaceIgnoredPatch: filtered.hunks.length ? formatPatch(filtered) : canIgnoreWhitespace(path, before, after) ? '已忽略空格和空行变化，没有其他文本差异。' : patch };
  },
  stage: async path => { state.stagedFiles![path] = workingFiles()[path] ?? null; persist(); },
  unstage: async path => { delete state.stagedFiles![path]; persist(); },

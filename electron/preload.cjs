@@ -17,6 +17,6 @@ contextBridge.exposeInMainWorld('fever', {
     // Remote URLs have no Git blob and retain their original URL in historical Markdown.
     if (/^https?:\/\//i.test(src)) return src;
     if (revision) return `fever-asset://vault/revision?${new URLSearchParams({ note: revision.id, commit: revision.hash, src, ...(revision.wiki ? { wiki: '1' } : {}) })}`;
-    return /^\.\.\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif)$/i.test(src) ? `fever-asset://vault/${src.slice(3)}` : '';
+    return /^\.\.\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(src) ? `fever-asset://vault/${src.slice(3)}` : '';
   },
 });

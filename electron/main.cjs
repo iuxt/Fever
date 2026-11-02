@@ -61,7 +61,7 @@ async function boot() {
         const image = await store.revisionImage(url.searchParams.get('note'), url.searchParams.get('commit'), url.searchParams.get('src'), url.searchParams.get('wiki') === '1');
         response = new Response(image.bytes, { headers: { 'Content-Type': image.mime, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
       } else {
-        if (!/^\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif)$/i.test(url.pathname)) return new Response('Not found', { status: 404 });
+        if (!/^\/images\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(url.pathname)) return new Response('Not found', { status: 404 });
         response = await net.fetch(pathToFileURL(await store.safe(url.pathname.slice(1))).toString());
       }
       const headers = new Headers(response.headers);

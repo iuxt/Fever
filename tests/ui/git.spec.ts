@@ -91,7 +91,7 @@ for (const variant of ['all', 'staged', 'disabled'] as const) {
   await page.goto('/');
   await page.evaluate(variant => {
    const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
-   state.baseFiles['notes/demo-1.md'] = 'alpha beta\nsecond line\n';
+   state.baseFiles['notes/demo-1.md'] = 'alpha beta\n\nsecond line\n';
    state.contents['demo-1'] = 'alpha  beta  \n\nsecond line\n\n';
    state.baseFiles['notes/demo-2.md'] = 'original content\n';
    state.contents['demo-2'] = 'actual content edit\n';
@@ -111,7 +111,7 @@ for (const variant of ['all', 'staged', 'disabled'] as const) {
   await expect(page.locator('.toast small')).toContainText(`提交 ${variant === 'disabled' ? 2 : 1} 个文件`);
   await expect(page.locator('.git-operation-summary')).toContainText(`提交 ${variant === 'disabled' ? 2 : 1} 个文件`);
   const state = await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!));
-  const expected = variant === 'disabled' ? 'alpha  beta  \n\nsecond line\n\n' : 'alpha beta\nsecond line\n';
+  const expected = variant === 'disabled' ? 'alpha  beta  \n\nsecond line\n\n' : 'alpha beta\n\nsecond line\n';
   expect(state.contents['demo-1']).toBe(expected);
   expect(state.baseFiles['notes/demo-1.md']).toBe(expected);
   expect(state.baseFiles['notes/demo-2.md']).toBe('actual content edit\n');
@@ -187,7 +187,7 @@ test('whitespace-only comparisons explain the filter and retain access to origin
  await page.goto('/');
  await page.evaluate(() => {
   const state = JSON.parse(localStorage.getItem('fever-demo-v1')!);
-  state.baseFiles['notes/demo-1.md'] = 'alpha beta\nsecond line\n';
+  state.baseFiles['notes/demo-1.md'] = 'alpha beta\n\nsecond line\n';
   state.contents['demo-1'] = 'alpha  beta  \n\n \nsecond line\n';
   localStorage.setItem('fever-demo-v1', JSON.stringify(state));
  });
