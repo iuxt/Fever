@@ -89,9 +89,156 @@ test('a stalled fetch leaves saves, metadata flushes and status usable and prese
   assert.ok((await store.status()).changes.length);
   gate.release();
   const token = await fetching;
-  await assert.rejects(store.pull(token), /提交本地变更/);
+  await assert.rejects(store.pull(token), /冲突.*notes\//);
   assert.equal(await store.read(note.id), '# Edited while offline\n');
   assert.equal(await store.git(['for-each-ref', '--format=%(refname)', 'refs/fever/pulls/']), '');
+});
+
+test('pull preserves local new notes, folders, untracked files and existing stash entries', async t => {
+  const { store, dir, note } = await fixture(t);
+  await fs.writeFile(path.join(dir, 'scratch.txt'), 'existing stash\n');
+  await store.git(['stash', 'push', '-u', '-m', 'user stash']);
+  const stash = await store.git(['rev-parse', 'refs/stash']);
+  const local = await store.create('Local draft', 'Local folder');
+  await store.save(local.id, '# Uncommitted draft\n'); await store.flushMetadata();
+  await fs.writeFile(path.join(dir, 'untracked.txt'), 'untouched\n');
+  const result = await store.pull();
+  assert.equal(result.commitCount, 1);
+  assert.equal(await store.read(note.id), '# Remote update\n');
+  assert.equal(await store.read(local.id), '# Uncommitted draft\n');
+  assert.equal(store.snapshot().manifest.notes.find(n => n.id === local.id).category, 'Local folder');
+  assert.equal(await fs.readFile(path.join(dir, 'untracked.txt'), 'utf8'), 'untouched\n');
+  assert.equal(await store.git(['rev-parse', 'refs/stash']), stash);
+  assert.match(await store.git(['status', '--porcelain']), /\?\? untracked.txt/);
+  const reopened = new VaultStore(); await reopened.open(dir);
+  assert.equal(await reopened.read(local.id), '# Uncommitted draft\n');
+});
+
+test('pull merges separate lines in one note while preserving partial staging and both save timestamps', async t => {
+  const { store, writer, note } = await fixture(t);
+  const base = '# Shared\n\nfirst\n\nmiddle\n\nlast\n';
+  await writer.save(note.id, base); await writer.commit('shared base'); await writer.push(); await store.pull();
+  await store.save(note.id, base.replace('first', 'staged first')); await store.flushMetadata();
+  await store.stageAll();
+  await store.save(note.id, base.replace('first', 'working first')); await store.flushMetadata();
+  const localTimestamp = store.note(note.id).updatedAt;
+  await writer.save(note.id, base.replace('last', 'remote last')); await writer.commit('remote line'); await writer.push();
+  const remoteTimestamp = writer.note(note.id).updatedAt;
+  const result = await store.pull();
+  assert.equal(result.commitCount, 1);
+  assert.equal(await store.read(note.id), base.replace('first', 'working first').replace('last', 'remote last'));
+  assert.equal(await store.git(['show', `:notes/${note.filename}`]), base.replace('first', 'staged first').replace('last', 'remote last'));
+  assert.equal(store.note(note.id).updatedAt, [localTimestamp, remoteTimestamp].sort().at(-1));
+  const status = await store.status();
+  assert.ok(status.changes.find(change => change.path === `notes/${note.filename}` && change.staged && change.unstaged));
+  assert.equal(await store.git(['ls-files', '--unmerged']), '');
+});
+
+test('a conflicting pull leaves HEAD, index, file bytes, metadata and untracked files unchanged', async t => {
+  const { store, note, dir } = await fixture(t);
+  await store.save(note.id, '# Conflicting local draft\n'); await store.flushMetadata();
+  await store.stageAll();
+  await store.save(note.id, '# More uncommitted local content\n'); await store.flushMetadata();
+  await fs.writeFile(path.join(dir, 'local.txt'), 'untracked\n');
+  const head = await store.git(['rev-parse', 'HEAD']), index = await store.git(['write-tree']);
+  const manifest = await fs.readFile(path.join(dir, 'fever.json')), snapshot = store.snapshot();
+  await assert.rejects(store.pull(), error => /冲突/.test(error.message) && error.message.includes(`notes/${note.filename}`));
+  assert.equal(await store.git(['rev-parse', 'HEAD']), head);
+  assert.equal(await store.git(['write-tree']), index);
+  assert.deepEqual(await fs.readFile(path.join(dir, 'fever.json')), manifest);
+  assert.deepEqual(store.snapshot(), snapshot);
+  assert.equal(await store.read(note.id), '# More uncommitted local content\n');
+  assert.equal(await fs.readFile(path.join(dir, 'local.txt'), 'utf8'), 'untracked\n');
+  assert.equal(await store.git(['ls-files', '--unmerged']), '');
+});
+
+test('a dirty note with no remote updates returns normally and preserves its exact staged state', async t => {
+  const { store, note } = await fixture(t);
+  await store.pull();
+  await store.save(note.id, '# Local staged\n'); await store.stageAll();
+  await store.save(note.id, '# Local working\n'); await store.flushMetadata();
+  const index = await store.git(['write-tree']), snapshot = store.snapshot();
+  const result = await store.pull();
+  assert.equal(result.before, result.after);
+  assert.equal(result.commitCount, 0);
+  assert.equal(await store.git(['write-tree']), index);
+  assert.deepEqual(store.snapshot(), snapshot);
+  assert.equal(await store.read(note.id), '# Local working\n');
+});
+
+for (const phase of ['merge', 'restore']) test(`failed ${phase} rolls back overlapping files and preserves local additions`, async t => {
+  const { store, note, dir } = await fixture(t);
+  const local = await store.create('Local note', 'Local');
+  await store.stageAll();
+  const head = await store.git(['rev-parse', 'HEAD']), index = await store.git(['write-tree']);
+  const manifest = await fs.readFile(path.join(dir, 'fever.json')), original = await store.read(note.id);
+  const git = store.git.bind(store);
+  let failed = false;
+  store.git = async (args, ...options) => {
+    if (!failed && args[0] === (phase === 'merge' ? 'merge' : 'update-index')) { failed = true; throw new Error('Injected pull failure'); }
+    return git(args, ...options);
+  };
+  await assert.rejects(store.pull(), /Injected pull failure/);
+  assert.ok(failed);
+  assert.equal(await store.git(['rev-parse', 'HEAD']), head);
+  assert.equal(await store.git(['write-tree']), index);
+  assert.deepEqual(await fs.readFile(path.join(dir, 'fever.json')), manifest);
+  assert.equal(await store.read(note.id), original);
+  assert.equal(await store.read(local.id), '# Local note\n\n');
+});
+
+for (const collision of ['untracked', 'binary', 'deleted']) test(`${collision} conflicts preserve all local content before applying`, async t => {
+  const { store, writer, note, dir, clone } = await fixture(t);
+  let file = `notes/${note.filename}`;
+  if (collision === 'untracked') {
+    file = 'new.txt';
+    await fs.writeFile(path.join(dir, file), 'local new file\n');
+    await fs.writeFile(path.join(clone, file), 'remote new file\n');
+    await writer.git(['add', '--', file]); await writer.git(['commit', '-m', 'remote new file']);
+  } else if (collision === 'binary') {
+    await fs.writeFile(path.join(dir, file), Buffer.from([0, 1, 2]));
+  } else {
+    await fs.rm(path.join(dir, file));
+  }
+  if (collision === 'untracked') await writer.push();
+  const head = await store.git(['rev-parse', 'HEAD']), index = await store.git(['write-tree']);
+  const before = await fs.readFile(path.join(dir, file)).catch(() => null);
+  await assert.rejects(store.pull(), error => /冲突/.test(error.message) && error.message.includes(file));
+  assert.equal(await store.git(['rev-parse', 'HEAD']), head);
+  assert.equal(await store.git(['write-tree']), index);
+  assert.deepEqual(await fs.readFile(path.join(dir, file)).catch(() => null), before);
+});
+
+test('competing note titles conflict while an independent title and body edit merge', async t => {
+  const { store, writer, note } = await fixture(t);
+  await store.update(note.id, 'Local title', '收件箱');
+  await store.pull();
+  assert.equal(store.note(note.id).title, 'Local title');
+  assert.equal(await store.read(note.id), '# Remote update\n');
+  await writer.update(note.id, 'Remote title', '收件箱'); await writer.commit('remote title'); await writer.push();
+  const snapshot = store.snapshot(), head = await store.git(['rev-parse', 'HEAD']);
+  await assert.rejects(store.pull(), /冲突.*fever.json/);
+  assert.deepEqual(store.snapshot(), snapshot);
+  assert.equal(await store.git(['rev-parse', 'HEAD']), head);
+});
+
+test('a failed rollback retains a durable copy of both original versions and reports its location', async t => {
+  const { store, note, dir } = await fixture(t);
+  await store.create('Local draft', 'Local'); await store.stageAll();
+  const manifest = await fs.readFile(path.join(dir, 'fever.json'));
+  const git = store.git.bind(store);
+  store.git = async (args, ...options) => {
+    if (args[0] === 'update-index') throw new Error('simulated write failure');
+    return git(args, ...options);
+  };
+  await assert.rejects(store.pull(), /备份已保留在 .*fever-pull-.*\.json/);
+  const backupName = (await fs.readdir(path.join(dir, '.git'))).find(name => /^fever-pull-.*\.json$/.test(name));
+  assert.ok(backupName);
+  const backup = JSON.parse(await fs.readFile(path.join(dir, '.git', backupName), 'utf8'));
+  const file = backup.files.find(file => file.path === 'fever.json');
+  assert.deepEqual(Buffer.from(file.work, 'base64'), manifest);
+  assert.deepEqual(Buffer.from(file.index, 'base64'), manifest);
+  assert.match(await store.read(note.id), /欢迎使用 Fever/);
 });
 
 test('prepared updates apply without a second network operation and clean up their refs', async t => {

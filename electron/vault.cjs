@@ -9,6 +9,7 @@ const { downloadImage } = require('./remote-images.cjs');
 const { readBounded, readPrefix } = require('./files.cjs');
 const { RevisionImages } = require('./revision-images.cjs');
 const { MetadataJournal } = require('./metadata.cjs');
+const { prepareWorkspace, applyWorkspace } = require('./pull-workspace.cjs');
 const { canIgnoreWhitespace } = require('./markdown-safety.mjs');
 const MANIFEST = 'fever.json';
 const notePath = note => `${note.directory || 'notes'}/${note.filename}`;
@@ -668,7 +669,6 @@ class VaultStore {
       checkVault();
       if (!status.remote) throw new Error('请先在设置中配置远程仓库');
       if (status.branch === 'HEAD') throw new Error('请先切换到分支再拉取');
-      if (status.changes.length) throw new Error('请先提交本地变更再拉取');
       const token = randomUUID(), ref = `refs/fever/pulls/${token}`;
       try {
         // Network I/O must not hold the write queue. Pin this request's exact
@@ -705,18 +705,31 @@ class VaultStore {
         if (this.root !== prepared.root || this.vaultGeneration !== prepared.generation) throw new Error('笔记库已变化');
         const status = await this.status();
         if (status.branch !== prepared.branch || status.remote !== prepared.remote || status.head !== prepared.head) throw new Error('本地版本或远程配置已变化，请重新拉取');
-        if (status.changes.length) throw new Error('请先提交本地变更再拉取');
         // Reject malformed or missing remote metadata before touching HEAD,
         // the index or the worktree. Never leave an old in-memory tree active.
         const entry = await this.git(['ls-tree', '-z', prepared.target, '--', MANIFEST]);
         if (!/^(100644|100755) blob /.test(entry)) throw new Error('远端笔记清单必须为普通文件');
         const incoming = readManifest(JSON.parse(await this.git(['show', `${prepared.target}:${MANIFEST}`])), this.manifest);
-        await this.git(['merge', '--ff-only', prepared.target]);
+        if ((await this.git(['ls-files', '--unmerged', '-z'])).length) throw new Error('请先解决现有 Git 冲突，再拉取');
+        const validHead = /^[0-9a-f]{40,64}$/.test(status.head);
+        const base = validHead ? (await this.git(['merge-base', status.head, prepared.target])).trim() : '';
+        if (validHead && base !== status.head && base !== prepared.target) throw new Error('本地与远端提交已分叉，请先使用 Git 合并或变基后再拉取');
+        const files = status.changes.length && base !== prepared.target && validHead
+          ? await prepareWorkspace(this, status.head, prepared.target, status.changes) : [];
+        const mergedManifest = files.find(file => file.path === MANIFEST);
+        const localManifest = status.changes.some(change => change.path === MANIFEST);
+        const nextManifest = mergedManifest ? readManifest(JSON.parse(mergedManifest.mergedWork.toString('utf8')), incoming)
+          : localManifest ? readManifest(JSON.parse((await readBounded(await this.safe(MANIFEST))).toString('utf8')), incoming) : incoming;
+        for (const file of files) if (file.path.endsWith('.excalidraw')) {
+          try { validateDrawing(file.mergedWork.toString('utf8')); }
+          catch { throw new Error(`合并后绘图格式无效，已保留本地内容：${file.path}`); }
+        }
+        await applyWorkspace(this, status.head, prepared.target, files);
         this.cancelSearch();
         const before = /^[0-9a-f]{40,64}$/.test(status.head) ? status.head : '';
         const after = (await this.git(['rev-parse', 'HEAD'])).trim();
         // A remote ancestor is already merged: keep the newer local metadata.
-        if (after === prepared.target) this.manifest = incoming;
+        if (after === prepared.target) this.manifest = nextManifest;
         const changes = before === after ? [] : before
           ? this.parseFileChanges(await this.git(['diff', '--name-status', '-z', '-M', before, after, '--']))
           : (await this.git(['ls-tree', '-r', '--name-only', '-z', after])).split('\0').filter(Boolean).map(path => ({ path, status: 'A' }));

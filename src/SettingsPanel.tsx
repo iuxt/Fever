@@ -82,7 +82,7 @@ export default function SettingsPanel({ vault, settings, onSettingsChange, appea
     </div>
     {settings.autoCommit && <label>备份间隔（分钟）<input type="number" min={1} max={1440} value={settings.interval} onChange={e => onSettingsChange({ ...settings, interval: Number(e.target.value) })} /></label>}
     <div className="setting-toggle">
-     <div><strong>定时自动拉取</strong><small>从远程仓库拉取更新，有本地未提交修改时跳过。</small></div>
+     <div><strong>定时自动拉取</strong><small>拉取远程更新并保留本地修改，内容冲突时暂停本轮拉取。</small></div>
      <button className={`switch ${settings.autoPull ? 'on' : ''}`} role="switch" aria-checked={settings.autoPull} aria-label="定时自动拉取" disabled={!desktop} onClick={() => onSettingsChange({ ...settings, autoPull: !settings.autoPull })}><span /></button>
     </div>
     {settings.autoPull && <label>拉取间隔（分钟）<input type="number" min={1} max={1440} step={1} value={settings.pullInterval} onChange={e => onSettingsChange({ ...settings, pullInterval: Number(e.target.value) })} /></label>}

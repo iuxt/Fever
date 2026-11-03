@@ -103,6 +103,16 @@ try {
  await tick();
  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
  assert.equal(await editor.evaluate(element => element.isConnected), true);
+ // Saved local edits no longer prevent unrelated remote notes from arriving.
+ await page.locator('.wysiwyg-content').fill('Local draft before unrelated update');
+ await expect(page.getByText('所有更改已保存')).toBeVisible();
+ const added = await writer.create('Remote note with local draft', '收件箱');
+ await writer.commit('new unrelated note'); await writer.push();
+ await tick();
+ await expect(page.locator('.note-row').filter({ hasText: added.title })).toBeVisible();
+ await expect(page.locator('.wysiwyg-content')).toContainText('Local draft before unrelated update');
+ assert.match(await readFile(path.join(folder, 'notes', note.filename), 'utf8'), /Local draft before unrelated update/);
+ await expect(page.locator('.toast.error')).toHaveCount(0);
  // A stalled real fetch must not hold the write queue or disable the editor.
  await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
  await app.evaluate(() => {
@@ -117,11 +127,11 @@ try {
  await writer.save(note.id, '# Another remote update\n'); await writer.commit('next update'); await writer.push();
  await app.evaluate(() => { globalThis.feverReleaseFetch(); globalThis.feverFetchGate = null; });
  await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
- // Uncommitted local changes are skipped quietly and never overwritten.
+ // Conflicting local edits block applying the update and remain intact.
  await tick();
  await expect(page.locator('.wysiwyg-content')).toContainText('Local draft must survive');
  assert.match(await readFile(path.join(folder, 'notes', note.filename), 'utf8'), /Local draft must survive/);
- await expect(page.locator('.toast.error')).toHaveCount(0);
+ await expect(page.locator('.toast.error')).toContainText('冲突');
  // Changing unsaved settings, then cancelling, must leave the active timer alone.
  await page.getByTitle('设置', { exact: true }).click();
  await page.getByRole('tab', { name: '同步与备份', exact: true }).click();
@@ -161,7 +171,7 @@ try {
  await expect(page.getByRole('dialog')).toHaveCount(0);
  assert.equal(JSON.parse(await readFile(path.join(data, 'preferences.json'), 'utf8')).settings.autoPull, false);
  assert.deepEqual(errors, []);
- console.log('Automatic pull: production renderer, settings, real Git updates, editing/saving during a stalled fetch and local draft protection passed.');
+ console.log('Automatic pull: real Git updates with local drafts, conflict protection, settings and saving during a stalled fetch passed.');
 } catch (error) {
  if (app) {
   const page = await app.firstWindow();

@@ -347,7 +347,10 @@ test('push and fast-forward pull work against a local bare Git repository', asyn
  const note = await other.create('来自远程', '收件箱'); await other.commit('remote note'); await other.push();
  await store.pull(); assert.ok(store.snapshot().manifest.notes.some(n => n.id === note.id));
  assert.match(await fs.readFile(path.join(dir, 'notes', note.filename), 'utf8'), /来自远程/);
- await store.save(note.id, 'local change'); await assert.rejects(store.pull(), /提交本地变更/);
+ await store.save(note.id, 'local change');
+ const result = await store.pull();
+ assert.equal(result.before, result.after);
+ assert.equal(await store.read(note.id), 'local change');
 });
 
 test('Excalidraw creation, atomic saves, Git revisions and reopen retain drawing data', async t => {

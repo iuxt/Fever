@@ -4,7 +4,7 @@ async function fixture(page: Page) {
  await page.addInitScript(() => {
   const note = { id: 'a', filename: 'a.md', title: '自动拉取测试', category: '', createdAt: '2026-10-18', updatedAt: '2026-10-18' };
   const other = { ...note, id: 'b', filename: 'b.md', title: '剩余文章' };
-  const controls = (window as any).autoPullControls = { tick: () => {}, pulls: 0, checks: 0, head: '1'.repeat(40), nextHead: '2'.repeat(40), content: '# 原始正文', remote: 'https://example.com/notes.git', dirty: false, failure: false, hold: false, release: () => {}, unchanged: false, removed: false, changes: [{ path: 'notes/a.md', status: 'M' }], diffRequest: null as unknown };
+  const controls = (window as any).autoPullControls = { tick: () => {}, pulls: 0, checks: 0, head: '1'.repeat(40), nextHead: '2'.repeat(40), content: '# 原始正文', remote: 'https://example.com/notes.git', dirty: false, conflict: false, failure: false, hold: false, release: () => {}, unchanged: false, removed: false, changes: [{ path: 'notes/a.md', status: 'M' }], diffRequest: null as unknown };
   window.fever = {
    desktop: true,
    current: async () => ({ path: '/test/auto-pull', name: '测试库', lfs: true, manifest: { version: 1, categories: [], notes: controls.removed ? [other] : [other, note] } }),
@@ -21,7 +21,8 @@ async function fixture(page: Page) {
    cancelPull: async () => {},
    pull: async () => {
     const before = controls.head;
-    if (!controls.unchanged) { controls.content = '# 远程更新后的正文'; controls.head = controls.nextHead; }
+    if (controls.conflict) throw new Error('本地与远端修改存在冲突，已保留本地内容：notes/a.md');
+    if (!controls.unchanged) { if (!controls.dirty) controls.content = '# 远程更新后的正文'; controls.head = controls.nextHead; }
     return { before, after: controls.head, commitCount: controls.unchanged ? 0 : 2, changes: controls.unchanged ? [] : controls.changes };
    },
    pullDiff: async (before, after, path, originalPath) => {
@@ -260,16 +261,16 @@ test('a network reply does not cancel a note selection that is still reading', a
  expect(await page.evaluate(() => (window as any).autoPullControls.head)).toBe('1'.repeat(40));
 });
 
-test('automatic pulls skip missing remotes, local changes, pending drafts and settings dialogs', async ({ page }) => {
+test('automatic pulls skip missing remotes, pending drafts and settings dialogs', async ({ page }) => {
  await fixture(page);
- for (const state of [{ remote: '' }, { remote: 'https://example.com/notes.git', dirty: true }]) {
+ for (const state of [{ remote: '' }]) {
   const checks = await page.evaluate(state => { Object.assign((window as any).autoPullControls, state); return (window as any).autoPullControls.checks; }, state);
   await tick(page);
   await expect.poll(() => page.evaluate(() => (window as any).autoPullControls.checks)).toBeGreaterThan(checks);
   await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
   expect(await pulls(page)).toBe(0);
  }
- await page.evaluate(() => { (window as any).autoPullControls.dirty = false; });
+ await page.evaluate(() => { (window as any).autoPullControls.remote = 'https://example.com/notes.git'; });
  await page.getByTitle('设置', { exact: true }).click();
  await tick(page);
  expect(await pulls(page)).toBe(0);
@@ -284,6 +285,29 @@ test('automatic pulls skip missing remotes, local changes, pending drafts and se
  expect(await pulls(page)).toBe(0);
  await expect(page.locator('.toast.error')).toHaveCount(0);
 });
+
+for (const automatic of [false, true]) {
+ test(`${automatic ? 'automatic' : 'manual'} pull applies remote updates with saved local changes`, async ({ page }) => {
+  await fixture(page);
+  await page.locator('.wysiwyg-content').fill('本地尚未提交的修改');
+  await expect.poll(() => page.evaluate(() => (window as any).autoPullControls.dirty)).toBe(true);
+  await pull(page, automatic);
+  await expect(page.locator('.wysiwyg-content')).toContainText('本地尚未提交的修改');
+  expect(await page.evaluate(() => (window as any).autoPullControls.head)).toBe('2'.repeat(40));
+  await expect(page.locator('.toast.error')).toHaveCount(0);
+ });
+
+ test(`${automatic ? 'automatic' : 'manual'} pull reports conflicts without replacing local content`, async ({ page }) => {
+  await fixture(page);
+  await page.locator('.wysiwyg-content').fill('需要保留的本地内容');
+  await expect.poll(() => page.evaluate(() => (window as any).autoPullControls.dirty)).toBe(true);
+  await page.evaluate(() => { (window as any).autoPullControls.conflict = true; });
+  await pull(page, automatic);
+  await expect(page.locator('.toast.error')).toContainText('notes/a.md');
+  await expect(page.locator('.wysiwyg-content')).toContainText('需要保留的本地内容');
+  expect(await page.evaluate(() => (window as any).autoPullControls.head)).toBe('1'.repeat(40));
+ });
+}
 
 test('a failed automatic pull reports the error, unlocks editing and retries on the next tick', async ({ page }) => {
  await fixture(page);

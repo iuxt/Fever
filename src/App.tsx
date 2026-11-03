@@ -420,14 +420,12 @@ export default function App() {
  // Resolve this callback after fetching so navigation, dialogs and editor state
  // come from the latest render, rather than the moment the network request began.
  applyPullRef.current = async (token, automatic) => {
-  if (loading || busy || modal || workspaceLock.current || selecting.current !== null || importingImages.current || editorRef.current?.isDirty() || pending.current.size || saving.current) {
+  if (loading || busy || modal || workspaceLock.current || selecting.current !== null || importingImages.current || (automatic && (editorRef.current?.isDirty() || pending.current.size || saving.current))) {
    if (!automatic) notify('远端内容已获取，当前操作完成后请重新拉取');
    return;
   }
   await runLocked(async () => {
    try {
-    const before = await api.status();
-    if (before.changes.length) { if (!automatic) notify('远端内容已获取，请先提交本地变更再拉取'); return; }
     ++readToken.current;
     const result = await api.pull(token);
     const detail = result ? `${result.commitCount} 个提交 · ${fileChangeSummary(result.changes)}` : '';
@@ -457,7 +455,7 @@ export default function App() {
    await flush();
    const before = await api.status();
    if (session !== pullSession.current) return;
-   if (automatic && (!before.remote || before.changes.length || before.branch === 'HEAD')) return;
+   if (automatic && (!before.remote || before.branch === 'HEAD')) return;
    token = await api.preparePull();
    if (session !== pullSession.current) return;
    await applyPullRef.current(token, automatic);
