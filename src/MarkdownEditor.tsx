@@ -23,7 +23,7 @@ import CodeCopyButton from './CodeCopyButton';
 import BlockInsert from './BlockInsert';
 import Mermaid from './Mermaid';
 import { imageAltWithWidth, parseImageAlt } from './imageSize';
-import { selectTextLine } from './editorSelection';
+import { BlockSelection, selectTextLine } from './editorSelection';
 import FindReplace from './FindReplace';
 import type { SearchRequest } from './articleSearch';
 import { ArticleSearch, richTextSearchAdapter } from './richTextSearch';
@@ -262,7 +262,7 @@ const FormattingShortcuts = Extension.create({
  },
 });
 const extensions = [
- FormattingShortcuts, ArticleSearch,
+ FormattingShortcuts, ArticleSearch, BlockSelection,
  StarterKit.configure({ paragraph: false, codeBlock: false, underline: false, trailingNode: false, link: { openOnClick: false } }),
  EditorParagraph, EditorCodeBlock, EditorImage, WikiImage,
  TableKit.configure({ table: false }), InteractiveTable,
@@ -376,6 +376,7 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
   bold: editor.isActive('bold'), italic: editor.isActive('italic'), heading: editor.isActive('heading') ? editor.getAttributes('heading').level as number : null,
   bullet: editor.isActive('bulletList'), ordered: editor.isActive('orderedList'), task: editor.isActive('taskList'),
   quote: editor.isActive('blockquote'), code: editor.isActive('codeBlock'), table: editor.isActive('table'),
+  selectedBlock: editor.state.selection instanceof NodeSelection ? editor.state.selection.node.type.name : null,
   undo: editor.can().undo(), redo: editor.can().redo(),
  } : null });
  if (!editor) return null;
@@ -505,6 +506,7 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
    <span className="format-divider" />
    {button('撤销', <Undo2 size={15} />, () => { editor.chain().focus().undo().run(); }, false, !state?.undo)}
    {button('重做', <Redo2 size={15} />, () => { editor.chain().focus().redo().run(); }, false, !state?.redo)}
+   {['horizontalRule', 'table'].includes(state?.selectedBlock || '') && <span className="block-selection-hint" role="status">已选中{state?.selectedBlock === 'table' ? '整个表格' : '分割线'} · Backspace / Delete 删除</span>}
    {state?.table && <div className="table-actions">
     <button onMouseDown={e => e.preventDefault()} onClick={() => editor.chain().focus().addRowAfter().run()}>添加行</button>
     <button onMouseDown={e => e.preventDefault()} onClick={() => editor.chain().focus().addColumnAfter().run()}>添加列</button>

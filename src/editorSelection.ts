@@ -1,5 +1,41 @@
-import { TextSelection } from '@tiptap/pm/state';
-import type { EditorView } from '@tiptap/pm/view';
+import { Extension } from '@tiptap/core';
+import { NodeSelection, Plugin, TextSelection } from '@tiptap/pm/state';
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
+
+export const BlockSelection = Extension.create({
+ name: 'blockSelection',
+ addProseMirrorPlugins() {
+  return [new Plugin({
+   props: {
+    handleDOMEvents: {
+     mousedown(view, event) {
+      if (!view.editable || event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || !(event.target instanceof HTMLHRElement)) return false;
+      const position = view.posAtDOM(event.target, 0);
+      if (view.state.doc.nodeAt(position)?.type.name !== 'horizontalRule') return false;
+      event.preventDefault();
+      view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, position)).setMeta('pointer', true));
+      view.focus();
+      return true;
+     },
+    },
+    decorations({ doc, selection }) {
+     if (selection.empty || selection instanceof NodeSelection) return null;
+     const decorations: Decoration[] = [];
+     // Native text selection does not paint empty atoms or a table's boundary.
+     // Highlight only fully covered blocks so the frame matches what deletion removes.
+     doc.nodesBetween(selection.from, selection.to, (node, position) => {
+      if (!['horizontalRule', 'table'].includes(node.type.name)) return;
+      if (selection.from <= position && selection.to >= position + node.nodeSize) {
+       decorations.push(Decoration.node(position, position + node.nodeSize, { class: 'block-range-selected' }));
+      }
+      return false;
+     });
+     return DecorationSet.create(doc, decorations);
+    },
+   },
+  })];
+ },
+});
 
 // Resolve the clicked textblock from the DOM before using coordinates. A hit in
 // a node view's padding can otherwise resolve to a neighboring block.

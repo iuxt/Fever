@@ -1,6 +1,7 @@
 import { Table, TableView } from '@tiptap/extension-table';
 import type { Editor } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { NodeSelection } from '@tiptap/pm/state';
 import { CellSelection, TableMap, addColumnBefore, addColumnAfter, addRowBefore, addRowAfter, moveTableColumn, moveTableRow } from '@tiptap/pm/tables';
 
 type Axis = 'row' | 'column';
@@ -11,6 +12,7 @@ type Drag = Line & { x: number; y: number; moving: boolean; boundary: number | n
 class InteractiveTableView extends TableView {
  private controls = document.createElement('div');
  private insert = document.createElement('button');
+ private selectTable = document.createElement('button');
  private marker = document.createElement('div');
  private handles: HTMLButtonElement[] = [];
  private columns: number[] = [];
@@ -26,6 +28,18 @@ class InteractiveTableView extends TableView {
   this.dom.classList.add('interactive-table');
   this.controls.className = 'table-controls';
   this.controls.contentEditable = 'false';
+  this.selectTable.type = 'button';
+  this.selectTable.className = 'table-select-handle';
+  this.selectTable.textContent = '⊞';
+  this.selectTable.setAttribute('aria-label', '选中整个表格');
+  this.selectTable.title = '选中整个表格 · Backspace / Delete 删除';
+  this.selectTable.addEventListener('pointerdown', event => event.preventDefault());
+  this.selectTable.addEventListener('click', () => {
+   const pos = this.getPos();
+   if (pos === undefined || !this.editor.isEditable) return;
+   this.editor.commands.setNodeSelection(pos);
+   this.editor.view.focus();
+  });
   this.insert.type = 'button';
   this.insert.className = 'table-insert';
   this.insert.textContent = '+';
@@ -38,7 +52,7 @@ class InteractiveTableView extends TableView {
    edge.className = `table-hover-edge ${side}`;
    this.controls.append(edge);
   }
-  this.controls.append(this.insert, this.marker);
+  this.controls.append(this.selectTable, this.insert, this.marker);
   this.dom.append(this.controls);
   this.insert.addEventListener('pointerdown', event => event.preventDefault());
   this.insert.addEventListener('click', this.insertAtBoundary);
@@ -89,6 +103,8 @@ class InteractiveTableView extends TableView {
   this.columns = [table.left - origin.left, ...Array.from(firstRow.cells, cell => cell.getBoundingClientRect().right - origin.left)];
   this.rows = [table.top - origin.top, ...Array.from(this.table.rows, row => row.getBoundingClientRect().bottom - origin.top)];
   const width = this.columns.length - 1;
+  this.selectTable.style.left = `${this.columns[0] - 14}px`;
+  this.selectTable.style.top = `${this.rows[0] - 14}px`;
   this.handles.forEach((handle, index) => {
    const column = index < width;
    const i = column ? index : index - width;
@@ -113,6 +129,7 @@ class InteractiveTableView extends TableView {
  private syncSelection = () => {
   const selection = this.editor.state.selection;
   const pos = this.getPos();
+  this.selectTable.setAttribute('aria-pressed', String(selection instanceof NodeSelection && selection.from === pos));
   if (selection instanceof CellSelection && pos !== undefined && selection.$anchorCell.start(-1) === pos + 1) {
    const map = TableMap.get(this.node);
    const rect = map.rectBetween(selection.$anchorCell.pos - pos - 1, selection.$headCell.pos - pos - 1);
@@ -273,4 +290,4 @@ export const InteractiveTable = Table.extend({
  addNodeView() {
   return ({ node, getPos, editor }) => new InteractiveTableView(node, editor, getPos);
  },
-}).configure({ resizable: false });
+}).configure({ resizable: false, allowTableNodeSelection: true });

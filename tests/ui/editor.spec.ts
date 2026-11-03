@@ -990,6 +990,100 @@ test('Markdown input shortcuts and Chinese composition produce formatted, saved 
  await expect(page.locator('.cm-content')).toContainText('- 列表正文');
 });
 
+for (const theme of ['light', 'dark']) {
+ for (const key of ['Backspace', 'Delete']) {
+  test(`shows a horizontal rule selection before deleting only that block with ${key} (${theme})`, async ({ page }) => {
+   await page.addInitScript(theme => localStorage.setItem('fever-theme', theme), theme);
+   const original = '前段\n\n---\n\n后段\n';
+   await seed(page, original);
+   const editor = page.getByRole('textbox', { name: '笔记正文' });
+   const rule = editor.locator('hr');
+   // The whole padded hit area selects the rule, including above the thin line.
+   await rule.click({ position: { x: 30, y: 3 } });
+   await expect(rule).toHaveClass(/ProseMirror-selectednode/);
+   await expect(rule).toHaveCSS('outline-style', 'solid');
+   await expect(rule).toHaveCSS('outline-width', '2px');
+   await expect(page.getByRole('status').filter({ hasText: '已选中分割线' })).toBeVisible();
+   if (key === 'Backspace') await page.screenshot({ path: `test-results/rule-selection-${theme}.png` });
+   expect(await saved(page)).toBe(original);
+   await page.keyboard.press(key);
+   await expect(rule).toHaveCount(0);
+   await expect(editor.locator('p')).toHaveText(['前段', '后段']);
+   await expect.poll(() => saved(page)).toBe('前段\n\n后段\n');
+   await page.keyboard.press('ControlOrMeta+z');
+   await expect(rule).toHaveCount(1);
+   await expect.poll(() => saved(page)).toBe(original);
+   await rule.click();
+   await editor.locator('p').last().click();
+   await expect(rule).not.toHaveClass(/ProseMirror-selectednode/);
+   await expect(page.getByRole('status').filter({ hasText: '已选中分割线' })).toHaveCount(0);
+  });
+
+  test(`distinguishes cell editing from whole table selection and deletes only the table with ${key} (${theme})`, async ({ page }) => {
+   await page.addInitScript(theme => localStorage.setItem('fever-theme', theme), theme);
+   const original = '前段\n\n| A | B |\n| --- | --- |\n| a1 | b1 |\n\n后段\n';
+   await seed(page, original);
+   const editor = page.getByRole('textbox', { name: '笔记正文' });
+   const table = editor.locator('.interactive-table');
+   const select = table.getByRole('button', { name: '选中整个表格', exact: true });
+   await table.locator('td').first().click();
+   await expect(select).toHaveAttribute('aria-pressed', 'false');
+   await expect(table).not.toHaveClass(/ProseMirror-selectednode/);
+   await select.click();
+   await expect(select).toHaveAttribute('aria-pressed', 'true');
+   await expect(table).toHaveClass(/ProseMirror-selectednode/);
+   await expect(table).toHaveCSS('outline-style', 'solid');
+   await expect(table).toHaveCSS('outline-width', '2px');
+   await expect(page.getByRole('status').filter({ hasText: '已选中整个表格' })).toBeVisible();
+   if (key === 'Backspace') await page.screenshot({ path: `test-results/table-selection-${theme}.png` });
+   expect(await saved(page)).toBe(original);
+   await page.keyboard.press(key);
+   await expect(table).toHaveCount(0);
+   await expect(editor.locator('p')).toHaveText(['前段', '后段']);
+   await expect.poll(() => saved(page)).toBe('前段\n\n后段\n');
+   await page.keyboard.press('ControlOrMeta+z');
+   await expect(table).toHaveCount(1);
+   await expect(table.locator('th, td')).toHaveText(['A', 'B', 'a1', 'b1']);
+   // A document edit uses the serializer's canonical table spacing.
+   await expect.poll(async () => (await saved(page)).replace(/\s+/g, '')).toBe(original.replace(/\s+/g, ''));
+   await select.click();
+   await table.locator('td').first().click();
+   await expect(table).not.toHaveClass(/ProseMirror-selectednode/);
+   await expect(select).toHaveAttribute('aria-pressed', 'false');
+   await expect(page.getByRole('status').filter({ hasText: '已选中整个表格' })).toHaveCount(0);
+  });
+ }
+}
+
+test('highlights complete blocks in a text range and clears the frames when the selection collapses', async ({ page }) => {
+ const original = '前段\n\n---\n\n| A | B |\n| --- | --- |\n| a1 | b1 |\n\n后段\n';
+ await seed(page, original);
+ const editor = page.getByRole('textbox', { name: '笔记正文' });
+ const rule = editor.locator('hr'), table = editor.locator('.interactive-table');
+ await editor.locator('p').first().click();
+ await editor.evaluate(element => {
+  const paragraphs = element.querySelectorAll(':scope > p');
+  const range = document.createRange();
+  range.setStart(paragraphs[0].firstChild!, 1);
+  range.setEnd(paragraphs[paragraphs.length - 1].firstChild!, 1);
+  const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+ });
+ await expect(rule).toHaveClass(/block-range-selected/);
+ await expect(table).toHaveClass(/block-range-selected/);
+ expect(await saved(page)).toBe(original);
+ await editor.locator('p').last().click();
+ await expect(rule).not.toHaveClass(/block-range-selected/);
+ await expect(table).not.toHaveClass(/block-range-selected/);
+ await page.keyboard.press('ControlOrMeta+a');
+ await expect(rule).toHaveClass(/block-range-selected/);
+ await expect(table).toHaveClass(/block-range-selected/);
+ await page.keyboard.press('Backspace');
+ await expect(rule).toHaveCount(0);
+ await expect(table).toHaveCount(0);
+ await page.keyboard.press('ControlOrMeta+z');
+ await expect.poll(async () => (await saved(page)).replace(/\s+/g, '')).toBe(original.replace(/\s+/g, ''));
+});
+
 test('edits table cells, adds rows and columns, and saves checked tasks as Markdown', async ({ page }) => {
  await seed(page, '# 表格与任务\n\n| 名称 | 状态 |\n| :--- | ---: |\n| Fever | 草稿 |\n\n- [ ] 写笔记\n');
  const editor = page.getByRole('textbox', { name: '笔记正文' });
