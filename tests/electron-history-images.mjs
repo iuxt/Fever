@@ -4,26 +4,37 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
-import { migrateNotebook } from '../scripts/notebook-migration.mjs';
 const exec = promisify(execFile);
 const scratch = await mkdtemp(path.join(tmpdir(), 'fever-desktop-history-images-'));
-const source = path.join(scratch, 'source'), folder = path.join(scratch, 'vault'), data = path.join(scratch, 'data');
+const folder = path.join(scratch, 'vault'), data = path.join(scratch, 'data');
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6N3IAAAAASUVORK5CYII=', 'base64');
 const second = Buffer.concat([png, Buffer.from('second version')]);
 const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
 let app;
 try {
- await mkdir(path.join(source, '分类'), { recursive: true }); await mkdir(path.join(source, '图片')); await mkdir(data);
- const git = async args => (await exec('git', args, { cwd: source })).stdout;
+ await mkdir(path.join(folder, '分类'), { recursive: true }); await mkdir(path.join(folder, '图片')); await mkdir(data);
+ const git = async args => (await exec('git', args, { cwd: folder })).stdout;
  await git(['init', '-b', 'main']); await git(['config', 'user.name', 'Test']); await git(['config', 'user.email', 'test@example.com']);
- await writeFile(path.join(source, '分类/History.md'), '# History first\n\n![[截图.png|旧图]]\n');
- await writeFile(path.join(source, '图片/截图.png'), png);
+ await writeFile(path.join(folder, '分类/History.md'), '# History first\n\n![[截图.png|旧图]]\n');
+ await writeFile(path.join(folder, '图片/截图.png'), png);
  await git(['add', '.']); await git(['commit', '-m', 'original wiki image']);
  const original = (await git(['rev-parse', 'HEAD'])).trim();
- await writeFile(path.join(source, '分类/History.md'), '# History second\n\n![第二版](../图片/截图.png)\n');
- await writeFile(path.join(source, '图片/截图.png'), second);
+ await writeFile(path.join(folder, '分类/History.md'), '# History second\n\n![第二版](../图片/截图.png)\n');
+ await writeFile(path.join(folder, '图片/截图.png'), second);
  await git(['commit', '-am', 'changed image bytes']);
- await migrateNotebook(source, folder);
+ // Build a historical rename and a current LFS snapshot without a migration tool.
+ await mkdir(path.join(folder, 'notes')); await mkdir(path.join(folder, 'images'));
+ await git(['mv', '分类/History.md', 'notes/history.md']);
+ await git(['commit', '-m', 'rename historical note']);
+ await git(['mv', '图片/截图.png', 'images/history.png']);
+ await writeFile(path.join(folder, 'notes/history.md'), '# History second\n\n![第二版](../images/history.png)\n');
+ await writeFile(path.join(folder, '.gitattributes'), 'images/** filter=lfs diff=lfs merge=lfs -text\n');
+ await writeFile(path.join(folder, 'fever.json'), JSON.stringify({ version: 1, categories: ['分类'], notes: [{
+  id: 'history', filename: 'history.md', title: 'History', category: '分类', sourcePath: '分类/History.md',
+  createdAt: '2026-10-13T00:00:00Z', updatedAt: '2026-10-13T00:00:00Z',
+ }] }));
+ await git(['lfs', 'install', '--local']);
+ await git(['add', '.']); await git(['commit', '-m', 'current LFS image']);
  const latest = (await exec('git', ['rev-parse', 'HEAD'], { cwd: folder })).stdout.trim();
  for (const image of await readdir(path.join(folder, 'images'))) await rm(path.join(folder, 'images', image), { recursive: true, force: true });
  await writeFile(path.join(data, 'preferences.json'), JSON.stringify({ vault: folder }));

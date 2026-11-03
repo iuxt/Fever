@@ -168,3 +168,40 @@ test('failed historical restore cleans imported images and preserves the current
  assert.equal(await store.read(note.id), '# Keep current');
  assert.deepEqual(await fs.readdir(path.join(dir, 'images', note.id)), []);
 });
+
+test('legacy Git images retain original references without changing inline or fenced code', async () => {
+ const { unified } = await import('unified');
+ const { default: remarkParse } = await import('remark-parse');
+ const { visit } = await import('unist-util-visit');
+ const { default: remarkLegacyImages } = await import('../src/legacyImages.ts');
+ const tree = unified().use(remarkParse).parse('![[photo.png|旧图]]\n\n`![[photo.png]]`\n\n```text\n![[photo.png]]\n```\n');
+ remarkLegacyImages()(tree);
+ const images = [], code = [];
+ visit(tree, node => { if (node.type === 'image') images.push(node); if (node.type === 'code' || node.type === 'inlineCode') code.push(node.value); });
+ assert.equal(images.length, 1); assert.equal(images[0].url, 'photo.png'); assert.equal(images[0].alt, '旧图');
+ assert.deepEqual(code, ['![[photo.png]]', '![[photo.png]]']);
+ assert.equal(images[0].data.hProperties['data-wiki'], 'true');
+});
+
+test('BMP assets remain readable, previewable and restorable through history', async t => {
+ const { dir: destination, store } = await fixture(t);
+ const bmp = Buffer.from('424d3a00000000000000360000002800000001000000010000000100180000000000040000000000000000000000000000000000000000000000', 'hex');
+ const imported = await store.image(bmp, 'photo.bmp', store.manifest.notes[0].id);
+ await store.save(store.manifest.notes[0].id, `# Bitmap\n\n![photo](${imported})\n`);
+ await store.commit('bitmap');
+ const note = store.manifest.notes[0], content = await store.read(note.id), src = content.match(/\]\(([^)]+)\)/)[1];
+ let bridge;
+ require('node:vm').runInNewContext(await fs.readFile(path.join(__dirname, '../electron/preload.cjs'), 'utf8'), {
+  require: () => ({ contextBridge: { exposeInMainWorld: (_name, api) => { bridge = api; } }, ipcRenderer: {} }), process: { platform: process.platform }, URLSearchParams,
+ });
+ assert.equal(bridge.asset(src), `fever-asset://vault/${src.slice(3)}`);
+ assert.equal((await store.openFile(src.slice(3))).image, `data:image/bmp;base64,${bmp.toString('base64')}`);
+ const hash = (await store.git(['rev-parse', 'HEAD'])).trim();
+ await fs.rm(path.join(destination, src.slice(3))); await store.save(note.id, '# Changed\n');
+ await store.restore(note.id, hash);
+ const restored = (await store.read(note.id)).match(/\]\(([^)]+)\)/)[1];
+ assert.ok(bridge.asset(restored));
+ assert.deepEqual(await fs.readFile(path.join(destination, restored.slice(3))), bmp);
+ await store.commit('restore bitmap');
+ assert.match(await store.git(['show', `HEAD:${restored.slice(3)}`]), /git-lfs.github.com\/spec\/v1/);
+});

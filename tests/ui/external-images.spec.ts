@@ -59,6 +59,31 @@ test('edits made during download are retained', async ({ page }) => {
  await expect(button).toBeEnabled();
 });
 
+test('conversion preserves unflushed rich text edits when the download finishes', async ({ page }) => {
+ await fixture(page, '![图](https://example.com/image.png)\n\n正文\n', true);
+ await page.getByTitle('更多笔记操作', { exact: true }).click();
+ await page.getByTitle('外部图片转为本地文件', { exact: true }).click();
+ await expect.poll(() => page.evaluate(() => (window as any).imageControls.waiting)).toBe(true);
+ // Finish the download in the same turn as the edit, before its 120 ms serialization.
+ await page.evaluate(() => {
+  const editor = (document.querySelector('.wysiwyg-content') as any).editor;
+  editor.commands.insertContentAt(editor.state.doc.content.size - 1, '下载结束时的输入');
+  (window as any).imageControls.release();
+ });
+ const expected = '![图](../images/local.png)\n\n正文下载结束时的输入\n';
+ await expect.poll(() => page.evaluate(() => (window as any).imageControls.contents.a)).toBe(expected);
+ await expect(page.locator('.wysiwyg-content')).toContainText('下载结束时的输入');
+ await expect(page.locator('.toast')).toContainText('已将 1 张外部图片保存到 images/');
+ // A subsequent edit and reopening the note must not resurrect the remote URL.
+ await page.evaluate(() => {
+  const editor = (document.querySelector('.wysiwyg-content') as any).editor;
+  editor.commands.insertContentAt(editor.state.doc.content.size - 1, '继续编辑');
+ });
+ await page.locator('.note-row').filter({ hasText: 'Note b' }).click();
+ await page.locator('.note-row').filter({ hasText: 'Note a' }).click();
+ await expect.poll(() => page.evaluate(() => (window as any).imageControls.contents.a)).toBe(expected.replace('输入\n', '输入继续编辑\n'));
+});
+
 test('switching notes during download applies conversion to the original note', async ({ page }) => {
  await fixture(page, '![图](https://example.com/image.png)\n', true);
  await page.getByTitle('更多笔记操作', { exact: true }).click();

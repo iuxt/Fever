@@ -57,7 +57,7 @@ params:
         text: 正文保存为本地 `.md` 文件，绘图使用标准 `.excalidraw` 格式。无需登录 Fever 账号，即可在自己的文件夹中开始记录。
       - title: 从零散记录，到有序知识库
         icon: mobile-feed
-        text: 嵌套文件夹、多标签页、全文搜索与标题大纲，帮助你整理和回看内容。支持导入 Markdown，已有 Obsidian 笔记库也可通过迁移脚本导入。
+        text: 嵌套文件夹、多标签页、全文搜索与标题大纲，帮助你整理和回看内容。支持导入 Markdown、Excalidraw 和 Obsidian 的 Excalidraw Markdown 文件。
       - title: 分享内容，选择合适的形式
         icon: doc-sync
         text: 将笔记导出为 PDF、HTML 或 Markdown；HTML 可内嵌图片和绘图，便于离线阅读。亮色、暗色与跟随系统主题，让长时间阅读更自在。

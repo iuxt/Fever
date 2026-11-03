@@ -768,6 +768,9 @@ export default function App() {
    const currentVault = await api.current();
    if (currentVault?.path !== vaultPath || !currentVault.manifest.notes.some(note => note.id === targetId)) throw new Error('笔记库或笔记已变化，请重新打开原笔记后转换');
    const stored = pending.current.get(targetId) ?? await api.read(targetId);
+   // Publish rich-text transactions after the last await, before reading or
+   // replacing the draft. Otherwise flush() can overwrite converted URLs.
+   editorRef.current?.flush();
    // Apply replacements to the latest text, retaining edits made during download.
    const latest = currentDocument.current.id === targetId ? currentDocument.current.content : pending.current.get(targetId) ?? stored;
    const next = replaceExternalImages(latest, result.replacements);

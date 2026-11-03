@@ -51,6 +51,6 @@ hugo --source website --gc --minify
 
 配置时 `iuxt/Fever` 是私有仓库，尚未开启 Pages。根据 [GitHub 文档](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)，私有仓库使用 Pages 需要 GitHub Pro、Team 或 Enterprise。若账号套餐不支持，需要先调整套餐，或由仓库所有者决定是否公开仓库。
 
-**公开的 Pages 网站不会自动公开私有仓库的 Releases。** 官网的 GitHub、反馈、迁移指南和下载链接都指向当前仓库；在仓库保持私有时，这些链接仅对有仓库权限的人可用。面向公众发布下载时，应使用公开的 Release 仓库或其他公开下载地址，并更新 `hugo.yaml` 和相关模板链接。
+**公开的 Pages 网站不会自动公开私有仓库的 Releases。** 官网的 GitHub、反馈和下载链接都指向当前仓库；在仓库保持私有时，这些链接仅对有仓库权限的人可用。面向公众发布下载时，应使用公开的 Release 仓库或其他公开下载地址，并更新 `hugo.yaml` 和相关模板链接。
 
 官方参考：[Hugo 部署到 GitHub Pages](https://gohugo.io/host-and-deploy/deploy-to-github-pages/)。
