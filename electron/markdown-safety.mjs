@@ -7,13 +7,14 @@ const parser = unified().use(remarkParse).use(remarkGfm);
 const frontmatter = content => content.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)(?:\r?\n)*/)?.[0] || '';
 
 // These constructs have no lossless representation in the rich-text schema.
+// Attribute-free <br> tags map to hardBreak nodes (also inside GFM tables).
 // Inspect Markdown nodes so examples inside code never force source editing.
 export function requiresSourceEditing(content) {
   if (!/[<]|\[\^/.test(content)) return false;
   const body = content.slice(frontmatter(content).length);
   let unsupported = false;
   visit(parser.parse(body), node => {
-    if (['html', 'footnoteReference', 'footnoteDefinition'].includes(node.type) || (node.type === 'definition' && node.identifier.startsWith('^')) || (node.type === 'text' && /\[\^[^\]\n]+\]/.test(node.value))) unsupported = true;
+    if ((node.type === 'html' && !/^<br\s*\/?>\s*$/i.test(node.value)) || ['footnoteReference', 'footnoteDefinition'].includes(node.type) || (node.type === 'definition' && node.identifier.startsWith('^')) || (node.type === 'text' && /\[\^[^\]\n]+\]/.test(node.value))) unsupported = true;
   });
   return unsupported;
 }

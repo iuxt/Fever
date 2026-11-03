@@ -1,6 +1,7 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMarkdownBreaks from './markdownBreaks';
 import { HighlightedCode } from './codeHighlight';
 import remarkLegacyImages from './legacyImages';
 import { resolveNoteLink } from './noteLinks';
@@ -29,7 +30,7 @@ export function DrawingReference({ source, notes, onOpen }: { source: string; no
 }
 
 export default memo(function Markdown({ content, revision, notes = [], onOpen, onNavigate }: { content: string; revision?: RevisionAsset; notes?: Note[]; onOpen?: (id: string) => void; onNavigate?: (href: string) => boolean }) {
- const plugins = useMemo(() => [remarkGfm, [remarkDrawingEmbeds, notes], remarkLegacyImages, remarkHeadingIds] as import('unified').PluggableList, [notes]);
+ const plugins = useMemo(() => [remarkGfm, remarkMarkdownBreaks, [remarkDrawingEmbeds, notes], remarkLegacyImages, remarkHeadingIds] as import('unified').PluggableList, [notes]);
  const components = useMemo<import('react-markdown').Components>(() => ({
   img: ({ src, alt, title, node }) => {
    if (/\.excalidraw(?:\.md)?$/i.test(src || '') || resolveDrawing(src || '', notes)) return <DrawingReference source={src || ''} notes={notes} onOpen={onOpen} />;

@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 async function seed(page: Page, content: string) {
  await page.addInitScript(content => {
+  if (localStorage.getItem('fever-demo-v1')) return;
   const note = { id: 'safety', filename: 'safety.md', title: '原文保护', category: '', createdAt: '2026-10-01', updatedAt: '2026-10-01' };
   localStorage.setItem('fever-demo-v1', JSON.stringify({ manifest: { version: 1, categories: [], notes: [note] }, contents: { safety: content }, versions: {}, dirty: [], images: {}, settings: {} }));
  }, content);
@@ -34,6 +35,47 @@ for (const [name, body] of [
 test('code examples containing HTML and footnotes still use rich text', async ({ page }) => {
  await seed(page, '# Examples\n\n```html\n<!-- comment -->\n[^1]: example\n```\n\n`<span>text</span>`\n');
  await expect(page.locator('.wysiwyg-content')).toBeVisible();
+});
+
+test('table line breaks render and survive mode switches, edits, saving and reopening', async ({ page }) => {
+ const errors: string[] = [];
+ page.on('pageerror', error => errors.push(error.message));
+ const original = '# oracle云服务器\n\n| 名称 | 说明 |\n| --- | --- |\n| 测试服务器 | 第一行<br>第二行<br/>第三行<br />第四行<BR>第五行 |\n| 备用服务器 | 正常 |\n';
+ await seed(page, original);
+ const editor = page.locator('.wysiwyg-content');
+ await expect(editor.locator('table')).toBeVisible();
+ await expect(editor.locator('tr')).toHaveCount(3);
+ await expect(editor.locator('td br')).toHaveCount(4);
+ const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).contents.safety);
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await expect(page.locator('.document .prose table')).toBeVisible();
+ await expect(page.locator('.document .prose td br')).toHaveCount(4);
+ await expect.poll(stored).toBe(original);
+ await page.getByTitle('编辑模式 · ⌘ E').click();
+ await expect(editor.locator('td br')).toHaveCount(4);
+ await expect.poll(stored).toBe(original);
+ await editor.locator('td').first().click();
+ await page.keyboard.press('Home');
+ await page.keyboard.insertText('已更新');
+ await expect.poll(stored).toContain('已更新');
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await expect(page.locator('.document .prose td br')).toHaveCount(4);
+ await expect(page.locator('.document .prose table')).toContainText('已更新');
+ await page.getByTitle('编辑模式 · ⌘ E').click();
+ await expect(editor.locator('tr')).toHaveCount(3);
+ await expect(editor.locator('td br')).toHaveCount(4);
+ await page.reload();
+ await expect(editor.locator('td br')).toHaveCount(4);
+ await expect(editor.locator('table')).toContainText('已更新');
+ expect(errors).toEqual([]);
+});
+
+test('protected notes still preview table line breaks without rendering arbitrary HTML', async ({ page }) => {
+ await seed(page, '# Title\n\n<!-- preserve this comment -->\n\n| Details |\n| --- |\n| first<br>second |\n');
+ await expect(page.locator('.cm-content')).toBeVisible();
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await expect(page.locator('.document .prose td br')).toHaveCount(1);
+ await expect(page.locator('.document .prose table')).toBeVisible();
 });
 
 test('explicit rich editing of a large supported note survives reselecting the same note', async ({ page }) => {
