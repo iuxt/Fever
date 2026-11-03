@@ -40,6 +40,30 @@ test('outline scrolls to the final heading and targets formatted and duplicate t
  expect(ids.at(-1)).toBe('heading-重复-2');
 });
 
+test('outline stays visible while edits are parsed', async ({ page }) => {
+ await fixture(page, '# 原标题\n\n## 原章节\n\n正文\n', 2);
+ await page.getByRole('button', { name: '大纲', exact: true }).click();
+ await expect(page.locator('.outline button')).toHaveCount(2);
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await page.evaluate(() => {
+  const outline = document.querySelector('.outline')!;
+  const states: string[] = [];
+  const record = () => states.push(outline.textContent || '');
+  new MutationObserver(record).observe(outline, { childList: true, subtree: true, characterData: true });
+  (window as typeof window & { outlineStates: string[] }).outlineStates = states;
+ });
+ await page.locator('.cm-content').fill('# 新标题\n\n## 原章节\n\n正文更新\n');
+ await expect(page.locator('.outline button').first()).toContainText('新标题');
+ await page.locator('.cm-content').fill('# 新标题\n\n## 新章节\n\n正文再次更新\n');
+ await expect(page.locator('.outline button').last()).toContainText('新章节');
+ const states = await page.evaluate(() => (window as typeof window & { outlineStates: string[] }).outlineStates);
+ expect(states.length).toBeGreaterThan(0);
+ expect(states.every(state => !state.includes('正在加载大纲') && !state.includes('暂无大纲'))).toBe(true);
+ await page.locator('.note-card').nth(1).click();
+ await expect(page.locator('.outline button').last()).toContainText('原章节');
+ await expect(page.locator('.outline')).not.toContainText('新章节');
+});
+
 test('large notes open in a bounded source editor, support outline navigation and save without truncation', async ({ page }) => {
  const content = '# 长文\n\n' + 'A paragraph of plain text with enough words for a realistic Markdown document.\n\n'.repeat(5000) + '\n## 最后章节\n\n末尾正文\n';
  await fixture(page, content);

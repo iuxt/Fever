@@ -178,7 +178,8 @@ export default function App() {
  const modalNote = vault?.manifest.notes.find(n => n.id === (modalNoteId ?? activeId));
  const drawing = Boolean(active && (isDrawingNote(active) || isLegacyDrawing(content)));
  const displayedContent = selectedCommit ? revision : content;
- const settledContent = useSettledValue(displayedContent, `${activeId}:${selectedCommit?.hash || ''}`);
+ const displayedDocumentKey = `${vault?.path || ''}:${activeId}:${selectedCommit?.hash || ''}`;
+ const settledContent = useSettledValue(displayedContent, displayedDocumentKey);
  const displayedDrawing = selectedCommit ? Boolean(active && (isDrawingNote(active) || isLegacyDrawing(revision))) : drawing;
  const drawings = vault?.manifest.notes.filter(isDrawingNote) || [];
  const notify = useCallback((message: string, error = false, detail?: string) => setNotice({ message, error, detail }), []);
@@ -866,7 +867,7 @@ export default function App() {
    setModal(null);
   });
  }
- const { headings, loading: headingsLoading, error: headingsError } = useHeadings(displayedDrawing ? '' : settledContent, rightOpen && panel === 'outline' && !displayedDrawing);
+ const { headings, loading: headingsLoading, error: headingsError } = useHeadings(displayedDrawing ? '' : settledContent, rightOpen && panel === 'outline' && !displayedDrawing, displayedDocumentKey);
  const drawingCount = useMemo(() => { if (!displayedDrawing) return 0; try { return JSON.parse(drawingJSON(settledContent)).elements.filter((element: { isDeleted?: boolean }) => !element.isDeleted).length; } catch { return 0; } }, [settledContent, displayedDrawing]);
  const counts = useMemo(() => {
   if (displayedDrawing) return { chars: 0, words: 0 };
