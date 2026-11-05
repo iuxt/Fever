@@ -106,15 +106,18 @@ button, select, .code-block-actions, .table-controls, .drawing-preview-header { 
 .history-summary code { font-size: 0.75rem; }
 .latest-badge { flex-shrink: 0; font-size: 0.75rem; line-height: 1.5; color: var(--green); background: var(--selected); padding: 0 4px; border-radius: 3px; }
 /* Git uses a quiet repository summary above the commit composer. */
-.git-branch-card { flex-shrink: 0; margin: 0 18px; padding: 0 0 14px; border-bottom: 1px solid var(--border); }
+.git-branch-card { flex-shrink: 0; margin: 0 14px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); }
 .git-branch-card > div:first-child { display: flex; gap: 7px; align-items: center; color: var(--green); font-size: 0.8125rem; }
 .git-branch-card strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
-.git-branch-card p { font-size: 0.6875rem; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin: 7px 0 0; line-height: 1.5; }
+.git-branch-card p { font-size: 0.6875rem; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin: 5px 0 0; line-height: 1.5; }
 .sync-counts { display: flex; flex-shrink: 0; gap: 10px; margin-left: auto; font-size: 0.6875rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .sync-counts span { display: flex; gap: 2px; align-items: center; }
- .changes-list { padding: 0 19px; max-height: 230px; overflow-y: auto; } .change { display: flex; align-items: center; gap: 7px; font-size: 0.75rem; padding: 8px 2px; } .change > svg { color: var(--muted); } .change > span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .change code { color: var(--warning); font-size: 0.75rem; } .clean-state { display: flex; flex-direction: column; align-items: center; padding: 20px 0 25px; color: var(--green); } .clean-state span { font-size: 0.75rem; margin-top: 10px; color: var(--green); } .commit-box { flex-shrink: 0; margin: 14px 18px 18px; display: flex; flex-direction: column; gap: 8px; }
-.commit-box textarea { display: block; width: 100%; height: 60px; min-height: 48px; max-height: 180px; background: var(--paper); border: 1px solid var(--border); padding: 9px 11px; border-radius: 7px; resize: vertical; font-size: 0.75rem; line-height: 1.6; }
-.commit-box .primary { width: 100%; min-height: 34px; padding: 7px 10px; justify-content: center; font-size: 0.75rem; border-radius: 6px; }
+ .changes-list { padding: 0 19px; max-height: 230px; overflow-y: auto; } .change { display: flex; align-items: center; gap: 7px; font-size: 0.75rem; padding: 8px 2px; } .change > svg { color: var(--muted); } .change > span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .change code { color: var(--warning); font-size: 0.75rem; }
+.clean-state { display: flex; flex-shrink: 0; align-items: center; gap: 8px; margin: 0 14px 12px; padding: 10px 12px; border-radius: 6px; background: color-mix(in srgb, var(--green) 6%, transparent); color: var(--green); font-size: 0.75rem; line-height: 1.5; }
+.commit-box { flex-shrink: 0; margin: 16px 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+.commit-label { color: var(--muted); font-size: 0.6875rem; font-weight: 500; }
+.commit-box textarea { display: block; width: 100%; height: 64px; min-height: 48px; max-height: 120px; background: var(--paper); border: 1px solid var(--border); padding: 9px 10px; border-radius: 6px; resize: vertical; font-size: 0.75rem; line-height: 1.6; }
+.commit-box .primary { width: 100%; min-height: 34px; padding: 7px 8px; justify-content: center; font-size: 0.75rem; border-radius: 6px; }
 .lfs-indicator { flex-shrink: 0; margin: 0 18px; padding: 12px 0 14px; border-top: 1px solid var(--border); display: flex; gap: 5px; align-items: center; font-size: 0.6875rem; color: var(--muted); }
 .lfs-indicator > span:last-child { margin-left: auto; font-family: monospace; color: var(--muted); font-size: 0.6875rem; }
  .green-dot, .amber-dot { height: 5px; width: 5px; border-radius: 50%; background: #88a56f; } .amber-dot { background: #c39455; }
@@ -146,35 +149,37 @@ button, select, .code-block-actions, .table-controls, .drawing-preview-header { 
 .drawing-placeholder, .drawing-error { display: block; padding: 24px; font-size: 0.875rem; color: var(--muted); }
 .drawing-error { color: var(--danger); }
 .modal select { display: block; width: 100%; padding: 11px 12px; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 6px; margin-top: 8px; font-size: 0.875rem; }
-.git-inspector .inspector-title { padding: 20px 18px 10px; color: var(--text); font-weight: 550; letter-spacing: 0; }
-.git-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 6px; margin: 0 14px 16px; }
-.git-toolbar .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; color: var(--muted); }
-.git-toolbar .icon-button:hover:not(:disabled) { background: var(--selected); color: var(--green); }
-.git-toolbar-separator { height: 16px; width: 1px; background: var(--border); margin: 0 2px; }
-.git-toolbar .git-refresh { margin-left: auto; }
-.git-whitespace-filter { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 10px; margin: 0 18px 16px; color: var(--muted); font-size: 0.75rem; cursor: pointer; }
+.git-inspector { overflow-y: auto; scrollbar-width: thin; }
+.git-inspector .inspector-title { padding: 10px 14px; min-height: 46px; color: var(--text); font-weight: 550; letter-spacing: 0; }
+.git-toolbar { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
+.git-toolbar button { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; min-height: 28px; padding: 4px 8px; border-radius: 4px; background: var(--panel); color: var(--muted); font-size: 0.6875rem; }
+.git-toolbar button:hover:not(:disabled) { background: var(--selected); color: var(--green); }
+.git-whitespace-filter { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 10px; margin: 2px 0; color: var(--muted); font-size: 0.6875rem; line-height: 20px; cursor: pointer; }
 .git-whitespace-filter input { appearance: none; flex-shrink: 0; width: 28px; height: 16px; margin: 0; border: 1px solid var(--border); border-radius: 9px; background: var(--border); cursor: pointer; }
 .git-whitespace-filter input::before { content: ''; display: block; width: 12px; height: 12px; margin: 1px; border-radius: 50%; background: var(--paper); transition: transform 120ms ease; }
 .git-whitespace-filter input:checked { background: var(--green); border-color: var(--green); }
 .git-whitespace-filter input:checked::before { transform: translateX(12px); }
 .git-whitespace-filter input:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
-.git-filter-summary { margin: 8px 18px; font-size: 0.75rem; color: var(--muted); }
-.changes-title { margin: 0 18px 6px; min-height: 24px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.75rem; color: var(--muted); }
+.git-filter-summary { flex-shrink: 0; margin: 0 14px 12px; font-size: 0.6875rem; color: var(--muted); }
+.changes-title { margin: 0 14px; min-height: 24px; display: flex; align-items: center; gap: 7px; font-size: 0.75rem; color: var(--muted); }
 .changes-heading { min-width: 0; font-weight: 500; }
-.changes-group-actions { display: flex; align-items: center; gap: 2px; }
-.changes-title .changes-count { margin-left: auto; }
+.changes-group-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
 .changes-group-actions .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 25px; border-radius: 4px; color: var(--muted); }
 .changes-group-actions .icon-button:hover:not(:disabled) { color: var(--green); background: var(--selected); }
-.changes-count { min-width: 21px; padding: 2px 6px; border-radius: 5px; background: var(--sidebar); text-align: center; font-size: 0.6875rem; line-height: 1.4; font-variant-numeric: tabular-nums; }
-.changes-group + .changes-group { margin-top: 16px; }
-.git-changes { flex: 1; min-height: 0; overflow-y: auto; padding: 0 0 16px; }
+.changes-count { min-width: 18px; padding: 1px 5px; border-radius: 4px; background: var(--sidebar); text-align: center; font-size: 0.625rem; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.changes-group { padding-bottom: 8px; }
+.changes-group + .changes-group .changes-title { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.git-changes { flex: 1; min-height: 160px; overflow-y: auto; padding: 0; scrollbar-width: thin; }
 .git-changes .changes-list { max-height: none; overflow: visible; padding: 0 12px; }
 .git-changes .change { gap: 4px; padding: 4px 6px; min-height: 34px; border-radius: 5px; }
 .git-changes .change:hover, .git-changes .change:focus-within { background: var(--selected); }
-.git-changes .changes-title { height: 34px; box-sizing: border-box; }
+.git-changes .changes-title { height: 36px; box-sizing: border-box; }
 .git-changes .virtual-changes-list { position: relative; }
-.remote-changes-meta { height: 30px; margin: 0 18px; color: var(--muted); font-size: .6875rem; line-height: 24px; }
-.git-operation-summary { flex-shrink: 0; margin: 0 18px 12px; padding: 9px 10px; background: var(--selected); border-radius: 5px; font-size: .75rem; line-height: 1.7; }
+.remote-changes-meta { height: 28px; margin: 0 14px; color: var(--muted); font-size: .6875rem; line-height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.git-operation-summary { display: flex; flex-shrink: 0; align-items: flex-start; gap: 7px; margin: 0 14px 12px; padding: 8px 0 8px 10px; border-left: 2px solid var(--border); color: var(--muted); font-size: .6875rem; line-height: 1.6; }
+.git-operation-summary > svg { margin-top: 2px; }
+.git-operation-summary > div { min-width: 0; overflow-wrap: anywhere; }
+.git-operation-summary strong { color: var(--text); font-weight: 500; }
 .git-operation-summary strong, .git-operation-summary span, .toast-content > span, .toast-content small { display: block; }
 .git-operation-summary span, .toast-content small { color: var(--muted); }
 .virtual-changes-list .change { position: absolute; left: 12px; right: 12px; height: 34px; box-sizing: border-box; }

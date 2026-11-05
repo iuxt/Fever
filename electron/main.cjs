@@ -29,7 +29,7 @@ function scheduleBackup() {
   const s = preferences.settings;
   if (s?.autoCommit) timer = setInterval(async () => {
     if (!store.root) return;
-    try { const status = await store.status(); if (status.changes.some(c => c.path === 'fever.json' || c.path === '.gitattributes' || c.path.startsWith('notes/') || c.path.startsWith('drawings/') || c.path.startsWith('images/'))) await store.commit(`backup: ${new Date().toISOString()}`); }
+    try { const status = await store.status(); if (status.changes.some(c => c.path === 'fever.json' || c.path === '.gitattributes' || c.path === '.gitignore' || c.path.startsWith('notes/') || c.path.startsWith('drawings/') || c.path.startsWith('images/'))) await store.commit(`backup: ${new Date().toISOString()}`); }
     catch (e) { window?.webContents.send('fever:backup-error', e.message); }
   }, Math.max(1, Number(s.interval) || 10) * 60000);
 }
@@ -82,7 +82,7 @@ async function boot() {
     if (reopening) return reopening;
     if (store.root && store.manifest) return store.snapshot();
     if (preferences.vault) {
-      reopening = store.open(preferences.vault).catch(() => null);
+      reopening = store.open(preferences.vault);
       try { return await reopening; } finally { reopening = null; }
     }
     return null;

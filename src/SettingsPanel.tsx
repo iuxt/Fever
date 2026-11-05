@@ -65,8 +65,10 @@ export default function SettingsPanel({ vault, settings, onSettingsChange, appea
     {!desktop && <div className="demo-info">当前是浏览器演示，数据保存在此浏览器中。真实文件、Git、LFS 和定时备份请在桌面应用中使用。</div>}
     <div className="form-section-title">文件存储</div>
     <div className="settings-lfs">
-     <Check size={15} />笔记目录 <code>notes/</code> · 绘图目录 <code>drawings/</code> · 图片目录 <code>images/</code> · Git LFS {lfs ? '已启用' : '待安装'}
+     <Check size={15} />笔记目录 <code>notes/</code> · 绘图目录 <code>drawings/</code> · 图片目录 <code>images/</code> · Git LFS {lfs ? '已启用' : '未启用'}
     </div>
+    {vault.setupWarnings?.map(message => <p className="form-hint" key={message}>{message}</p>)}
+    {desktop && !lfs && <p className="form-hint"><a href="https://git-lfs.com/" target="_blank" rel="noreferrer">安装 Git LFS</a> 后重新打开笔记库，应用会自动完成配置。</p>}
    </>}
    {activeTab === 'sync' && tab.id === 'sync' && <>
     <div className="form-section-title">GIT 提交身份</div>
@@ -74,6 +76,7 @@ export default function SettingsPanel({ vault, settings, onSettingsChange, appea
      <label>用户名<input value={settings.author} onChange={e => onSettingsChange({ ...settings, author: e.target.value })} placeholder="你的名字" /></label>
      <label>邮箱<input type="email" value={settings.email} onChange={e => onSettingsChange({ ...settings, email: e.target.value })} placeholder="you@example.com" /></label>
     </div>
+    <p className="form-hint">优先使用已有 Git 身份；未配置时使用 Fever / fever@localhost，可直接提交本地备份。远程同步前可改为你的姓名和邮箱。</p>
     <label>远程仓库（origin）<input value={settings.remote} onChange={e => onSettingsChange({ ...settings, remote: e.target.value })} placeholder="git@github.com:you/notes.git" /></label>
     <p className="form-hint">使用系统 Git 的 SSH 密钥或凭据管理器进行认证。</p>
     <div className="setting-toggle">

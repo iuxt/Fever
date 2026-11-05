@@ -15,9 +15,17 @@ npm install
 npm run dev
 ```
 
-首次启动会显示笔记库选择页。选择一个空文件夹，或带有 `fever.json` 的 Fever 笔记库根目录。应用会初始化独立 Git 仓库，并在安装了 Git LFS 时执行 `git lfs install --local`。不允许选择其他 Git 仓库内部的子文件夹，避免混入项目文件。
+首次启动会显示笔记库选择页。选择一个空文件夹，或带有 `fever.json` 的 Fever 笔记库根目录。应用自动完成以下准备工作，旧笔记库每次打开时也会补齐缺失配置：
 
-打开设置，配置 Git 用户名和邮箱；如需远程同步，填写 origin 的 HTTPS / SSH 地址。远程仓库应为空或已经保存这个笔记库。认证使用系统 Git 的 SSH 密钥、凭据管理器；应用不存储访问令牌。
+- 初始化独立 Git 仓库，新仓库默认分支为 `main`；不允许选择其他 Git 仓库内部的子文件夹，避免混入项目文件。
+- 创建笔记、绘图和图片目录，以及欢迎笔记；已有空笔记库不会重复创建欢迎笔记。
+- 在 `.gitignore` 中补齐系统杂项与 Fever 保存临时文件的忽略规则，保留已有内容；该文件随笔记一起提交备份。
+- 在 `.gitattributes` 中配置 `images/**` 使用 LFS；检测到 Git LFS 后执行 `git lfs install --local`，配置过滤器和推送钩子，不强制覆盖已有钩子。
+- 优先沿用已有 Git 用户名和邮箱；缺失时仅在当前仓库配置 `Fever` / `fever@localhost`，首次使用即可提交本地备份，不修改全局身份配置。
+
+未找到 Git 时会提示安装，且不会创建笔记库文件。未安装 [Git LFS](https://git-lfs.com/) 或 LFS 配置失败时会显示提示，文字笔记与本地备份仍可使用，图片功能暂不可用。安装 Git LFS 或处理钩子冲突后，重新打开笔记库即可自动重试配置。
+
+打开设置可修改 Git 用户名和邮箱；如需远程同步，填写 origin 的 HTTPS / SSH 地址。远程仓库应为空或已经保存这个笔记库。认证使用系统 Git 的 SSH 密钥、凭据管理器；应用不存储访问令牌。
 
 ## 编辑体验
 
@@ -187,6 +195,7 @@ npx playwright install chromium
 npm run test:ui          # 浏览器中的交互流程与布局
 npm run test:desktop:export # 原生导出集成测试（先启动 dev:web）
 npm run test:desktop     # 原生 Electron 集成测试（先启动 dev:web）
+npm run test:desktop:setup # 首次打开、默认身份备份和 LFS 配置提示（先启动 dev:web）
 npm run test:desktop:history-images # 历史图片 / LFS 桌面回归，使用临时库，不需要 dev:web
 npm run test:desktop:audit # 生产版长文源码、大纲 Worker 与完整文件保存回归
 npm run test:memory      # 生产版内存压测，使用临时库，不需要 dev:web

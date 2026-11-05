@@ -11,6 +11,7 @@ const { RevisionImages } = require('./revision-images.cjs');
 const { MetadataJournal } = require('./metadata.cjs');
 const { prepareWorkspace, applyWorkspace } = require('./pull-workspace.cjs');
 const { canIgnoreWhitespace } = require('./markdown-safety.mjs');
+const { setupVault } = require('./vault-setup.cjs');
 const MANIFEST = 'fever.json';
 const notePath = note => `${note.directory || 'notes'}/${note.filename}`;
 const { readManifest, manifestView, noteView, noteCategory, folderPaths, validCategory, ensureFolder, moveCategory, removeCategory } = require('./manifest.mjs');
@@ -23,7 +24,7 @@ const defaults = { autoCommit: false, interval: 10, autoPull: false, pullInterva
 
 class VaultStore {
   constructor() {
-    this.root = null; this.manifest = null; this.lfs = false; this.tail = Promise.resolve();
+    this.root = null; this.manifest = null; this.lfs = false; this.setupWarnings = []; this.tail = Promise.resolve();
     this.searchCache = null; this.statusTask = null; this.operationVersion = 0;
     this.imageImports = new Map();
     this.previewRequests = new Map(); this.previewQueue = []; this.activePreviews = 0;
@@ -48,7 +49,7 @@ class VaultStore {
   async git(args, allowedFailure = false, root = this.root) {
     if (!root) throw new Error('请先打开笔记库');
     try { return (await exec('git', args, { cwd: root, env: this.environment, windowsHide: true, timeout: 120000, maxBuffer: 12 * 1024 * 1024 })).stdout; }
-    catch (e) { if (allowedFailure) return ''; throw new Error((e.stderr || e.message).trim()); }
+    catch (e) { if (allowedFailure) return ''; if (e.code === 'ENOENT') throw new Error('未找到 Git，请安装 Git 并重新启动 Fever 后再打开笔记库'); throw new Error((e.stderr || e.message).trim()); }
   }
   async safe(relative) {
     const target = path.resolve(this.root, relative);
@@ -147,7 +148,7 @@ class VaultStore {
       catch (error) { this.onMetadataError?.(error.message); this.scheduleMetadata(); }
     } finally { await fs.rm(temp, { force: true }); }
   }
-  snapshot() { return { path: this.root, name: path.basename(this.root), manifest: manifestView(this.manifest), lfs: this.lfs }; }
+  snapshot() { return { path: this.root, name: path.basename(this.root), manifest: manifestView(this.manifest), lfs: this.lfs, setupWarnings: [...this.setupWarnings] }; }
   async open(folder) {
     return this.queued(async () => {
       ++this.vaultGeneration;
@@ -155,10 +156,11 @@ class VaultStore {
       for (const requestId of this.previewRequests.keys()) this.cancelPreview(requestId);
       this.searchCache = null;
       const root = await fs.realpath(folder);
-      const previous = { root: this.root, manifest: this.manifest, lfs: this.lfs, metadata: this.metadata };
+      const previous = { root: this.root, manifest: this.manifest, lfs: this.lfs, setupWarnings: this.setupWarnings, metadata: this.metadata };
       this.root = root;
       try {
         // Reject a parent repository before creating anything in the selection.
+        await this.git(['--version']);
         const top = (await this.git(['rev-parse', '--show-toplevel'], true)).trim();
         if (top && await fs.realpath(top) !== root) throw new Error('请选择独立的 Git 仓库根目录，不能选择其他仓库的子目录');
         let manifest, isNew = false;
@@ -173,7 +175,7 @@ class VaultStore {
             if (entries.length) throw new Error(`此文件夹包含 ${directory} 文件但没有 fever.json，请选择空文件夹或已有笔记库`);
           }
           const entries = await fs.readdir(root);
-          if (entries.some(entry => !['.git', '.DS_Store', 'notes', 'drawings', 'images'].includes(entry))) throw new Error('此文件夹包含其他文件但没有 fever.json，请选择空文件夹或已有笔记库');
+          if (entries.some(entry => !['.git', '.gitignore', '.gitattributes', '.DS_Store', 'notes', 'drawings', 'images'].includes(entry))) throw new Error('此文件夹包含其他文件但没有 fever.json，请选择空文件夹或已有笔记库');
           manifest = readManifest({ version: 1, categories: ['收件箱'], notes: [] });
           isNew = true;
         }
@@ -181,14 +183,13 @@ class VaultStore {
         await fs.mkdir(await this.safe('notes'), { recursive: true });
         await fs.mkdir(await this.safe('drawings'), { recursive: true });
         await fs.mkdir(await this.safe('images'), { recursive: true });
-        if (!top) await this.git(['init', '-b', 'main']);
+        if (!top) {
+          await this.git(['init']);
+          await this.git(['symbolic-ref', 'HEAD', 'refs/heads/main']);
+        }
         this.metadata = new MetadataJournal(path.resolve(root, (await this.git(['rev-parse', '--git-path', 'fever-updates.jsonl'])).trim()));
         await this.metadata.recover(this.manifest);
-        const attributesFile = await this.safe('.gitattributes');
-        const attributes = await fs.readFile(attributesFile, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
-        if (!attributes.includes('images/** filter=lfs')) await fs.writeFile(attributesFile, attributes + (attributes && !attributes.endsWith('\n') ? '\n' : '') + 'images/** filter=lfs diff=lfs merge=lfs -text\n');
-        this.lfs = Boolean((await this.git(['lfs', 'version'], true)).trim());
-        if (this.lfs) await this.git(['lfs', 'install', '--local']);
+        Object.assign(this, await setupVault(this));
         await this.persist();
         if (isNew) await this.createInternal('欢迎使用 Fever', '收件箱', '# 欢迎使用 Fever\n\n这是属于你的本地笔记库。让每一个想法，都有迹可循。\n\n## 从这里开始\n\n- 新建笔记，写下第一个想法\n- 使用分类组织你的知识\n- 将图片拖入编辑器，自动保存到 `images/`\n- 在 Git 面板提交备份，查看每篇笔记的历史\n\n> 所有笔记保存在 `notes/` 中，标题与分类由 `fever.json` 管理。\n');
         return this.snapshot();
@@ -634,10 +635,10 @@ class VaultStore {
   commit(message, stagedOnly = false, ignoreWhitespace = false) { return this.queued(async () => {
     if (typeof message !== 'string' || !message.trim()) throw new Error('请填写提交说明');
     if (!(await this.git(['config', 'user.name'], true)).trim() || !(await this.git(['config', 'user.email'], true)).trim()) throw new Error('请先在设置中配置 Git 用户名和邮箱');
-    if (!this.lfs && (await fs.readdir(await this.safe('images'))).length) throw new Error('图片提交需要安装 Git LFS');
-    if (!stagedOnly) await this.git(['add', '--', MANIFEST, 'notes', 'drawings', 'images', '.gitattributes']);
+    if (!this.lfs && (await this.git(['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'images/'])).trim()) throw new Error('图片提交需要安装并配置 Git LFS');
+    if (!stagedOnly) await this.git(['add', '--', MANIFEST, 'notes', 'drawings', 'images', '.gitattributes', '.gitignore']);
     let staged = await this.git(['diff', '--cached', '--name-only', '-z']);
-    if (!stagedOnly && staged.split('\0').filter(Boolean).some(p => ![MANIFEST, '.gitattributes'].includes(p) && !p.startsWith('notes/') && !p.startsWith('drawings/') && !p.startsWith('images/'))) throw new Error('仓库中有其他已暂存文件，请先处理它们再提交笔记');
+    if (!stagedOnly && staged.split('\0').filter(Boolean).some(p => ![MANIFEST, '.gitattributes', '.gitignore'].includes(p) && !p.startsWith('notes/') && !p.startsWith('drawings/') && !p.startsWith('images/'))) throw new Error('仓库中有其他已暂存文件，请先处理它们再提交笔记');
     const restoredPaths = ignoreWhitespace ? await this.resetWhitespaceChanges() : [];
     if (restoredPaths.length) staged = await this.git(['diff', '--cached', '--name-only', '-z']);
     if (!staged.trim()) {

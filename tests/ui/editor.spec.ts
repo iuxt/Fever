@@ -1110,6 +1110,11 @@ for (const method of ['toolbar', 'context menu'] as const) {
    await seed(page, original);
    const table = page.locator('.interactive-table');
    const rows = table.locator('tr');
+   const headerColor = await rows.first().locator('th').first().evaluate(cell => getComputedStyle(cell).backgroundColor);
+   const expectHeader = async () => {
+    await expect(rows.first().locator('th')).toHaveCount(2);
+    await expect(rows.first().locator('th').first()).toHaveCSS('background-color', headerColor);
+   };
    const removeFirstRow = async () => {
     await rows.first().locator('th, td').first().click();
     if (method === 'toolbar') await page.getByRole('button', { name: '删除行', exact: true }).click();
@@ -1126,19 +1131,27 @@ for (const method of ['toolbar', 'context menu'] as const) {
    await removeFirstRow();
    await expect(rows).toHaveCount(2);
    await expect(rows.first().locator('th, td')).toHaveText(['苹果', '草稿更新']);
+   await expectHeader();
+   expect(await rows.nth(1).locator('td').first().evaluate(cell => getComputedStyle(cell).backgroundColor)).not.toBe(headerColor);
    await page.keyboard.press('ControlOrMeta+z');
    await expect(rows).toHaveCount(3);
+   await expectHeader();
+   await expect(rows.nth(1).locator('td')).toHaveCount(2);
    await page.keyboard.press('ControlOrMeta+Shift+z');
    await expect(rows).toHaveCount(2);
+   await expectHeader();
    await reopen();
    await expect(rows).toHaveCount(2);
+   await expectHeader();
    await expect(rows.first().locator('strong')).toHaveText('苹果');
    await expect(rows.first().locator('br')).toHaveCount(1);
    await expect(rows.first().locator('th, td').last()).toHaveCSS('text-align', 'right');
    await removeFirstRow();
    await expect(rows).toHaveCount(1);
+   await expectHeader();
    await reopen();
    await expect(rows).toHaveCount(1);
+   await expectHeader();
    await expect(rows.first().locator('th, td')).toHaveText(['香蕉', '完成']);
   });
  }

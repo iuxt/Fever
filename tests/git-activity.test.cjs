@@ -20,7 +20,7 @@ test('commit summaries describe the root commit and the actual staged snapshot',
  const root = await store.commit('first');
  assert.equal(root.committed, true);
  assert.equal(root.hash, (await store.git(['rev-parse', 'HEAD'])).trim());
- assert.deepEqual(new Set(root.changes.map(change => change.path)), new Set(['.gitattributes', 'fever.json', `notes/${store.manifest.notes[0].filename}`]));
+ assert.deepEqual(new Set(root.changes.map(change => change.path)), new Set(['.gitattributes', '.gitignore', 'fever.json', `notes/${store.manifest.notes[0].filename}`]));
  assert.ok(root.changes.every(change => change.status === 'A'));
  const tracked = 'notes/tracked.txt', unstaged = 'notes/unstaged.txt';
  await fs.writeFile(path.join(dir, tracked), 'staged content\n'); await store.stage(tracked);

@@ -16,6 +16,7 @@ type Props = {
  onDiff: (change: Change, staged: boolean) => void;
  onStage: (change: Change) => void;
  onUnstage: (change: Change) => void;
+ onUnstageAll: () => void;
  onDiscard: (change: Change) => void;
  onStageAll: () => void;
  onDiscardAll: () => void;
@@ -23,7 +24,7 @@ type Props = {
 };
 const emptyChanges: Change[] = [];
 
-export default function GitChanges({ status, notes, trash = [], busy, ignoreWhitespace, lastPull, onRemoteDiff, onDiff, onStage, onUnstage, onDiscard, onStageAll, onDiscardAll, onOpen }: Props) {
+export default function GitChanges({ status, notes, trash = [], busy, ignoreWhitespace, lastPull, onRemoteDiff, onDiff, onStage, onUnstage, onUnstageAll, onDiscard, onStageAll, onDiscardAll, onOpen }: Props) {
  const container = useRef<HTMLDivElement>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
  const titles = useMemo(() => new Map(notes.map(note => [notePath(note), displayNoteTitle(note)])), [notes]);
@@ -47,13 +48,13 @@ export default function GitChanges({ status, notes, trash = [], busy, ignoreWhit
  }, []);
  useLayoutEffect(() => { const element = container.current!; setViewport({ top: element.scrollTop, height: element.clientHeight }); }, [changes, remoteChanges]);
  let top = 0;
- return <div ref={container} className="git-changes" onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>{groups.map(group => {
-  const rowTop = top + 34 + (group.remote ? 30 : 0);
-  top = rowTop + group.changes.length * 34 + 16;
+ return <>{!changes.length && <div className="clean-state" role="status"><CheckCheck size={18} /><span>{ignoreWhitespace && hiddenCount ? `已隐藏 ${hiddenCount} 项空白变更` : '无待提交变更'}</span></div>}{changes.length > 0 && ignoreWhitespace && hiddenCount > 0 && <p className="git-filter-summary">已隐藏 {hiddenCount} 项空白变更</p>}<div ref={container} className="git-changes" onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>{groups.map(group => {
+  const rowTop = top + 36 + (group.remote ? 28 : 0);
+  top = rowTop + group.changes.length * 34 + 8;
   const start = Math.max(0, Math.floor((viewport.top - rowTop) / 34) - 6);
   const end = Math.max(0, Math.min(group.changes.length, Math.ceil((viewport.top + viewport.height - rowTop) / 34) + 6));
   return <section className="changes-group" key={group.title} aria-label={group.title}>
-  <div className="changes-title"><span className="changes-heading">{group.title}</span><span className="changes-count">{group.changes.length}</span>{!group.staged && !group.remote && <div className="changes-group-actions">
+  <div className="changes-title"><span className="changes-heading">{group.title}</span><span className="changes-count">{group.changes.length}</span>{group.staged && <div className="changes-group-actions"><button className="icon-button" title="全部取消暂存" aria-label="全部取消暂存" disabled={busy || !status?.changes.some(change => change.staged)} onClick={onUnstageAll}><Minus size={16} /></button></div>}{!group.staged && !group.remote && <div className="changes-group-actions">
    <button className="icon-button" title="全部还原" aria-label="全部还原" disabled={busy || !group.changes.length} onClick={onDiscardAll}><RotateCcw size={14} /></button>
    <button className="icon-button" title="全部暂存" aria-label="全部暂存" disabled={busy || !group.changes.length} onClick={onStageAll}><Plus size={16} /></button>
   </div>}</div>
@@ -70,7 +71,7 @@ export default function GitChanges({ status, notes, trash = [], busy, ignoreWhit
     </div>
    </div>;
   })}</div>
- </section>; })}{!changes.length && <div className="clean-state"><CheckCheck size={26} /><span>{ignoreWhitespace && hiddenCount ? `已隐藏 ${hiddenCount} 项空白变更` : '无待提交变更'}</span></div>}{changes.length > 0 && ignoreWhitespace && hiddenCount > 0 && <p className="git-filter-summary">已隐藏 {hiddenCount} 项空白变更</p>}</div>;
+ </section>; })}</div></>;
 }
 
 export function GitDiff({ diff, staged, ignoreWhitespace, label }: { diff: FileDiff; staged: boolean; ignoreWhitespace: boolean; label?: string }) {

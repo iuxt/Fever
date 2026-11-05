@@ -2,7 +2,7 @@ import { notePath } from './notePaths.ts';
 import { fileChangeSummary, loadLastPull, saveLastPull } from './gitActivity';
 import { remapCategory } from '../electron/manifest.mjs';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Circle, Clock3, Code2, Copy, FilePlus2, FileText, Flame, Folder, FolderOpen, FolderPlus, GitBranch, GitCommitHorizontal, History, ImagePlus, Eye, LayoutList, LoaderCircle, Maximize2, Minimize2, MoreHorizontal, PanelLeftClose, PanelRightClose, PenLine, Shapes, Plus, Minus, RefreshCw, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, BookOpen, Check, CheckCheck, ChevronRight, Circle, Clock3, Code2, Copy, FilePlus2, FileText, Flame, Folder, FolderOpen, FolderPlus, GitBranch, GitCommitHorizontal, History, ImagePlus, Eye, LayoutList, LoaderCircle, Maximize2, Minimize2, MoreHorizontal, PanelLeftClose, PanelRightClose, PenLine, Shapes, Plus, RefreshCw, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
 import GitChanges, { GitDiff } from './GitChanges';
 import RevisionDiff from './RevisionDiff';
 import EditorWidthButton from './EditorWidth';
@@ -320,6 +320,7 @@ export default function App() {
  useEffect(() => { if (modal !== 'discard') setDiscardChange(null); }, [modal]);
  useEffect(() => api.onBackupError?.(message => notify(`自动备份失败：${message}`, true)), [notify]);
  useEffect(() => api.onSaveError?.(message => notify(`更新时间保存失败：${message}`, true)), [notify]);
+ useEffect(() => { if (vault?.setupWarnings?.length) notify(vault.setupWarnings.join('\n')); }, [vault?.path, vault?.setupWarnings?.join('\n'), notify]);
  useEffect(() => {
   if (!vault) return;
   let cancelled = false, inFlight = false, timer: ReturnType<typeof setTimeout>;
@@ -923,20 +924,24 @@ export default function App() {
    {panel === 'outline' && <><div className="inspector-title">本篇目录<span>{headings.length}</span></div><nav className="outline">{headings.map((h, i) => <button key={i} className={`${i === 0 ? 'outline-first' : ''} level-${h.level}`} onClick={() => { if (!trashed && !selectedCommit && mode === 'edit') { document.querySelectorAll('.wysiwyg-content h1, .wysiwyg-content h2, .wysiwyg-content h3')[i]?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } else if (!trashed && !selectedCommit && mode === 'source') { setSourceJump(previous => ({ id: activeId, line: h.line, request: (previous?.request || 0) + 1 })); } else { document.querySelector('.document .prose')?.querySelector(`[id="${h.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }}>{h.level === 1 ? <span className="outline-bullet" /> : <span className="outline-dash" />}<span>{h.text}</span></button>)}{!headings.length && <p className="muted" role="status">{headingsLoading ? '正在加载大纲…' : headingsError ? '大纲加载失败，请重新打开面板' : '暂无大纲'}</p>}</nav><div className="note-info"><div className="inspector-title">笔记信息<FileText size={14} /></div><dl><dt>创建时间</dt><dd>{active ? time(active.createdAt) : '—'}</dd><dt>最后更新</dt><dd>{active ? time(active.updatedAt) : '—'}</dd><dt>存储位置</dt><dd className="mono">{active ? `${active.directory || 'notes'}/` : '—'}</dd><dt>文件名称</dt><dd className="filename" title={active?.filename}>{active?.filename || '—'}</dd></dl></div></>}
    {panel === 'history' && <><div className="inspector-title history-title">版本历史<span>{history.length}</span></div><div className="history-note"><FileText size={14} /><span>{active ? displayNoteTitle(active) : '选择一篇笔记'}</span></div><div className="history-list">{history.map((c, i) => <button key={c.hash} className={`history-item ${selectedCommit?.hash === c.hash ? 'selected' : ''}`} aria-pressed={selectedCommit?.hash === c.hash} title={`${c.message}\n${c.author} · ${time(c.date)} · ${c.hash}`} disabled={busy} onClick={() => void openRevision(c)}><GitCommitHorizontal size={16} /><span className="history-details"><span className="history-heading"><strong>{c.message}</strong>{i === 0 && <span className="latest-badge">最新</span>}</span><span className="history-summary"><span>{time(c.date)}</span><code>{c.hash.slice(0, 7)}</code></span></span>{selectedCommit?.hash === c.hash && <span className="selected-dot" />}</button>)}{!history.length && <div className="panel-empty"><History size={30} /><p>还没有提交记录</p><button className="text-button" onClick={() => setPanel('git')}>前往 Git 面板<ArrowRight size={13} /></button></div>}</div></>}
    {panel === 'git' && <>
-    <div className="inspector-title">源代码管理</div>
-    <div className="git-toolbar" role="toolbar" aria-label="Git 全局操作">
-     <button className="icon-button" title="推送" aria-label="推送" disabled={busy} onClick={() => void run(() => api.push(), '已推送到远程仓库')}><Upload size={17} /></button>
-     <button className="icon-button" title={pulling ? '正在后台拉取，可继续编辑' : '拉取'} aria-label="拉取" aria-busy={pulling} disabled={busy || pulling} onClick={() => void pull()}>{pulling ? <LoaderCircle size={17} className="spin" /> : <ArrowDownToLine size={17} />}</button>
-     <span className="git-toolbar-separator" />
-     <button className="icon-button" title="全部取消暂存" aria-label="全部取消暂存" disabled={busy || !stagedCount} onClick={unstageAll}><Minus size={19} /></button>
-     <button className="icon-button git-refresh" title="刷新 Git 状态" aria-label="刷新 Git 状态" disabled={busy} onClick={() => void run(refresh)}><RefreshCw size={16} /></button>
+    <div className="inspector-title">源代码管理<button className="icon-button" title="刷新 Git 状态" aria-label="刷新 Git 状态" disabled={busy} onClick={() => void run(refresh)}><RefreshCw size={15} /></button></div>
+    <div className="git-branch-card">
+     <div><GitBranch size={15} /><strong title={status?.branch}>{status?.branch || '—'}</strong><div className="sync-counts"><span title={`${status?.ahead || 0} 个提交待推送`}><ArrowUp size={12} />{status?.ahead || 0}</span><span title={`${status?.behind || 0} 个提交待拉取`}><ArrowDown size={12} />{status?.behind || 0}</span></div></div>
+     <p title={status?.remote || '本地仓库 · 未配置远程'}>{status?.remote || '本地仓库 · 未配置远程'}</p>
+     <div className="git-toolbar" role="toolbar" aria-label="Git 全局操作">
+      <button title={pulling ? '正在后台拉取，可继续编辑' : '拉取'} aria-label="拉取" aria-busy={pulling} disabled={busy || pulling} onClick={() => void pull()}>{pulling ? <LoaderCircle size={14} className="spin" /> : <ArrowDownToLine size={14} />}<span>{pulling ? '拉取中…' : '拉取'}</span></button>
+      <button title="推送" aria-label="推送" disabled={busy} onClick={() => void run(() => api.push(), '已推送到远程仓库')}><Upload size={14} /><span>推送</span></button>
+     </div>
     </div>
-    <div className="git-branch-card"><div><GitBranch size={15} /><strong title={status?.branch}>{status?.branch}</strong><div className="sync-counts"><span title={`${status?.ahead || 0} 个提交待推送`}><ArrowUp size={12} />{status?.ahead || 0}</span><span title={`${status?.behind || 0} 个提交待拉取`}><ArrowDown size={12} />{status?.behind || 0}</span></div></div><p title={status?.remote || '本地仓库 · 未配置远程'}>{status?.remote || '本地仓库 · 未配置远程'}</p></div>
-    <div className="commit-box"><textarea aria-label="提交说明" placeholder="这次记录了什么？" value={commitMessage} onChange={e => setCommitMessage(e.target.value)} /><button className="primary" disabled={busy || !commitMessage.trim() || !status?.changes.length} onClick={() => void commitChanges()}><GitCommitHorizontal size={17} />{busy ? '正在处理…' : stagedCount ? `提交已暂存变更 (${stagedCount})` : '提交所有笔记变更'}</button></div>
-    <label className="git-whitespace-filter" title="隐藏纯空白变更，并在提交时还原这些变更，不纳入提交"><span>忽略空格和空行</span><input type="checkbox" role="switch" checked={ignoreWhitespace} disabled={busy} onChange={event => setIgnoreWhitespace(event.target.checked)} /></label>
+    <div className="commit-box">
+     <label className="commit-label" htmlFor="git-commit-message">提交说明</label>
+     <textarea id="git-commit-message" placeholder="这次记录了什么？" value={commitMessage} onChange={e => setCommitMessage(e.target.value)} />
+     <label className="git-whitespace-filter" title="隐藏纯空白变更，并在提交时还原这些变更，不纳入提交"><span>忽略空格和空行</span><input type="checkbox" role="switch" checked={ignoreWhitespace} disabled={busy} onChange={event => setIgnoreWhitespace(event.target.checked)} /></label>
+     <button className="primary" disabled={busy || !commitMessage.trim() || !status?.changes.length} onClick={() => void commitChanges()}><GitCommitHorizontal size={16} />{busy ? '正在处理…' : stagedCount ? `提交已暂存变更 (${stagedCount})` : '提交所有笔记变更'}</button>
+    </div>
     {pulling && <div className="git-operation-summary" role="status">正在后台拉取，可继续编辑…</div>}
-    {gitOperation && <div className="git-operation-summary" role="status"><strong>{gitOperation.title}</strong><span>{gitOperation.detail}</span></div>}
-    <GitChanges lastPull={lastPull} onRemoteDiff={change => void openRemoteDiff(change)} ignoreWhitespace={ignoreWhitespace} onStageAll={stageAll} onDiscardAll={() => setModal('discardAll')} status={status} notes={allNotes} trash={vault.manifest.trash} busy={busy} onDiff={(change, staged) => void openDiff(change, staged)} onStage={change => void run(() => api.stage(change.path), '已暂存文件变更')} onUnstage={change => void run(() => api.unstage(change.path), '已取消暂存')} onDiscard={change => { setDiscardChange(change); setModal('discard'); }} onOpen={change => void openChangedFile(change)} />
+    {gitOperation && <div className="git-operation-summary" role="status"><GitCommitHorizontal size={14} /><div><strong>{gitOperation.title}</strong><span>{gitOperation.detail}</span></div></div>}
+    <GitChanges onUnstageAll={unstageAll} lastPull={lastPull} onRemoteDiff={change => void openRemoteDiff(change)} ignoreWhitespace={ignoreWhitespace} onStageAll={stageAll} onDiscardAll={() => setModal('discardAll')} status={status} notes={allNotes} trash={vault.manifest.trash} busy={busy} onDiff={(change, staged) => void openDiff(change, staged)} onStage={change => void run(() => api.stage(change.path), '已暂存文件变更')} onUnstage={change => void run(() => api.unstage(change.path), '已取消暂存')} onDiscard={change => { setDiscardChange(change); setModal('discard'); }} onOpen={change => void openChangedFile(change)} />
    </>}
   </aside>}
   <ContextMenu menu={contextMenu.menu} onClose={contextMenu.close} onError={message => notify(message, true)} />

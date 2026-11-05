@@ -313,6 +313,23 @@ export const InteractiveTable = Table.extend({
  },
  addProseMirrorPlugins() {
   return [...(this.parent?.() || []), new Plugin({
+   appendTransaction(transactions, _oldState, state) {
+    if (!transactions.some(transaction => transaction.docChanged)) return null;
+    const header = state.schema.nodes.tableHeader;
+    if (!header) return null;
+    const tr = state.tr;
+    // Match the Markdown header in the live document as well. Appending this
+    // change keeps header promotion in the same undo step as the row deletion.
+    state.doc.descendants((node, position) => {
+     if (node.type.spec.tableRole !== 'table') return;
+     node.firstChild?.forEach((cell, offset) => {
+      if (cell.type.spec.tableRole === 'cell') {
+       tr.setNodeMarkup(position + 2 + offset, header, cell.attrs, cell.marks);
+      }
+     });
+    });
+    return tr.docChanged ? tr : null;
+   },
    props: {
     transformPasted: slice => new Slice(normalizePastedTableWidths(slice.content), slice.openStart, slice.openEnd),
    },
