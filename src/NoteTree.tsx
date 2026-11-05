@@ -17,7 +17,7 @@ type NoteTreeProps = NoteDragProps & {
  onToggle: (path: string) => void;
  onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
  onMove: (from: string, parent: string, placement?: FolderPlacement) => void;
- onMoveNote: (id: string, parent: string) => void;
+ onMoveNotes: (ids: string[], parent: string) => void;
 };
 // Saving content only changes timestamps; neither the rows nor their actions use them.
 const sameRows = (previous: Note[] | null, next: Note[] | null) => previous === next || Boolean(previous && next && previous.length === next.length && previous.every((note, index) => {
@@ -38,7 +38,7 @@ export default memo(function NoteTree(props: NoteTreeProps) {
  return <TreeRows {...props} notes={notes} />;
 });
 
-const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, revealRequest, collapsed, onSelect, onToggle, onContextMenu, onMove, onMoveNote, dragItem, onDragItemChange, disabled }: NoteTreeProps) {
+const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, revealRequest, collapsed, onSelect, onToggle, onContextMenu, onMove, onMoveNotes, dragItem, onDragItemChange, disabled }: NoteTreeProps) {
  const container = useRef<HTMLDivElement>(null);
  const previous = useRef<{ selectedFolder: string | null; revealRequest: number }>({ selectedFolder: null, revealRequest: -1 });
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
@@ -47,8 +47,7 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, rev
  const canDrop = (target: DropTarget) => {
   if (!dragItem || disabled) return false;
   if (dragItem.kind === 'note') {
-   const note = notes.find(note => note.id === dragItem.id);
-   return Boolean(note && note.category !== target.parent);
+   return notes.some(note => dragItem.ids.includes(note.id) && note.category !== target.parent);
   }
   const from = dragItem.path;
   return target.path !== from && target.parent !== from && !target.parent.startsWith(`${from}/`) && (target.position !== 'inside' || target.parent !== from.split('/').slice(0, -1).join('/'));
@@ -78,7 +77,7 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, rev
   event.preventDefault(); event.stopPropagation();
   const target = getTarget(event, path);
   if (canDrop(target) && matchesNoteDrag(event, dragItem)) {
-   if (dragItem.kind === 'note') onMoveNote(dragItem.id, target.parent);
+   if (dragItem.kind === 'note') onMoveNotes(dragItem.ids, target.parent);
    else onMove(dragItem.path, target.parent, target.position === 'inside' ? undefined : { target: target.path, position: target.position });
   }
   onDragItemChange(null); setDropTarget(null); setHoverFolder(null);

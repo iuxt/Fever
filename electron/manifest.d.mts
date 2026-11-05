@@ -8,5 +8,6 @@ export function ensureFolder(manifest: StoredManifest, path: string): string | n
 export function noteCategory(manifest: StoredManifest, note: StoredNote, paths?: Map<string, string>): string;
 export function noteView(manifest: StoredManifest, note: StoredNote, paths?: Map<string, string>): Note;
 export function manifestView(manifest: StoredManifest): Manifest;
+export function moveNotes(manifest: StoredManifest, ids: string[], category: string): StoredManifest;
 export function moveCategory(manifest: StoredManifest, from: string, to: string, placement?: FolderPlacement): StoredManifest;
 export function removeCategory(manifest: StoredManifest, path: string): StoredManifest;

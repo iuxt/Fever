@@ -531,6 +531,12 @@ button.category-expand:hover:not(:disabled) { color: var(--green); background: v
 .note-sort-direction { display: flex; align-items: center; gap: 3px; flex-shrink: 0; padding: 6px 3px; border-radius: 4px; font-size: .6875rem; color: var(--muted); }
 .note-sort-direction:hover { color: var(--green); background: var(--hover); }
 .note-sort-direction:focus-visible, .note-sort .select-trigger:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.note-selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 35px; padding: 5px 12px; flex-shrink: 0; color: var(--muted); font-size: .6875rem; border-bottom: 1px solid var(--border); }
+.note-selection-bar label { display: flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+.note-selection-bar input { margin: 0; accent-color: var(--green); }
+.note-selection-bar > span { flex: 1; white-space: nowrap; }
+.note-selection-bar button { padding: 3px 0; color: var(--green); white-space: nowrap; font-size: inherit; }
+.note-selection-bar button:focus-visible, .note-list:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .note-list { padding: 8px 10px; overflow-anchor: none; }
 .note-list-rows { position: relative; }
 .note-list-row { position: absolute; left: 0; right: 0; height: 126px; padding: 3px 0; }

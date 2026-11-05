@@ -798,12 +798,13 @@ export default function App() {
   if (from === to && !placement) return;
   await run(() => relocateFolder(from, to, placement), placement ? '文件夹顺序已调整' : '文件夹已移动');
  }, [busy, run, relocateFolder]);
- const moveNote = useCallback(async (id: string, parent: string) => {
+ const moveNotes = useCallback(async (ids: string[], parent: string) => {
   if (busy || workspaceLock.current) return;
-  const note = vaultRef.current?.manifest.notes.find(note => note.id === id);
-  if (!note || note.category === parent) return;
+  const selected = new Set(ids);
+  const notes = vaultRef.current?.manifest.notes.filter(note => selected.has(note.id)) || [];
+  if (!notes.some(note => note.category !== parent)) return;
   await run(async () => {
-   await api.update(id, note.title, parent);
+   await api.moveNotes(ids, parent);
    setSelectedFolder(parent); setQuery(''); setTrashView(false);
    setFolderRevealRequest(request => request + 1);
    setCollapsed(previous => {
@@ -811,7 +812,7 @@ export default function App() {
     for (let i = 1; i <= parts.length; i++) next.delete(parts.slice(0, i).join('/'));
     return next;
    });
-  }, parent ? '笔记已移入文件夹' : '笔记已移至未分类');
+  }, notes.length > 1 ? `已移动 ${notes.length} 篇笔记${parent ? '到文件夹' : '到未分类'}` : parent ? '笔记已移入文件夹' : '笔记已移至未分类');
  }, [busy, run]);
  async function submitModal() {
   await run(async () => {
@@ -898,14 +899,14 @@ export default function App() {
     <button className="new-note" onClick={() => showNew('note')}><Plus size={17} /><span>新建笔记</span><kbd>⌘ N</kbd></button>
     <button className={`all-notes ${!trashView && selectedFolder === null && !query ? 'selected' : ''}`} aria-pressed={!trashView && selectedFolder === null && !query} onClick={() => selectFolder(null)}><BookOpen size={16} /><span>全部笔记</span><small>{vault.manifest.notes.length}</small></button>
     <div className="tree-label"><span>文件夹</span><div><button title="新建绘图" onClick={() => showNew('drawing')}><Shapes size={15} /></button><button title="新建分类" onClick={() => showNew('folder')}><FolderPlus size={15} /></button><button title="导入 Markdown / Excalidraw" onClick={() => void run(async () => { const notes = await api.importNotes(); if (notes.length) { await refresh(); await select(notes[0].id); } else if (!api.desktop) notify('Markdown / Excalidraw 导入请使用桌面应用'); })}><Upload size={15} /></button></div></div>
-    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView ? null : selectedFolder} revealRequest={folderRevealRequest} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} onMove={moveFolder} onMoveNote={moveNote} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} />
+    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView ? null : selectedFolder} revealRequest={folderRevealRequest} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} onMove={moveFolder} onMoveNotes={moveNotes} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} />
     {vault.manifest.notes.some(note => !note.category) && <button className={`all-notes ${selectedFolder === '' && !trashView ? 'selected' : ''}`} onClick={() => selectFolder('')}><Folder size={16} /><span>未分类</span><small>{vault.manifest.notes.filter(note => !note.category).length}</small></button>}
     <div className="sidebar-bottom"><button className={`trash-entry ${trashView ? 'selected' : ''}`} disabled={busy} onClick={() => void openTrash()}><Trash2 size={16} /><span>回收站</span><span className="trash-count">{vault.manifest.trash?.length || 0}</span></button></div>
    </aside>
    <section className="file-list-panel" aria-label="笔记列表栏">
     <header className="file-list-header"><div><h2 title={selectedFolder || listTitle}>{listTitle}</h2><span>{trashView ? filtered.length : folderNotes.length} 篇笔记</span></div>{!trashView && <button className="icon-button" title="在当前文件夹新建笔记" onClick={() => showNew('note')}><FilePlus2 size={18} /></button>}</header>
     {!trashView && <><NoteView view={noteView} onChange={setNoteView} /><NoteSort sort={noteSort} onChange={setNoteSort} /></>}
-    {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} fontSize={fontSize} view={noteView} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}:${noteView}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
+    {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} fontSize={fontSize} view={noteView} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} selectionScope={JSON.stringify([selectedFolder, query])} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}:${noteView}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
     {query.trim() && <footer className="file-list-footer">搜索整个笔记库</footer>}
    </section>
   </>}

@@ -14,7 +14,7 @@ const { canIgnoreWhitespace } = require('./markdown-safety.mjs');
 const { setupVault } = require('./vault-setup.cjs');
 const MANIFEST = 'fever.json';
 const notePath = note => `${note.directory || 'notes'}/${note.filename}`;
-const { readManifest, manifestView, noteView, noteCategory, folderPaths, validCategory, ensureFolder, moveCategory, removeCategory } = require('./manifest.mjs');
+const { readManifest, manifestView, noteView, noteCategory, folderPaths, validCategory, ensureFolder, moveNotes, moveCategory, removeCategory } = require('./manifest.mjs');
 function validateDrawing(content) {
   let scene;
   try { scene = JSON.parse(content); } catch { throw new Error('Excalidraw 文件不是有效的 JSON'); }
@@ -248,6 +248,12 @@ class VaultStore {
     try { await this.persist(); }
     catch (e) { this.manifest = previous; throw e; }
     return noteView(this.manifest, note);
+  }); }
+  moveNotes(ids, category) { return this.queued(async () => {
+    const previous = this.manifest;
+    this.manifest = moveNotes(previous, ids, category);
+    try { await this.persist(); }
+    catch (e) { this.manifest = previous; throw e; }
   }); }
   remove(id) { return this.queued(async () => {
     const note = this.note(id);

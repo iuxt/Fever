@@ -1,7 +1,7 @@
 import { createTwoFilesPatch, formatPatch, structuredPatch } from 'diff';
 import { notePath } from './notePaths.ts';
 import { canIgnoreWhitespace } from '../electron/markdown-safety.mjs';
-import { readManifest, manifestView, noteView, noteCategory, folderPaths, ensureFolder, moveCategory, removeCategory } from '../electron/manifest.mjs';
+import { readManifest, manifestView, noteView, noteCategory, folderPaths, ensureFolder, moveNotes, moveCategory, removeCategory } from '../electron/manifest.mjs';
 import type { Api, Commit, StoredManifest, StoredNote, Settings } from './types';
 const welcome = `# 让每一个想法，都有迹可循。\n\n欢迎来到 **Fever**，一个安静、自由、属于你的知识空间。\n\n在这里，零散的灵感可以慢慢长成系统。用 Markdown 记录，用文件夹整理，用 Git 留住每一次思考的轨迹。\n\n## 一个为长期思考准备的地方\n\n好的笔记工具应该让你专注于内容，而不是工具本身。Fever 把熟悉的编辑体验和可靠的版本管理放在一起，让记录成为一件自然的事。\n\n> 写下来，是思考的开始。\n> 每一次修改，都是理解向前的一小步。\n\n## 从一个小小的想法开始\n\n- [x] 创建你的第一个笔记库\n- [x] 认识 Markdown 的基本语法\n- [ ] 写下今天值得记住的一个想法\n- [ ] 提交一次 Git 备份\n\n### 你的笔记，始终属于你\n\n所有内容都保存在本地，没有专有格式，也没有迁移的负担。\n\n| 内容 | 存储位置 | 管理方式 |\n| --- | --- | --- |\n| 笔记正文 | \`notes/\` | Markdown · UUID 文件名 |\n| 图片附件 | \`images/\` | Git LFS |\n| 标题与分类 | \`fever.json\` | JSON 清单 |\n\n---\n\n不必一次整理好所有东西。先写下第一行，剩下的交给时间。\n`;
 const seeds = [
@@ -84,6 +84,12 @@ export const demo: Api = {
  save: async (id, content) => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.contents[id] = content; note.updatedAt = new Date().toISOString(); dirty(notePath(note)); return { updatedAt: note.updatedAt }; },
  create: async (title, category, format = 'markdown') => { const id = crypto.randomUUID(), now = new Date().toISOString(); const note: StoredNote = { id, title, folderId: ensureFolder(state.manifest, category), ...(format === 'excalidraw' ? { directory: 'drawings' } : {}), filename: `${id}.${format === 'excalidraw' ? 'excalidraw' : 'md'}`, createdAt: now, updatedAt: now }; state.manifest.notes.push(note); state.filenames![id] = note.filename; state.paths![id] = notePath(note); state.contents[id] = format === 'excalidraw' ? JSON.stringify({ type: 'excalidraw', version: 2, source: 'Fever', elements: [], appState: { viewBackgroundColor: '#ffffff' }, files: {} }, null, 2) : `# ${title}\n\n`; dirty('fever.json'); dirty(notePath(note)); return noteView(state.manifest, note); },
  update: async (id, title, category) => { const note = state.manifest.notes.find(n => n.id === id)!; Object.assign(note, { title, folderId: ensureFolder(state.manifest, category) }); dirty('fever.json'); return noteView(state.manifest, note); },
+ moveNotes: async (ids, category) => {
+  const previous = state.manifest;
+  state.manifest = moveNotes(previous, ids, category);
+  try { dirty('fever.json'); }
+  catch (error) { state.manifest = previous; throw error; }
+ },
  remove: async id => { const note = state.manifest.notes.find(n => n.id === id); if (!note) throw new Error('笔记不存在'); state.manifest.notes = state.manifest.notes.filter(n => n.id !== id); (state.manifest.trash ||= []).push({ ...note, originalCategory: noteCategory(state.manifest, note) }); dirty('fever.json'); },
  restoreTrash: async id => { const note = state.manifest.trash?.find(n => n.id === id); if (!note) throw new Error('回收站中找不到这篇笔记'); if (!Object.hasOwn(state.contents, id)) throw new Error('笔记正文文件不存在'); state.manifest.trash = state.manifest.trash!.filter(n => n.id !== id); note.folderId = ensureFolder(state.manifest, noteCategory(state.manifest, note)); delete note.originalCategory; state.manifest.notes.push(note); dirty('fever.json'); return noteView(state.manifest, note); },
  category: async path => { ensureFolder(state.manifest, path); dirty('fever.json'); },

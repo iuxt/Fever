@@ -78,7 +78,22 @@ try {
  await expect(card).toHaveClass(/selected/);
  expect(await readManifest()).toEqual(recategorized);
  await expect.poll(() => page.locator('.folder-row').evaluateAll(rows => rows.map(row => row.getAttribute('title')))).toEqual(['目标', '目标/新项目', '目标/新项目/空分类', '目标/新项目/子分类']);
+ const companion = await page.evaluate(category => window.fever.create('批量移动同伴', category), '目标/新项目/空分类');
+ await page.reload();
+ await expect(page.locator('.note-card')).toHaveCount(2);
+ await page.getByRole('checkbox', { name: '全选当前列表' }).check();
+ await expect(page.getByRole('status')).toHaveText('已选 2 项');
+ await card.dragTo(folder('子分类'));
+ await expect(folder('子分类')).toHaveAttribute('aria-pressed', 'true');
+ await expect(page.locator('.note-card')).toHaveCount(2);
+ const batchMoved = await readManifest(), child = batchMoved.folders.find(folder => folder.name === '子分类');
+ expect(batchMoved.notes.filter(note => ['legacy', companion.id].includes(note.id)).map(note => note.folderId)).toEqual([child.id, child.id]);
+ expect(await readFile(path.join(vaultPath, 'notes', 'legacy.md'), 'utf8')).toBe('# 旧版笔记\n\n保留的正文\n');
+ await page.reload();
+ await expect(folder('子分类')).toHaveAttribute('aria-pressed', 'true');
+ await expect(page.locator('.note-card')).toHaveCount(2);
+ expect(await readManifest()).toEqual(batchMoved);
  expect(errors).toEqual([]);
  succeeded = true;
- console.log('Desktop migration, folder move/reorder, note drag classification, UUID stability and reload passed');
+ console.log('Desktop migration, folder move/reorder, single and batch note dragging, UUID stability and reload passed');
 } finally { if (app) { if (succeeded) await app.close(); else app.process().kill(); } if (server) await server.close(); await rm(scratch, { recursive: true, force: true }); }

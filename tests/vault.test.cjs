@@ -623,3 +623,43 @@ test('failed v1 migration preserves the original manifest and the previously ope
  assert.equal(await fs.readFile(path.join(other, 'fever.json'), 'utf8'), legacy);
  assert.deepEqual(store.snapshot(), before);
 });
+
+test('batch note moves persist together and preserve files, drawings and trash', async t => {
+ const { store, dir } = await fixture(t);
+ const a = await store.create('A', '来源'), b = await store.create('B', '来源', 'excalidraw');
+ const archived = await store.create('Trash', '来源'); await store.remove(archived.id);
+ const contents = await Promise.all([store.read(a.id), store.read(b.id)]);
+ const beforeTrash = structuredClone(store.manifest.trash);
+ await store.moveNotes([a.id, b.id, a.id], '目标/子目录');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.equal(noteView(reopened.manifest, reopened.note(a.id)).category, '目标/子目录');
+ assert.equal(noteView(reopened.manifest, reopened.note(b.id)).category, '目标/子目录');
+ assert.equal(reopened.note(a.id).filename, a.filename);
+ assert.equal(reopened.note(b.id).filename, b.filename);
+ assert.equal(reopened.note(b.id).directory, 'drawings');
+ assert.deepEqual(await Promise.all([reopened.read(a.id), reopened.read(b.id)]), contents);
+ assert.deepEqual(reopened.manifest.trash, beforeTrash);
+ await reopened.moveNotes([a.id, b.id], '');
+ assert.equal(reopened.note(a.id).folderId, null); assert.equal(reopened.note(b.id).folderId, null);
+});
+
+test('failed batch moves never leave a partially moved selection or new folders', async t => {
+ const { store, dir } = await fixture(t);
+ const a = await store.create('A', '来源'), b = await store.create('B', '来源');
+ const before = structuredClone(store.manifest), persisted = await fs.readFile(path.join(dir, 'fever.json'), 'utf8');
+ await assert.rejects(store.moveNotes([a.id, 'missing'], '目标'), /不存在/);
+ assert.deepEqual(store.manifest, before);
+ await assert.rejects(store.moveNotes([a.id], 'invalid//folder'), /分类无效/);
+ await assert.rejects(store.moveNotes([], '目标'), /请选择/);
+ const persist = store.persist;
+ store.persist = async () => { throw new Error('write failed'); };
+ await assert.rejects(store.moveNotes([a.id, b.id], '目标/子目录'), /write failed/);
+ assert.deepEqual(store.manifest, before);
+ assert.equal(await fs.readFile(path.join(dir, 'fever.json'), 'utf8'), persisted);
+ store.persist = persist;
+ await store.save(a.id, '继续编辑');
+ const reopened = new VaultStore(); await reopened.open(dir);
+ assert.equal(noteView(reopened.manifest, reopened.note(a.id)).category, '来源');
+ assert.equal(noteView(reopened.manifest, reopened.note(b.id)).category, '来源');
+ assert.ok(!reopened.snapshot().manifest.categories.includes('目标'));
+});

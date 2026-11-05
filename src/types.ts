@@ -48,6 +48,7 @@ export type Api = {
   onSaveError?: (callback: (message: string) => void) => () => void;
   create(title: string, category: string, format?: 'markdown' | 'excalidraw'): Promise<Note>;
   update(id: string, title: string, category: string): Promise<Note>;
+  moveNotes(ids: string[], category: string): Promise<void>;
   remove(id: string): Promise<void>;
   restoreTrash(id: string): Promise<Note>;
   category(path: string): Promise<void>;

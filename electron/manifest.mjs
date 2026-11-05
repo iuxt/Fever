@@ -37,6 +37,18 @@ export function ensureFolder(manifest, path) {
 export function noteCategory(manifest, note, paths = folderPaths(manifest)) {
   return note.originalCategory ?? (note.folderId === null ? '' : paths.get(note.folderId) || '');
 }
+export function moveNotes(manifest, ids, category) {
+  category = validCategory(category, true);
+  if (!Array.isArray(ids) || !ids.length || ids.some(id => typeof id !== 'string')) throw new Error('请选择要移动的笔记');
+  const selected = new Set(ids), existing = new Set(manifest.notes.map(note => note.id));
+  if ([...selected].some(id => !existing.has(id))) throw new Error('笔记不存在');
+  const next = structuredClone(manifest), folderId = ensureFolder(next, category);
+  const updatedAt = new Date().toISOString();
+  for (const note of next.notes) {
+    if (selected.has(note.id) && note.folderId !== folderId) Object.assign(note, { folderId, updatedAt });
+  }
+  return next;
+}
 export function noteView(manifest, note, paths) { const { originalCategory, ...record } = note; return { ...record, category: noteCategory(manifest, note, paths) }; }
 export function manifestView(manifest) {
   const paths = folderPaths(manifest);
