@@ -1103,6 +1103,47 @@ test('edits table cells, adds rows and columns, and saves checked tasks as Markd
  await expect(editor.getByRole('checkbox')).toBeChecked();
 });
 
+for (const method of ['toolbar', 'context menu'] as const) {
+ for (const header of ['名称 | 状态', ' | '] as const) {
+  test(`deleting the first table row stays deleted after reopening (${method}, ${header.includes('名称') ? 'named header' : 'empty header'})`, async ({ page }) => {
+   const original = `| ${header} |\n| :--- | ---: |\n| **苹果** | 草稿<br>更新 |\n| 香蕉 | 完成 |\n`;
+   await seed(page, original);
+   const table = page.locator('.interactive-table');
+   const rows = table.locator('tr');
+   const removeFirstRow = async () => {
+    await rows.first().locator('th, td').first().click();
+    if (method === 'toolbar') await page.getByRole('button', { name: '删除行', exact: true }).click();
+    else {
+     await page.keyboard.press('Shift+F10');
+     await page.getByRole('menuitem', { name: '删除行', exact: true }).click();
+    }
+   };
+   const reopen = async () => {
+    await page.getByTitle('关闭标签', { exact: true }).click();
+    if (!await page.locator('.note-row').filter({ hasText: '编辑器测试' }).isVisible()) await page.locator('.folder-row').filter({ hasText: '测试' }).click();
+    await page.locator('.note-row').filter({ hasText: '编辑器测试' }).click();
+   };
+   await removeFirstRow();
+   await expect(rows).toHaveCount(2);
+   await expect(rows.first().locator('th, td')).toHaveText(['苹果', '草稿更新']);
+   await page.keyboard.press('ControlOrMeta+z');
+   await expect(rows).toHaveCount(3);
+   await page.keyboard.press('ControlOrMeta+Shift+z');
+   await expect(rows).toHaveCount(2);
+   await reopen();
+   await expect(rows).toHaveCount(2);
+   await expect(rows.first().locator('strong')).toHaveText('苹果');
+   await expect(rows.first().locator('br')).toHaveCount(1);
+   await expect(rows.first().locator('th, td').last()).toHaveCSS('text-align', 'right');
+   await removeFirstRow();
+   await expect(rows).toHaveCount(1);
+   await reopen();
+   await expect(rows).toHaveCount(1);
+   await expect(rows.first().locator('th, td')).toHaveText(['香蕉', '完成']);
+  });
+ }
+}
+
 test('selects and drags entire table rows and columns, with undo and Markdown persistence', async ({ page }) => {
  await seed(page, '# 拖动表格\n\n| 名称 | 状态 | 数量 |\n| :--- | :---: | ---: |\n| 苹果 | 草稿 | 10 |\n| 香蕉 | 完成 | 20 |\n| 桃子 | 归档 | 30 |\n');
  const table = page.locator('.interactive-table');
@@ -1451,6 +1492,57 @@ test('preserves YAML and wiki embeds while treating code contents literally', as
  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
  await page.screenshot({ path: 'test-results/wysiwyg-editor.png', fullPage: true });
 });
+
+for (const source of ['colgroup', 'cells', 'partial cells'] as const) {
+ for (const method of ['event', 'context menu'] as const) {
+  test(`pasted table widths match reopened Markdown (${source}, ${method})`, async ({ page, context }) => {
+   await seed(page, '# 粘贴测试\n\n正文\n');
+   const editor = page.getByRole('textbox', { name: '笔记正文' });
+   await editor.locator('p').first().click();
+   await page.keyboard.press('End'); await page.keyboard.press('Enter');
+   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+   const colgroup = source === 'colgroup' ? '<colgroup><col width="80"><col width="1400"></colgroup>' : '';
+   const firstWidth = source === 'colgroup' ? '' : ` colwidth="${source === 'cells' ? 120 : 1400}"`;
+   const secondWidth = source === 'cells' ? ' colwidth="120"' : '';
+   const html = `<table style="width:1480px">${colgroup}<tbody><tr><th${firstWidth}><strong>名称</strong></th><th${secondWidth}>说明</th></tr><tr><td${firstWidth}>内容一</td><td${secondWidth}>内容二</td></tr></tbody></table>`;
+   if (method === 'event') {
+    await editor.evaluate((element, html) => {
+     const data = new DataTransfer(); data.setData('text/html', html); data.setData('text/plain', '名称\t说明\n内容一\t内容二');
+     element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, html);
+   } else {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.evaluate(html => navigator.clipboard.write([new ClipboardItem({
+     'text/html': new Blob([html], { type: 'text/html' }),
+     'text/plain': new Blob(['名称\t说明\n内容一\t内容二'], { type: 'text/plain' }),
+    })]), html);
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menuitem', { name: '粘贴', exact: true }).click();
+   }
+   const table = editor.locator('table');
+   const widths = () => table.evaluate(element => [element.getBoundingClientRect().width, ...Array.from(element.rows[0].cells, cell => cell.getBoundingClientRect().width)]);
+   await expect(table).toBeVisible();
+   await expect(table.locator('td')).toHaveText(['内容一', '内容二']);
+   await expect(table.locator('strong')).toHaveText('名称');
+   const pasted = await widths();
+   expect(Math.abs(pasted[0] - (await editor.boundingBox())!.width)).toBeLessThan(2);
+   expect(Math.abs(pasted[1] - pasted[2])).toBeLessThan(2);
+   await page.keyboard.press('ControlOrMeta+z');
+   await expect(table).toHaveCount(0);
+   await page.keyboard.press('ControlOrMeta+Shift+z');
+   await expect(table).toBeVisible();
+   expect(await widths()).toEqual(pasted);
+   await expect.poll(() => saved(page)).toContain('**名称**');
+   await page.getByTitle('关闭标签', { exact: true }).click();
+   await page.locator('.folder-row').filter({ hasText: '测试' }).click();
+   await page.locator('.note-row').filter({ hasText: '编辑器测试' }).click();
+   await expect(table).toBeVisible();
+   expect(await widths()).toEqual(pasted);
+   await page.setViewportSize({ width: 1100, height: 800 });
+   await expect.poll(async () => Math.abs((await widths())[0] - (await editor.boundingBox())!.width)).toBeLessThan(2);
+  });
+ }
+}
 
 test('pastes Markdown as formatted content and keeps paste literal inside code blocks', async ({ page }) => {
  await seed(page, '# 粘贴测试\n\n正文\n');

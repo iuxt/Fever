@@ -1,12 +1,26 @@
 import { Table, TableView } from '@tiptap/extension-table';
 import type { Editor } from '@tiptap/core';
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { NodeSelection } from '@tiptap/pm/state';
+import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { NodeSelection, Plugin } from '@tiptap/pm/state';
 import { CellSelection, TableMap, addColumnBefore, addColumnAfter, addRowBefore, addRowAfter, moveTableColumn, moveTableRow } from '@tiptap/pm/tables';
 
 type Axis = 'row' | 'column';
 type Line = { axis: Axis; index: number };
 type Drag = Line & { x: number; y: number; moving: boolean; boundary: number | null; doc: ProseMirrorNode };
+
+function normalizePastedTableWidths(fragment: Fragment): Fragment {
+ const nodes: ProseMirrorNode[] = [];
+ fragment.forEach(node => {
+  const content = normalizePastedTableWidths(node.content);
+  const role = node.type.spec.tableRole;
+  // Markdown does not retain column widths. Drop imported widths before the
+  // table view is created so paste and reopening use the same responsive layout.
+  nodes.push((role === 'cell' || role === 'header_cell') && node.attrs.colwidth !== null
+   ? node.type.create({ ...node.attrs, colwidth: null }, content, node.marks)
+   : node.copy(content));
+ });
+ return Fragment.fromArray(nodes);
+}
 
 // Controls live outside contentDOM so they never enter the document or clipboard.
 class InteractiveTableView extends TableView {
@@ -287,6 +301,23 @@ class InteractiveTableView extends TableView {
 }
 
 export const InteractiveTable = Table.extend({
+ renderMarkdown(node, helpers, context) {
+  const [first, ...rest] = node.content || [];
+  // GFM requires a header. Use the first remaining row instead of letting the
+  // default serializer insert an empty one after the original header is deleted.
+  const table = first ? { ...node, content: [
+   { ...first, content: first.content?.map(cell => ({ ...cell, type: 'tableHeader' })) },
+   ...rest,
+  ] } : node;
+  return this.parent?.(table, helpers, context) || '';
+ },
+ addProseMirrorPlugins() {
+  return [...(this.parent?.() || []), new Plugin({
+   props: {
+    transformPasted: slice => new Slice(normalizePastedTableWidths(slice.content), slice.openStart, slice.openEnd),
+   },
+  })];
+ },
  addNodeView() {
   return ({ node, getPos, editor }) => new InteractiveTableView(node, editor, getPos);
  },
