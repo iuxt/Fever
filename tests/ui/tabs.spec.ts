@@ -35,6 +35,7 @@ for (const target of ['note', 'file', 'diff'] as const) {
   await page.getByTitle('Markdown 源码与预览').click();
   await page.locator('.cm-content').fill('# 关闭其他标签前保存');
   await page.getByRole('button', { name: 'Git', exact: true }).click();
+  await page.getByRole('button', { name: 'Git 更多选项' }).click();
   await page.getByTitle('刷新 Git 状态', { exact: true }).click();
   await page.getByRole('button', { name: '查看工作区差异：Markdown 语法指南', exact: true }).click();
   await page.getByRole('button', { name: '查看工作区差异：fever.json', exact: true }).hover();
@@ -179,6 +180,7 @@ for (const remaining of ['none', 'note', 'file'] as const) {
    await page.getByTitle('Markdown 源码与预览').click();
    await page.locator('.cm-content').fill('# 删除前的修改');
    await page.getByRole('button', { name: 'Git', exact: true }).click();
+   await page.getByRole('button', { name: 'Git 更多选项' }).click();
    await page.getByTitle('刷新 Git 状态', { exact: true }).click();
    await page.getByRole('button', { name: '查看工作区差异：fever.json', exact: true }).hover();
    await page.getByTitle('打开文件：fever.json', { exact: true }).click();
@@ -232,6 +234,7 @@ test('close shortcut handles file and diff tabs without reopening closed notes',
  await page.getByTitle('Markdown 源码与预览').click();
  await page.locator('.cm-content').fill('# 产生差异');
  await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await page.getByRole('button', { name: 'Git 更多选项' }).click();
  await page.getByTitle('刷新 Git 状态', { exact: true }).click();
  await page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever', exact: true }).click();
  await page.getByRole('button', { name: '查看工作区差异：fever.json', exact: true }).hover();
@@ -258,6 +261,7 @@ test('closing the last note activates an existing editor tab and a modal blocks 
  await page.locator('.cm-content').fill('# 产生文件变更');
  await expect(page.getByText('所有更改已保存')).toBeVisible();
  await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await page.getByRole('button', { name: 'Git 更多选项' }).click();
  await page.getByTitle('刷新 Git 状态', { exact: true }).click();
  await page.getByRole('button', { name: '查看工作区差异：fever.json', exact: true }).hover();
  await page.getByTitle('打开文件：fever.json', { exact: true }).click();

@@ -90,7 +90,8 @@ test('selection survives sorting and view switches, then resets on folder and se
  await seed(page);
  await note(page, '文件0').click({ modifiers: ['ControlOrMeta'] });
  await note(page, '文件2').click({ modifiers: ['ControlOrMeta'] });
- await page.getByRole('button', { name: '切换为降序', exact: true }).click();
+ await page.getByRole('button', { name: '排序方式', exact: true }).click();
+ await page.getByRole('menuitemradio', { name: '标题倒序', exact: true }).click();
  await expect(chosen(page)).toHaveText(['文件2', '文件0']);
  await page.getByTitle('仅显示标题', { exact: true }).click();
  await expect(chosen(page)).toHaveText(['文件2', '文件0']);

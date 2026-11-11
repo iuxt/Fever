@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { LayoutList, List } from 'lucide-react';
 
 export type NoteViewMode = 'title' | 'preview';
 const storageKey = 'fever-note-view';
@@ -18,7 +17,7 @@ export function useNoteView() {
 
 export default function NoteView({ view, onChange }: { view: NoteViewMode; onChange: (view: NoteViewMode) => void }) {
  return <div className="note-view-switch" role="group" aria-label="文件展示方式">
-  <button title="仅显示标题" aria-pressed={view === 'title'} onClick={() => onChange('title')}><List size={14} /><span>仅标题</span></button>
-  <button title="显示正文预览" aria-pressed={view === 'preview'} onClick={() => onChange('preview')}><LayoutList size={14} /><span>预览</span></button>
+  <button title="仅显示标题" aria-pressed={view === 'title'} onClick={() => onChange('title')}>仅标题</button>
+  <button title="显示正文预览" aria-pressed={view === 'preview'} onClick={() => onChange('preview')}>预览</button>
  </div>;
 }

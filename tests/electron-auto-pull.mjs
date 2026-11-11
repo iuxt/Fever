@@ -95,6 +95,7 @@ try {
  await page.getByRole('button', { name: 'Git', exact: true }).click();
  const remoteChanges = page.getByRole('region', { name: '远端变更', exact: true });
  await expect(remoteChanges.locator('.changes-count')).toHaveText('2');
+ await page.locator('.remote-changes-toggle').click();
  await remoteChanges.getByRole('button', { name: `查看远端差异：${note.title}`, exact: true }).click();
  await expect(page.locator('.diff-editor')).toContainText('+Pulled automatically');
  await page.getByTitle(`关闭对比：notes/${note.filename}`, { exact: true }).click();

@@ -111,7 +111,9 @@ test('default Git filtering displays and commits semantic whitespace exactly', a
  }, after);
  await page.reload();
  await page.getByRole('button', { name: 'Git', exact: true }).click();
+ await page.getByRole('button', { name: 'Git 更多选项' }).click();
  await expect(page.getByRole('switch', { name: '忽略空格和空行' })).toBeChecked();
+ await page.keyboard.press('Escape');
  await page.getByRole('button', { name: '查看工作区差异：欢迎使用 Fever', exact: true }).click();
  await expect(page.locator('.diff-editor')).toContainText('+    finish()');
  await page.getByPlaceholder('这次记录了什么？').fill('keep semantic whitespace');

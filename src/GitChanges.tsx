@@ -1,6 +1,6 @@
 import { notePath } from './notePaths.ts';
 import { displayNoteTitle } from './drawings';
-import { FileText, Minus, Plus, RotateCcw, FilePenLine, CheckCheck } from 'lucide-react';
+import { FileText, Minus, Plus, RotateCcw, FilePenLine, CheckCheck, ChevronRight } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PagedText } from './PagedDiff';
 import type { Change, FileDiff, GitFileChange, GitStatus, Note, PullRecord } from './types';
@@ -26,6 +26,7 @@ const emptyChanges: Change[] = [];
 
 export default function GitChanges({ status, notes, trash = [], busy, ignoreWhitespace, lastPull, onRemoteDiff, onDiff, onStage, onUnstage, onUnstageAll, onDiscard, onStageAll, onDiscardAll, onOpen }: Props) {
  const container = useRef<HTMLDivElement>(null);
+ const [remoteOpen, setRemoteOpen] = useState(false);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
  const titles = useMemo(() => new Map(notes.map(note => [notePath(note), displayNoteTitle(note)])), [notes]);
  const trashedPaths = useMemo(() => new Set(trash.map(note => notePath(note))), [trash]);
@@ -39,27 +40,28 @@ export default function GitChanges({ status, notes, trash = [], busy, ignoreWhit
   { title: '已暂存变更', staged: true, remote: false, changes: changes.filter(c => c.staged) },
   { title: '工作区变更', staged: false, remote: false, changes: changes.filter(c => c.unstaged) },
   { title: '远端变更', staged: false, remote: true, changes: remoteChanges },
- ];
+ ].filter(group => group.changes.length > 0);
  useLayoutEffect(() => {
   const element = container.current!;
   const update = () => setViewport({ top: element.scrollTop, height: element.clientHeight });
   const observer = new ResizeObserver(update); observer.observe(element); update();
   return () => observer.disconnect();
  }, []);
- useLayoutEffect(() => { const element = container.current!; setViewport({ top: element.scrollTop, height: element.clientHeight }); }, [changes, remoteChanges]);
+ useLayoutEffect(() => { const element = container.current!; setViewport({ top: element.scrollTop, height: element.clientHeight }); }, [changes, remoteChanges, remoteOpen]);
  let top = 0;
  return <>{!changes.length && <div className="clean-state" role="status"><CheckCheck size={18} /><span>{ignoreWhitespace && hiddenCount ? `已隐藏 ${hiddenCount} 项空白变更` : '无待提交变更'}</span></div>}{changes.length > 0 && ignoreWhitespace && hiddenCount > 0 && <p className="git-filter-summary">已隐藏 {hiddenCount} 项空白变更</p>}<div ref={container} className="git-changes" onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>{groups.map(group => {
-  const rowTop = top + 36 + (group.remote ? 28 : 0);
-  top = rowTop + group.changes.length * 34 + 8;
+  const expanded = !group.remote || remoteOpen;
+  const rowTop = top + 36 + (group.remote && expanded ? 28 : 0);
+  top = rowTop + (expanded ? group.changes.length * 34 : 0) + 8;
   const start = Math.max(0, Math.floor((viewport.top - rowTop) / 34) - 6);
   const end = Math.max(0, Math.min(group.changes.length, Math.ceil((viewport.top + viewport.height - rowTop) / 34) + 6));
   return <section className="changes-group" key={group.title} aria-label={group.title}>
-  <div className="changes-title"><span className="changes-heading">{group.title}</span><span className="changes-count">{group.changes.length}</span>{group.staged && <div className="changes-group-actions"><button className="icon-button" title="全部取消暂存" aria-label="全部取消暂存" disabled={busy || !status?.changes.some(change => change.staged)} onClick={onUnstageAll}><Minus size={16} /></button></div>}{!group.staged && !group.remote && <div className="changes-group-actions">
+  <div className="changes-title">{group.remote ? <button className="remote-changes-toggle" aria-expanded={remoteOpen} aria-controls="git-remote-changes" onClick={() => setRemoteOpen(value => !value)}><ChevronRight size={13} className={remoteOpen ? 'expanded' : ''} /><span className="changes-heading">{group.title}</span><span className="changes-count">{group.changes.length}</span></button> : <><span className="changes-heading">{group.title}</span><span className="changes-count">{group.changes.length}</span></>}{group.staged && <div className="changes-group-actions"><button className="icon-button" title="全部取消暂存" aria-label="全部取消暂存" disabled={busy || !status?.changes.some(change => change.staged)} onClick={onUnstageAll}><Minus size={16} /></button></div>}{!group.staged && !group.remote && <div className="changes-group-actions">
    <button className="icon-button" title="全部还原" aria-label="全部还原" disabled={busy || !group.changes.length} onClick={onDiscardAll}><RotateCcw size={14} /></button>
    <button className="icon-button" title="全部暂存" aria-label="全部暂存" disabled={busy || !group.changes.length} onClick={onStageAll}><Plus size={16} /></button>
   </div>}</div>
-  {group.remote && <p className="remote-changes-meta" title={lastPull ? `${lastPull.before.slice(0, 7)} → ${lastPull.after.slice(0, 7)}` : undefined}>{lastPull ? `${new Date(lastPull.pulledAt).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${lastPull.commitCount} 个提交` : '尚无拉取记录'}</p>}
-  <div className="changes-list virtual-changes-list" style={{ height: group.changes.length * 34 }}>{group.changes.slice(start, end).map((change, index) => {
+  {group.remote && expanded && <p className="remote-changes-meta" title={lastPull ? `${lastPull.before.slice(0, 7)} → ${lastPull.after.slice(0, 7)}` : undefined}>{lastPull ? `${new Date(lastPull.pulledAt).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${lastPull.commitCount} 个提交` : '尚无拉取记录'}</p>}
+  <div id={group.remote ? 'git-remote-changes' : undefined} hidden={!expanded} className="changes-list virtual-changes-list" style={{ height: expanded ? group.changes.length * 34 : 0 }}>{expanded && group.changes.slice(start, end).map((change, index) => {
    const name = titles.get(change.path) || change.path;
    const trashed = trashedPaths.has(change.path) || Boolean(change.originalPath && trashedPaths.has(change.originalPath));
    return <div className="change" key={change.path} style={{ top: (start + index) * 34 }}>

@@ -8,8 +8,8 @@ import Paragraph from '@tiptap/extension-paragraph';
 import { TableKit } from '@tiptap/extension-table';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import Placeholder from '@tiptap/extension-placeholder';
-import { Bold, ChevronDown, Code2, ImagePlus, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Shapes, Table2, Undo2 } from 'lucide-react';
-import { Extension, type Editor } from '@tiptap/core';
+import { Bold, ChevronDown, Code2, ImagePlus, Italic, List, ListChecks, ListOrdered, Quote, Redo2, Shapes, Strikethrough, Table2, Undo2 } from 'lucide-react';
+import { Extension, markInputRule, type Editor } from '@tiptap/core';
 import { formattingShortcuts, shortcutLabel, type FormattingAction } from './editorShortcuts';
 import { AllSelection, NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
@@ -261,8 +261,15 @@ const FormattingShortcuts = Extension.create({
   return Object.fromEntries(formattingShortcuts.map(({ key, action }) => [key, () => { applyFormat(this.editor, action); return true; }]));
  },
 });
+const InlineStrike = Extension.create({
+ name: 'inlineStrike',
+ addInputRules() {
+  // StarterKit requires whitespace before ~~; Chinese prose commonly has none.
+  return [markInputRule({ find: /(?<![~\\])(~~([^\s~](?:[^~]*[^\s~])?)~~)$/, type: this.editor.schema.marks.strike })];
+ },
+});
 const extensions = [
- FormattingShortcuts, ArticleSearch, BlockSelection,
+ FormattingShortcuts, InlineStrike, ArticleSearch, BlockSelection,
  StarterKit.configure({ paragraph: false, codeBlock: false, underline: false, trailingNode: false, link: { openOnClick: false } }),
  EditorParagraph, EditorCodeBlock, EditorImage, WikiImage,
  TableKit.configure({ table: false }), InteractiveTable,
@@ -349,7 +356,12 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
    handlePaste(view, event): boolean {
     if (event.clipboardData?.files.length || event.clipboardData?.getData('text/html')) return false;
     const text = event.clipboardData?.getData('text/plain') || '';
-    if (view.state.selection.$from.parent.type.spec.code || !/(^|\n)(?:#{1,6} |[-*+] |\d+\. |>|```|\|)|\*\*[^*]+\*\*|!\[|\[[^\]]+\]\(/.test(text)) return false;
+    if (view.state.selection.$from.parent.type.spec.code || !/(^|\n)(?:#{1,6} |[-*+] |\d+\. |>|```|\|)|\*\*[^*]+\*\*|~~[^~]+~~|!\[|\[[^\]]+\]\(/.test(text)) return false;
+    if (!/[\r\n]/.test(text)) {
+     const document = editor?.markdown?.parse(text), paragraph = document?.content?.[0];
+     // Inline Markdown belongs at the caret, without splitting the current paragraph.
+     if (document?.content?.length === 1 && paragraph?.type === 'paragraph') return editor?.commands.insertContent(paragraph.content || []) || false;
+    }
     return editor?.commands.insertContent(text, { contentType: 'markdown' }) || false;
    },
   },
@@ -373,7 +385,7 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
  const searchAdapter = useMemo(() => editor ? richTextSearchAdapter(editor) : null, [editor]);
  useImperativeHandle(ref, () => ({ flush: publish, isDirty: () => dirty.current, insertMarkdown: markdown => editor && !editor.isDestroyed ? editor.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run() : false }), [editor, publish]);
  const state = useEditorState({ editor, selector: ({ editor }) => editor ? {
-  bold: editor.isActive('bold'), italic: editor.isActive('italic'), heading: editor.isActive('heading') ? editor.getAttributes('heading').level as number : null,
+  bold: editor.isActive('bold'), italic: editor.isActive('italic'), strike: editor.isActive('strike'), heading: editor.isActive('heading') ? editor.getAttributes('heading').level as number : null,
   bullet: editor.isActive('bulletList'), ordered: editor.isActive('orderedList'), task: editor.isActive('taskList'),
   quote: editor.isActive('blockquote'), code: editor.isActive('codeBlock'), table: editor.isActive('table'),
   selectedBlock: editor.state.selection instanceof NodeSelection ? editor.state.selection.node.type.name : null,
@@ -453,6 +465,7 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
    { separator: true },
    { label: '加粗', checked: editor.isActive('bold'), shortcut: `${modifier}B`, action: () => editor.chain().focus().toggleBold().run() },
    { label: '斜体', checked: editor.isActive('italic'), shortcut: `${modifier}I`, action: () => editor.chain().focus().toggleItalic().run() },
+   { label: '删除线', checked: editor.isActive('strike'), shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === 'strike')!.key, modifier), action: () => editor.chain().focus().toggleStrike().run() },
    { label: '二级标题', shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === 'heading2')!.key, modifier), checked: editor.isActive('heading', { level: 2 }), action: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
    { label: '无序列表', shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === 'bulletList')!.key, modifier), checked: editor.isActive('bulletList'), action: () => editor.chain().focus().toggleBulletList().run() },
    { label: '任务列表', shortcut: shortcutLabel(formattingShortcuts.find(item => item.action === 'taskList')!.key, modifier), checked: editor.isActive('taskList'), action: () => editor.chain().focus().toggleTaskList().run() },
@@ -490,6 +503,7 @@ export default memo(function MarkdownEditor({ content, onChange, onDirty, media,
   <div className="wysiwyg-toolbar" role="toolbar" aria-label="正文格式">
    {button('加粗 · ⌘ B', <Bold size={15} />, () => { editor.chain().focus().toggleBold().run(); }, state?.bold)}
    {button('斜体 · ⌘ I', <Italic size={15} />, () => { editor.chain().focus().toggleItalic().run(); }, state?.italic)}
+   {button('删除线', <Strikethrough size={15} />, () => { editor.chain().focus().toggleStrike().run(); }, state?.strike)}
    <button type="button" className={`heading-select${state?.heading ? ' active' : ''}`} title="选择标题级别" aria-label="标题级别" aria-haspopup="menu" aria-expanded={contextMenu.menu?.label === '标题级别'}
     onMouseDown={event => event.preventDefault()} onClick={event => showHeadingMenu(event.currentTarget)} onKeyDown={event => {
      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); showHeadingMenu(event.currentTarget); }

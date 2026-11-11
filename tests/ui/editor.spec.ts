@@ -25,6 +25,88 @@ async function chooseLanguage(input: Locator, language: string) {
  await input.press('Enter');
 }
 
+test('strikethrough survives edits and reopening in rich text and preview', async ({ page }) => {
+ await seed(page, '正文~~删除线~~，~~**粗体删除线**~~。\n\n`~~代码原样~~`\n');
+ const editor = page.getByRole('textbox', { name: '笔记正文' });
+ await expect(editor.locator('s')).toHaveText(['删除线', '粗体删除线']);
+ await expect(editor.locator('s strong, strong s')).toHaveText('粗体删除线');
+ await expect(editor.locator('code')).toHaveText('~~代码原样~~');
+ await editor.locator('p').first().click();
+ await page.keyboard.press('Home');
+ await page.keyboard.insertText('更新');
+ await expect.poll(() => saved(page)).toContain('更新');
+ await expect.poll(() => saved(page)).toContain('~~删除线~~');
+ await page.reload();
+ await expect(editor.locator('s')).toHaveText(['删除线', '粗体删除线']);
+ await page.getByTitle('Markdown 源码与预览', { exact: true }).click();
+ await expect(page.locator('.split .prose del')).toHaveText(['删除线', '粗体删除线']);
+ await expect(page.locator('.split .prose code')).toHaveText('~~代码原样~~');
+});
+
+test('pastes inline strikethrough Markdown next to Chinese text and keeps code literal', async ({ page }) => {
+ await seed(page, '正文\n\n```text\n代码\n```\n');
+ const editor = page.getByRole('textbox', { name: '笔记正文' });
+ async function paste(text: string) {
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await editor.evaluate((element, text) => {
+   const data = new DataTransfer(); data.setData('text/plain', text);
+   element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, text);
+ }
+ await editor.locator('p').click();
+ await page.keyboard.press('End');
+ await paste('中文~~删除线~~后文');
+ await expect(editor.locator('s')).toHaveText('删除线');
+ await expect(editor.locator('p')).toHaveText('正文中文删除线后文');
+ await expect.poll(() => saved(page)).toContain('正文中文~~删除线~~后文');
+ await editor.locator('pre code').click();
+ await page.keyboard.press('End');
+ await paste('~~保留标记~~');
+ await expect(editor.locator('pre code')).toHaveText('代码~~保留标记~~');
+ await expect(editor.locator('pre s')).toHaveCount(0);
+});
+
+test('types inline strikethrough next to Chinese text', async ({ page }) => {
+ await seed(page, '正文\n');
+ const editor = page.getByRole('textbox', { name: '笔记正文' });
+ await editor.locator('p').click();
+ await page.keyboard.press('End');
+ await page.keyboard.type('~~');
+ await page.keyboard.insertText('删除线');
+ await page.keyboard.type('~~');
+ await expect(editor.locator('s')).toHaveText('删除线');
+ await expect(editor.locator('p')).toHaveText('正文删除线');
+ await expect.poll(() => saved(page)).toBe('正文~~删除线~~\n');
+ await page.keyboard.press('ControlOrMeta+z');
+ await expect(editor.locator('s')).toHaveCount(0);
+});
+
+for (const method of ['toolbar', 'context menu'] as const) {
+ test(`strikethrough ${method} toggles selected text and saves Markdown`, async ({ page }) => {
+  await seed(page, '删除线正文\n');
+  const editor = page.getByRole('textbox', { name: '笔记正文' });
+  const button = page.getByRole('button', { name: '删除线', exact: true });
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await editor.locator('p').click();
+  await page.keyboard.press('ControlOrMeta+a');
+  const toggle = async () => {
+   if (method === 'toolbar') await button.click();
+   else {
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menuitemcheckbox', { name: '删除线', exact: true }).click();
+   }
+  };
+  await toggle();
+  await expect(editor.locator('s')).toHaveText('删除线正文');
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => saved(page)).toBe('~~删除线正文~~\n');
+  await toggle();
+  await expect(editor.locator('s')).toHaveCount(0);
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => saved(page)).toBe('删除线正文\n');
+ });
+}
+
 test('prose line spacing stays uniform across soft breaks, paragraphs and Enter', async ({ page }) => {
  const original = '第一行\n第二行\n\n第三行\n\n第四行\n';
  await seed(page, original);

@@ -73,9 +73,9 @@ test('pull reports file totals and keeps a persistent, read-only remote change l
  await expect(page.locator('.toast')).toContainText('2 个提交 · 4 个文件（新增 1 · 修改 1 · 删除 1 · 重命名 1）');
  await expect(page.locator('.git-operation-summary')).toContainText('4 个文件');
  const remote = page.getByRole('region', { name: '远端变更', exact: true });
- await expect(page.locator('.changes-heading')).toHaveText(['已暂存变更', '工作区变更', '远端变更']);
+ await expect(page.locator('.changes-heading')).toHaveText(['远端变更']);
  await expect(remote.locator('.changes-count')).toHaveText('4');
- await expect(page.getByRole('region', { name: '工作区变更', exact: true }).locator('.changes-count')).toHaveText('0');
+ await expect(page.getByRole('region', { name: '工作区变更', exact: true })).toHaveCount(0);
  await expect(remote.getByRole('button', { name: /暂存|撤销|还原/ })).toHaveCount(0);
  await expect(remote.getByTitle('打开远端变更：notes/deleted.txt', { exact: true })).toBeDisabled();
  await expect(page.getByRole('heading', { name: '未打开笔记' })).toBeVisible();
@@ -83,7 +83,9 @@ test('pull reports file totals and keeps a persistent, read-only remote change l
  await expect(page.locator('.tab.current')).toContainText('远端对比');
  await expect(page.locator('.diff-editor')).toContainText('+after pull');
  expect(await page.evaluate(() => (window as any).autoPullControls.diffRequest)).toEqual({ before: '1'.repeat(40), after: '2'.repeat(40), path: 'notes/a.md', originalPath: undefined });
+ await page.getByRole('button', { name: 'Git 更多选项' }).click();
  await page.getByRole('switch', { name: '忽略空格和空行' }).uncheck();
+ await page.keyboard.press('Escape');
  await expect(remote.locator('.changes-count')).toHaveText('4');
  await page.screenshot({ path: 'test-results/git-remote-changes.png' });
  // A pull with no updates preserves both the list and the current diff tab.
@@ -112,6 +114,11 @@ async function pull(page: Page, automatic: boolean) {
  await expect.poll(() => pulls(page)).toBe(1);
  await expect(page.getByRole('button', { name: '拉取', exact: true })).toHaveAttribute('aria-busy', 'false');
  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
+ if (await page.locator('.remote-changes-toggle').count()) {
+  await expect(page.locator('.remote-changes-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('button', { name: /^查看远端差异：/ })).toHaveCount(0);
+  await page.locator('.remote-changes-toggle').click();
+ }
 }
 
 for (const automatic of [false, true]) {

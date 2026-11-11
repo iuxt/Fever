@@ -20,21 +20,21 @@ test.beforeEach(async ({ page }) => {
 
 const titles = (page: Page) => page.locator('.note-card-title strong');
 async function sortBy(page: Page, name: string) {
- await page.getByRole('combobox', { name: '排序方式' }).click();
- await page.getByRole('option', { name, exact: true }).click();
+ await page.getByRole('button', { name: '排序方式', exact: true }).click();
+ await page.getByRole('menuitemradio', { name, exact: true }).click();
 }
 
 test('sorts by update time, creation time and natural title in both directions', async ({ page }) => {
  await expect(titles(page)).toHaveText(['笔记2', '笔记20', '笔记1', '笔记10']);
- await page.getByRole('button', { name: '切换为升序', exact: true }).click();
+ await sortBy(page, '最早在前');
  await expect(titles(page)).toHaveText(['笔记10', '笔记1', '笔记2', '笔记20']);
  await sortBy(page, '创建时间');
  await expect(titles(page)).toHaveText(['笔记20', '笔记10', '笔记1', '笔记2']);
- await page.getByRole('button', { name: '切换为升序', exact: true }).click();
+ await sortBy(page, '最早在前');
  await expect(titles(page)).toHaveText(['笔记2', '笔记1', '笔记10', '笔记20']);
  await sortBy(page, '标题');
  await expect(titles(page)).toHaveText(['笔记1', '笔记2', '笔记10', '笔记20']);
- await page.getByRole('button', { name: '切换为降序', exact: true }).click();
+ await sortBy(page, '标题倒序');
  await expect(titles(page)).toHaveText(['笔记20', '笔记10', '笔记2', '笔记1']);
  // Sorting changes the view without rewriting the manifest order.
  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('fever-demo-v1')!).manifest.notes.map((note: { id: string }) => note.id))).toEqual(['b', 'a', 'c', 'd']);
@@ -42,14 +42,13 @@ test('sorts by update time, creation time and natural title in both directions',
 
 test('keeps sorting across folders, full-text search, empty folders and reloads', async ({ page }) => {
  await sortBy(page, '创建时间');
- await page.getByRole('button', { name: '切换为升序', exact: true }).click();
+ await sortBy(page, '最早在前');
  await page.locator('.folder-row').filter({ hasText: /^项目/ }).click();
  await expect(titles(page)).toHaveText(['笔记10', '笔记20']);
  await page.getByPlaceholder('搜索你的笔记…').fill('排序样例');
  await expect(titles(page)).toHaveText(['笔记2', '笔记1', '笔记10', '笔记20']);
  await page.reload();
- await expect(page.getByRole('combobox', { name: '排序方式' })).toHaveText('创建时间');
- await expect(page.getByRole('button', { name: '切换为降序', exact: true })).toBeVisible();
+ await expect(page.getByRole('button', { name: '排序方式', exact: true })).toHaveAttribute('title', '排序：创建时间 · 最早在前');
  await expect(titles(page)).toHaveText(['笔记2', '笔记1', '笔记10', '笔记20']);
  await page.locator('.folder-row').filter({ hasText: '空文件夹' }).click();
  await expect(page.locator('.file-list-empty')).toBeVisible();
@@ -70,7 +69,7 @@ test('autosave moves an edited note to the top and preserves the selection', asy
 test('falls back to recent updates when the stored preference is invalid', async ({ page }) => {
  await page.evaluate(() => localStorage.setItem('fever-note-sort', JSON.stringify({ field: 'unknown', direction: 'sideways' })));
  await page.reload();
- await expect(page.getByRole('combobox', { name: '排序方式' })).toHaveText('更新时间');
+ await expect(page.getByRole('button', { name: '排序方式', exact: true })).toHaveAttribute('title', '排序：更新时间 · 最新在前');
  await expect(titles(page)).toHaveText(['笔记2', '笔记20', '笔记1', '笔记10']);
 });
 
@@ -93,23 +92,41 @@ test('sorting a large list resets scrolling and keeps rendering virtualized', as
  await expect(titles(page).last()).toHaveText('笔记1199');
 });
 
-test('sort controls support the keyboard and fit a narrow dark window', async ({ page }) => {
+test('sort menu supports the keyboard and shares one row with the view tabs in a narrow dark window', async ({ page }) => {
  await page.setViewportSize({ width: 560, height: 800 });
  await page.emulateMedia({ colorScheme: 'dark' });
- const select = page.getByRole('combobox', { name: '排序方式' });
- await select.focus();
+ const trigger = page.getByRole('button', { name: '排序方式', exact: true });
+ await trigger.focus();
  await page.keyboard.press('Enter');
  await page.keyboard.press('ArrowDown');
  await page.keyboard.press('Enter');
- await expect(select).toHaveText('创建时间');
+ await expect(trigger).toHaveAttribute('title', '排序：创建时间 · 最新在前');
+ await expect(trigger).toBeFocused();
  await expect(titles(page)).toHaveText(['笔记20', '笔记10', '笔记1', '笔记2']);
  await page.keyboard.press('Enter');
- await page.screenshot({ path: 'test-results/note-sort-narrow.png' });
- expect(await page.getByRole('listbox', { name: '排序方式' }).evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
- await page.keyboard.press('Escape');
- await expect(select).toBeFocused();
- await page.keyboard.press('Tab');
+ await expect(page.getByRole('menuitemradio', { name: '创建时间', exact: true })).toBeFocused();
+ await page.keyboard.press('End');
  await page.keyboard.press('Enter');
  await expect(titles(page)).toHaveText(['笔记2', '笔记1', '笔记10', '笔记20']);
- expect(await page.locator('.note-sort').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+ await page.getByPlaceholder('搜索你的笔记…').fill('排序样例');
+ await trigger.click();
+ await page.screenshot({ path: 'test-results/note-sort-narrow.png' });
+ expect(await page.getByRole('menu', { name: '文件列表排序' }).evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+ await page.keyboard.press('Escape');
+ await expect(trigger).toBeFocused();
+ await expect(page.getByRole('menu', { name: '文件列表排序' })).toBeHidden();
+ await expect(page.getByPlaceholder('搜索你的笔记…')).toHaveValue('排序样例');
+ await trigger.click();
+ await page.getByRole('heading', { name: '搜索结果' }).click();
+ await expect(page.getByRole('menu', { name: '文件列表排序' })).toBeHidden();
+ const tabs = page.getByRole('group', { name: '文件展示方式' });
+ const tabsBox = (await tabs.boundingBox())!;
+ const sortBox = (await trigger.boundingBox())!;
+ expect(Math.abs(tabsBox.y + tabsBox.height / 2 - sortBox.y - sortBox.height / 2)).toBeLessThan(1);
+ expect(sortBox.x).toBeGreaterThan(tabsBox.x + tabsBox.width);
+ expect(await page.locator('.file-list-controls').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+ await page.getByTitle('仅显示标题', { exact: true }).click();
+ await expect(page.getByTitle('仅显示标题', { exact: true })).toHaveAttribute('aria-pressed', 'true');
+ await page.getByTitle('显示正文预览', { exact: true }).click();
+ await expect(page.getByTitle('显示正文预览', { exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
