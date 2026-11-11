@@ -117,11 +117,15 @@ test('sort menu supports the keyboard and shares one row with the view tabs in a
  await expect(page.getByRole('menu', { name: '文件列表排序' })).toBeHidden();
  await expect(page.getByPlaceholder('搜索你的笔记…')).toHaveValue('排序样例');
  await trigger.click();
- await page.getByRole('heading', { name: '搜索结果' }).click();
+ await page.locator('.file-list-footer').click();
  await expect(page.getByRole('menu', { name: '文件列表排序' })).toBeHidden();
  const tabs = page.getByRole('group', { name: '文件展示方式' });
  const tabsBox = (await tabs.boundingBox())!;
  const sortBox = (await trigger.boundingBox())!;
+ const createBox = (await page.getByRole('button', { name: '在当前文件夹新建笔记' }).boundingBox())!;
+ expect(Math.abs(createBox.y + createBox.height / 2 - sortBox.y - sortBox.height / 2)).toBeLessThan(1);
+ expect(createBox.x).toBeGreaterThanOrEqual(tabsBox.x + tabsBox.width);
+ expect(sortBox.x).toBeGreaterThanOrEqual(createBox.x + createBox.width);
  expect(Math.abs(tabsBox.y + tabsBox.height / 2 - sortBox.y - sortBox.height / 2)).toBeLessThan(1);
  expect(sortBox.x).toBeGreaterThan(tabsBox.x + tabsBox.width);
  expect(await page.locator('.file-list-controls').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);

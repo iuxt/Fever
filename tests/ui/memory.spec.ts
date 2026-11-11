@@ -19,7 +19,7 @@ test('large note list renders visible summaries, scrolls to the last note, and b
  await expect(collapse).toHaveAttribute('aria-expanded', 'true');
  await collapse.click();
  await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toHaveCount(0);
- await expect(page.locator('.file-list-header h2')).toHaveText('大库');
+ await expect(page.locator('.folder-row[title="大库"]')).toHaveAttribute('aria-pressed', 'true');
  await expect(collapse).toHaveAttribute('aria-expanded', 'false');
  await collapse.click();
  await expect(page.locator('.folder-row').filter({ hasText: '子分类' })).toBeVisible();

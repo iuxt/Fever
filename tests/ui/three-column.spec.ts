@@ -9,7 +9,11 @@ test('folders scope the middle list, previews update, and search spans the vault
  await expect(page.locator('.inspector')).toHaveCount(0);
  await page.locator('.folder-row').filter({ hasText: '开始使用' }).click();
  await expect(page.locator('.note-card')).toHaveCount(2);
- await expect(page.locator('.file-list-header h2')).toHaveText('开始使用');
+ await expect(page.locator('.file-list-header')).toHaveCount(0);
+ const create = page.locator('.file-list-controls').getByRole('button', { name: '在当前文件夹新建笔记' });
+ await create.click();
+ await expect(page.getByLabel('所属分类')).toHaveValue('开始使用');
+ await page.getByRole('button', { name: '取消', exact: true }).click();
  await expect(page.locator('.note-card').first().locator('.note-card-preview')).toContainText('欢迎来到 Fever');
  await page.locator('.note-card').filter({ hasText: 'Markdown 语法指南' }).click();
  await expect(page.locator('.wysiwyg-content h1')).toHaveText('Markdown 语法指南');
@@ -45,7 +49,6 @@ test('parents with only child notes show an empty list and create notes in place
  await page.locator('.folder-row').filter({ hasText: /^项目/ }).click();
  await expect(page.locator('.note-card')).toHaveCount(0);
  await expect(page.locator('.file-list-empty')).toContainText('这个文件夹还是空的');
- await expect(page.locator('.file-list-header > div > span')).toHaveText('0 篇笔记');
  await expect(page.locator('.folder-row[title="项目"] small')).toHaveText('0');
  await expect(page.locator('.folder-row').filter({ hasText: /^Fever/ })).toBeVisible();
  await page.locator('.folder-row').filter({ hasText: /^项目/ }).click({ button: 'right' });
@@ -53,7 +56,6 @@ test('parents with only child notes show an empty list and create notes in place
  await expect(page.locator('.folder-row').filter({ hasText: /^Fever/ })).toHaveCount(0);
  await expect(page.locator('.note-card')).toHaveCount(0);
  await expect(page.locator('.file-list-empty')).toContainText('这个文件夹还是空的');
- await expect(page.locator('.file-list-header > div > span')).toHaveText('0 篇笔记');
  await expect(page.locator('.folder-row[title="项目"] small')).toHaveText('0');
  await page.getByTitle('新建分类', { exact: true }).click();
  await page.getByLabel('分类名称').fill('项目/空文件夹');
@@ -83,7 +85,7 @@ test('opening notes from all notes, child folders, search and tabs reveals their
  await openProduct();
  await expect(nested).toHaveAttribute('aria-pressed', 'true');
  await expect(page.getByRole('button', { name: '收起文件夹：项目', exact: true })).toHaveAttribute('aria-expanded', 'true');
- await expect(page.locator('.file-list-header h2')).toHaveText('Fever');
+ await expect(page.locator('.note-card')).toHaveCount(2);
  await allNotes.click();
  await page.locator('.note-card[title="Markdown 语法指南"]').click();
  await expect(page.locator('.folder-row[title="开始使用"]')).toHaveAttribute('aria-pressed', 'true');

@@ -125,7 +125,7 @@ test('search selection spans folders and can be moved together to uncategorized'
  const target = (await root.boundingBox())!;
  await page.mouse.move(target.x + target.width / 2 + 2, target.y + target.height / 2);
  await expect(root).toHaveClass(/folder-drop-target/); await page.mouse.up();
- await expect(page.locator('.file-list-header h2')).toHaveText('未分类');
+ await expect(page.locator('.all-notes.selected')).toContainText('未分类');
  await expect(page.getByPlaceholder('搜索你的笔记…')).toHaveValue('');
  expect((await manifest(page)).notes.every(note => note.category === '')).toBe(true);
 });

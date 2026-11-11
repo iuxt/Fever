@@ -34,36 +34,34 @@ test.beforeEach(async ({ page }) => {
 test('folder icons toggle children independently from names and article filters', async ({ page }) => {
  const project = folder(page, '项目');
  const toggle = project.locator('..').locator('.folder-toggle');
- const header = page.locator('.file-list-header h2');
  await expect(folder(page, '子分类')).toHaveCount(0);
  await project.locator('span').click();
- await expect(header).toHaveText('项目');
+ await expect(project).toHaveAttribute('aria-pressed', 'true');
  await expect(page.locator('.note-card')).toHaveCount(1);
  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
  await project.locator('span').click();
  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
  await toggle.click();
  await expect(folder(page, '子分类')).toBeVisible();
- await expect(header).toHaveText('项目');
+ await expect(project).toHaveAttribute('aria-pressed', 'true');
  await project.locator('span').click();
  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
  await folder(page, '项目备份').click();
  await toggle.click();
  await expect(folder(page, '子分类')).toHaveCount(0);
  await expect(folder(page, '项目备份')).toHaveAttribute('aria-pressed', 'true');
- await expect(header).toHaveText('项目备份');
  await expect(page.locator('.note-card')).toHaveCount(1);
  const search = page.getByPlaceholder('搜索你的笔记…');
  await search.fill('父分类笔记');
  await toggle.focus(); await page.keyboard.press('Enter');
  await expect(folder(page, '子分类')).toBeVisible();
  await expect(search).toHaveValue('父分类笔记');
- await expect(header).toHaveText('搜索结果');
+ await expect(page.locator('.note-card-title strong')).toHaveText(['父分类笔记']);
  await toggle.focus(); await page.keyboard.press('Space');
  await expect(folder(page, '子分类')).toHaveCount(0);
  await project.focus(); await page.keyboard.press('Enter');
  await expect(search).toHaveValue('');
- await expect(header).toHaveText('项目');
+ await expect(project).toHaveAttribute('aria-pressed', 'true');
  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
  await toggle.click({ button: 'right' });
  await expect(page.getByRole('menuitem', { name: '展开分类', exact: true })).toBeVisible();
@@ -75,7 +73,6 @@ test('folder icons toggle children independently from names and article filters'
 test('folder lists and counts exclude child notes while all notes and search span the vault', async ({ page }) => {
  await folder(page, '项目').click();
  await expect(page.locator('.note-card-title strong')).toHaveText(['父分类笔记']);
- await expect(page.locator('.file-list-header > div > span')).toHaveText('1 篇笔记');
  await expect(folder(page, '项目').locator('small')).toHaveText('1');
  await expandFolder(page, '项目');
  await expect(page.locator('.note-card-title strong')).toHaveText(['父分类笔记']);
@@ -84,7 +81,7 @@ test('folder lists and counts exclude child notes while all notes and search spa
  await expect(folder(page, '子分类').locator('small')).toHaveText('1');
  await folder(page, '空子分类').click();
  await expect(page.locator('.note-card')).toHaveCount(0);
- await expect(page.locator('.file-list-header > div > span')).toHaveText('0 篇笔记');
+ await expect(folder(page, '空子分类').locator('small')).toHaveText('0');
  await folder(page, '项目').click();
  await page.getByPlaceholder('搜索你的笔记…').fill('子分类笔记');
  await expect(page.locator('.note-card-title strong')).toHaveText(['子分类笔记']);
@@ -409,7 +406,7 @@ test('note dragging to its current folder is ignored, cancellation clears feedba
  const target = (await root.boundingBox())!;
  await page.mouse.move(target.x + target.width / 2 + 2, target.y + target.height / 2);
  await expect(root).toHaveClass(/folder-drop-target/); await page.mouse.up();
- await expect(page.locator('.file-list-header h2')).toHaveText('未分类');
+ await expect(page.locator('.all-notes.selected')).toContainText('未分类');
  await expect(note(page, '父分类笔记')).toBeVisible();
  await page.reload();
  expect((await readState(page)).manifest.notes.find((entry: { id: string }) => entry.id === 'parent')).toMatchObject({ category: '', folderId: null });
