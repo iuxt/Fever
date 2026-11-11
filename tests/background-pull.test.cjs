@@ -11,11 +11,14 @@ async function fixture(t) {
   const dir = path.join(scratch, 'vault'), remote = path.join(scratch, 'remote.git'), clone = path.join(scratch, 'writer');
   await fs.mkdir(dir);
   const store = new VaultStore(); await store.open(dir);
+  // Byte-level assertions must not inherit the host's Git line-ending defaults.
+  await store.git(['config', '--local', 'core.autocrlf', 'false']);
+  await store.git(['config', '--local', 'core.eol', 'lf']);
   await store.configure({ author: 'Pull Test', email: 'pull@example.com', remote: '' });
   await store.commit('initial');
   await store.git(['init', '--bare', '--initial-branch=main', remote]);
   await store.git(['remote', 'add', 'origin', remote]); await store.push();
-  await store.git(['clone', remote, clone]);
+  await store.git(['clone', '--config', 'core.autocrlf=false', '--config', 'core.eol=lf', remote, clone]);
   const writer = new VaultStore(); await writer.open(clone);
   await writer.configure({ author: 'Writer', email: 'writer@example.com', remote: '' });
   await writer.git(['remote', 'add', 'origin', remote]);
