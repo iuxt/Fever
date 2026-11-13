@@ -678,6 +678,43 @@ async function hoverBlockBoundary(page: Page, before: Locator | null, after: Loc
  return insert;
 }
 
+test('keeps the blank-line button clickable when the pointer moves slightly while pressed', async ({ page }) => {
+ await seed(page, '```js\nconst first = 1;\n```\n\n```js\nconst second = 2;\n```\n');
+ const blocks = page.locator('.editor-code-block');
+ const insert = await hoverBlockBoundary(page, blocks.first(), blocks.last());
+ const box = (await insert.boundingBox())!;
+ const x = box.x + box.width / 2, y = box.y + box.height / 2;
+ await page.mouse.move(x, y);
+ await page.mouse.down();
+ await page.mouse.move(x + 2, y + 2);
+ await expect(insert).toBeVisible();
+ await page.mouse.up();
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(1);
+ await page.keyboard.insertText('新增正文');
+ await expect(page.locator('.wysiwyg-content > p')).toHaveText('新增正文');
+ await expect(blocks).toHaveCount(2);
+});
+
+test('allows approaching and clicking the blank-line button near its edge', async ({ page }) => {
+ await seed(page, '```js\nconst first = 1;\n```\n\n```js\nconst second = 2;\n```\n');
+ const blocks = page.locator('.editor-code-block');
+ const insert = await hoverBlockBoundary(page, blocks.first(), blocks.last());
+ const box = (await insert.boundingBox())!;
+ expect(box.width).toBeGreaterThanOrEqual(32);
+ expect(box.height).toBeGreaterThanOrEqual(32);
+ const before = (await blocks.first().boundingBox())!;
+ // Approach diagonally across the gap, then click the padding around the plus.
+ await page.mouse.move(before.x + before.width / 2, box.y + 3);
+ await expect(insert).toBeVisible();
+ await page.mouse.move(box.x + 3, box.y + 3, { steps: 20 });
+ await expect(insert).toBeVisible();
+ await page.mouse.click(box.x + 3, box.y + 3);
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(1);
+ await page.getByRole('button', { name: '撤销', exact: true }).click();
+ await expect(page.locator('.wysiwyg-content > p')).toHaveCount(0);
+ await expect(blocks).toHaveCount(2);
+});
+
 for (const block of insertableBlocks) {
  test(`inserts editable paragraphs before and after a ${block.name} from the hover guide`, async ({ page }) => {
   const original = `前文\n\n${block.markdown}\n\n后文\n`;

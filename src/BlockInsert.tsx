@@ -52,9 +52,10 @@ export default function BlockInsert({ editor, surfaceRef }: { editor: Editor; su
    findBoundaries();
   };
   const move = (event: PointerEvent) => {
+   // A small movement between pointerdown and click must not remove the target.
+   if (event.target instanceof Element && event.target.closest('.block-insert')) return;
    if (editor.isDestroyed || event.buttons || editor.view.composing) { hide(); return; }
    if (event.target instanceof Element) {
-    if (event.target.closest('.block-insert')) return;
     if (event.target.closest('button, input, textarea, select')) { hide(); return; }
    }
    for (const boundary of boundaries) {
@@ -65,9 +66,12 @@ export default function BlockInsert({ editor, surfaceRef }: { editor: Editor; su
     const block = first || second;
     if (!block) continue;
     const top = first?.bottom ?? second!.top - 24, bottom = second?.top ?? first!.bottom + 24;
-    if (event.clientY < top || event.clientY > bottom || event.clientX < block.left - 28 || event.clientX > block.right) continue;
+    const center = (top + bottom) / 2;
+    // Keep a continuous approach to the full button, even across narrow gaps.
+    const reach = Math.max((bottom - top) / 2, 16);
+    if (Math.abs(event.clientY - center) > reach || event.clientX < block.left - 32 || event.clientX > block.right) continue;
     const bounds = surface.getBoundingClientRect();
-    const next = { position: boundary.position, top: (top + bottom) / 2 - bounds.top, left: block.left - bounds.left - 28, width: block.width + 28 };
+    const next = { position: boundary.position, top: center - bounds.top, left: block.left - bounds.left - 32, width: block.width + 32 };
     setGap(current => current && current.position === next.position && current.top === next.top && current.left === next.left && current.width === next.width ? current : next);
     return;
    }
@@ -103,7 +107,7 @@ export default function BlockInsert({ editor, surfaceRef }: { editor: Editor; su
  }
 
  return gap && <div className="block-insert" style={{ top: gap.top, left: gap.left, width: gap.width }}>
-  <button type="button" aria-label="插入空行" title="插入空行" onMouseDown={event => event.preventDefault()} onClick={insert}><Plus size={14} aria-hidden="true" /></button>
+  <button type="button" aria-label="插入空行" title="插入空行" onPointerDown={event => event.preventDefault()} onClick={insert}><Plus size={16} aria-hidden="true" /></button>
   <span aria-hidden="true" />
  </div>;
 }

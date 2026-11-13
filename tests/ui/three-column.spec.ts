@@ -33,7 +33,6 @@ test('folders scope the middle list, previews update, and search spans the vault
  await page.locator('.note-card').click();
  await expect(page.locator('.wysiwyg-content')).toContainText('这里是刚刚修改的摘要');
  await page.getByPlaceholder('搜索你的笔记…').fill('');
- await page.locator('.all-notes').filter({ hasText: '全部笔记' }).click();
  await page.screenshot({ path: 'test-results/three-column-light.png', fullPage: true });
  await page.emulateMedia({ colorScheme: 'dark' });
  await page.screenshot({ path: 'test-results/three-column-dark.png', fullPage: true });
@@ -75,9 +74,8 @@ test('parents with only child notes show an empty list and create notes in place
  await expect(page.locator('.note-card.selected')).toContainText('空文件夹里的笔记');
 });
 
-test('opening notes from all notes, child folders, search and tabs reveals their folder', async ({ page }) => {
+test('opening notes from the initial list, child folders, search and tabs reveals their folder', async ({ page }) => {
  await page.goto('/');
- const allNotes = page.locator('.all-notes').filter({ hasText: '全部笔记' });
  const project = page.locator('.folder-row[title="项目"]');
  const nested = page.locator('.folder-row[title="项目/Fever"]');
  const search = page.getByPlaceholder('搜索你的笔记…');
@@ -86,8 +84,9 @@ test('opening notes from all notes, child folders, search and tabs reveals their
  await expect(nested).toHaveAttribute('aria-pressed', 'true');
  await expect(page.getByRole('button', { name: '收起文件夹：项目', exact: true })).toHaveAttribute('aria-expanded', 'true');
  await expect(page.locator('.note-card')).toHaveCount(2);
- await allNotes.click();
+ await search.fill('Markdown 语法指南');
  await page.locator('.note-card[title="Markdown 语法指南"]').click();
+ await search.fill('');
  await expect(page.locator('.folder-row[title="开始使用"]')).toHaveAttribute('aria-pressed', 'true');
  await project.click();
  await expect(page.locator('.note-card')).toHaveCount(0);
