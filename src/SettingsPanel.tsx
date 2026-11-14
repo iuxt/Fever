@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, FolderOpen, GitBranch, Keyboard, Monitor, Moon, Sun } from 'lucide-react';
 import Select from './Select';
 import { EditorWidthOptions } from './EditorWidth';
@@ -27,12 +27,19 @@ type Tab = typeof tabs[number]['id'];
 
 export default function SettingsPanel({ vault, settings, onSettingsChange, appearance, desktop, lfs, busy, onSwitchVault }: Props) {
  const [activeTab, setActiveTab] = useState<Tab>('appearance');
+ const [vertical, setVertical] = useState(() => window.matchMedia('(min-width: 761px)').matches);
+ useEffect(() => {
+  const media = window.matchMedia('(min-width: 761px)');
+  const resize = () => setVertical(media.matches);
+  resize(); media.addEventListener('change', resize);
+  return () => media.removeEventListener('change', resize);
+ }, []);
  const id = useId(), tabButtons = useRef<(HTMLButtonElement | null)[]>([]);
  const { themeMode, fontSize, editorWidth, editorFullWidth, setThemeMode, setFontSize, setEditorWidth, setEditorFullWidth } = appearance;
  function navigateTabs(event: KeyboardEvent<HTMLButtonElement>, index: number) {
   let next: number;
-  if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
-  else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+  if (event.key === 'ArrowRight' || (vertical && event.key === 'ArrowDown')) next = (index + 1) % tabs.length;
+  else if (event.key === 'ArrowLeft' || (vertical && event.key === 'ArrowUp')) next = (index - 1 + tabs.length) % tabs.length;
   else if (event.key === 'Home') next = 0;
   else if (event.key === 'End') next = tabs.length - 1;
   else return;
@@ -41,17 +48,16 @@ export default function SettingsPanel({ vault, settings, onSettingsChange, appea
   tabButtons.current[next]?.focus();
  }
  return <>
-  <div className="settings-tabs" role="tablist" aria-label="设置分类">
+  <div className="settings-tabs" role="tablist" aria-orientation={vertical ? 'vertical' : 'horizontal'} aria-label="设置分类">
    {tabs.map((tab, index) => <button key={tab.id} ref={element => { tabButtons.current[index] = element; }} type="button" role="tab" id={`${id}-tab-${tab.id}`} aria-controls={`${id}-panel-${tab.id}`} aria-selected={activeTab === tab.id} tabIndex={activeTab === tab.id ? 0 : -1} onClick={() => setActiveTab(tab.id)} onKeyDown={event => navigateTabs(event, index)}><tab.icon size={16} aria-hidden="true" /><span>{tab.label}</span></button>)}
   </div>
   {tabs.map(tab => <section key={tab.id} className="settings-panel" role="tabpanel" id={`${id}-panel-${tab.id}`} aria-labelledby={`${id}-tab-${tab.id}`} hidden={activeTab !== tab.id} tabIndex={0}>
    {activeTab === 'appearance' && tab.id === 'appearance' && <>
-    <div className="form-section-title">外观与排版</div>
     <div className="form-columns">
      <Select<ThemeMode> label="颜色模式" value={themeMode} onChange={setThemeMode} options={[{ value: 'system', label: '跟随系统', icon: <Monitor size={16} /> }, { value: 'light', label: '亮色模式', icon: <Sun size={16} /> }, { value: 'dark', label: '暗色模式', icon: <Moon size={16} /> }]} />
      <Select label="字体大小" value={fontSize} onChange={setFontSize} options={fontSizes.map(size => ({ value: size, label: `${size} px${size === 16 ? '（默认）' : ''}` }))} />
     </div>
-    <p className="form-hint">外观调整立即生效，并在此设备上记住。字体大小同时调整正文、源码和界面文字；跟随系统会自动切换亮色与暗色。</p>
+    <p className="form-hint">调整立即生效，字号同时应用于正文、源码和界面。</p>
     <EditorWidthOptions width={editorWidth} fullWidth={editorFullWidth} onWidthChange={setEditorWidth} onFullWidthChange={setEditorFullWidth} />
     <div className="font-preview" aria-label="字体预览">让每一个想法，都有迹可循。<span>Fever · Markdown 0123456789</span></div>
    </>}

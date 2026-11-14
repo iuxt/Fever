@@ -115,7 +115,7 @@ try {
  }, note.id);
  // Exercise the production file:// build with its local fonts and existing IPC vault.
  await app.evaluate(async ({ BrowserWindow }, file) => { await BrowserWindow.getAllWindows()[0].loadFile(file); }, path.resolve('dist/index.html'));
- await page.locator('.folder-row').filter({ hasText: '项目' }).click();
+ await page.getByRole('button', { name: '展开文件夹：项目', exact: true }).click();
  await page.locator('.folder-row').filter({ hasText: '测试' }).click();
  await page.locator('.note-row').filter({ hasText: '桌面集成测试' }).click({ button: 'right' });
  await page.getByRole('menuitem', { name: '复制 Markdown', exact: true }).click();

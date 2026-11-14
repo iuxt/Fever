@@ -33,7 +33,7 @@ const NoteCard = memo(function NoteCard({ note, active, selected, draft, view, a
  onSelect: (id: string, event: MouseEvent<HTMLElement>) => void;
  onStartDrag: (event: DragEvent<HTMLElement>, id: string) => void; onContextMenu: Props['onContextMenu'];
 }) {
- const [preview, setPreview] = useState('');
+ const [preview, setPreview] = useState<string | null>(null);
  const drawing = isDrawingNote(note);
  const title = displayNoteTitle(note);
  useEffect(() => {
@@ -42,7 +42,7 @@ const NoteCard = memo(function NoteCard({ note, active, selected, draft, view, a
   if (cached?.updatedAt === note.updatedAt) { setPreview(cached.text); return; }
   let cancelled = false;
   const requestId = crypto.randomUUID();
-  setPreview('');
+  setPreview(null);
   (api.preview ? api.preview(note.id, requestId) : api.read(note.id)).then(value => {
    if (cancelled) return;
    const text = summary(value);
@@ -52,16 +52,16 @@ const NoteCard = memo(function NoteCard({ note, active, selected, draft, view, a
   }).catch(() => { if (!cancelled) setPreview('暂时无法预览，点击打开笔记'); });
   return () => { cancelled = true; void api.cancelPreview?.(requestId).catch(() => {}); };
  }, [note.id, note.updatedAt, drawing, draft, view, api, cache]);
- return <button className={`note-row note-card ${selected ? 'selected' : ''}${dragItem?.kind === 'note' && dragItem.ids.includes(note.id) ? ' dragging' : ''}`} aria-pressed={selected} title={title} draggable={!disabled} onDragStart={event => onStartDrag(event, note.id)} onDragEnd={() => onDragItemChange(null)} onClick={event => onSelect(note.id, event)} onContextMenu={event => onContextMenu(event, { kind: 'note', note })}>
-  <span className="note-card-title">{drawing ? <Shapes size={15} /> : <FileText size={15} />}<strong>{title}</strong>{active && <span className="selected-dot" />}</span>
-  {view === 'preview' && <><span className="note-card-preview">{drawing ? 'Excalidraw 绘图 · 点击打开画布' : draft !== undefined ? summary(draft) || '还没有正文，写下第一个想法…' : preview || '还没有正文，写下第一个想法…'}</span>
+ return <button className={`note-row note-card ${selected ? 'selected' : ''}${dragItem?.kind === 'note' && dragItem.ids.includes(note.id) ? ' dragging' : ''}`} aria-pressed={selected} aria-current={active ? 'page' : undefined} title={title} draggable={!disabled} onDragStart={event => onStartDrag(event, note.id)} onDragEnd={() => onDragItemChange(null)} onClick={event => onSelect(note.id, event)} onContextMenu={event => onContextMenu(event, { kind: 'note', note })}>
+  <span className="note-card-title">{drawing ? <Shapes size={15} /> : <FileText size={15} />}<strong>{title}</strong></span>
+  {view === 'preview' && <><span className="note-card-preview">{drawing ? 'Excalidraw 绘图' : draft !== undefined ? summary(draft) || '暂无正文' : preview === null ? '' : preview || '暂无正文'}</span>
   <span className="note-card-meta"><time dateTime={note.updatedAt}>{date(note.updatedAt)}</time><span>{note.category.split('/').join(' / ') || '未分类'}</span></span></>}
  </button>;
 });
 
 export default function NoteList({ fontSize, notes, activeId, scope, selectionScope, view, api, draftId, draft, onSelect, onContextMenu, revealRequest = 0, dragItem, onDragItemChange, disabled }: Props) {
  // Card padding/gaps plus title, two preview lines and metadata at the active font size.
- const rowHeight = view === 'title' ? Math.max(42, Math.ceil(fontSize * 1.5 + 14)) : Math.max(126, Math.ceil(fontSize * 4.7 + 50));
+ const rowHeight = view === 'title' ? Math.max(42, Math.ceil(fontSize * 1.5 + 14)) : Math.ceil(fontSize * 5 + 28);
  const container = useRef<HTMLDivElement>(null), cache = useRef<PreviewCache>(new Map());
  const selection = useRef<{ activeId: string; revealRequest: number; scope: string; rowHeight: number } | null>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
@@ -106,10 +106,6 @@ export default function NoteList({ fontSize, notes, activeId, scope, selectionSc
    event.preventDefault(); event.stopPropagation(); choose(new Set()); anchor.current = null;
   } else keyboardContextMenu(event);
  };
- const showContextMenu: Props['onContextMenu'] = (event, target) => {
-  if (target.kind === 'note' && !selectedIds.has(target.note.id)) { choose(new Set([target.note.id])); anchor.current = target.note.id; }
-  onContextMenu(event, target);
- };
  useLayoutEffect(() => {
   const element = container.current!;
   const update = () => setViewport({ top: element.scrollTop, height: element.clientHeight });
@@ -137,9 +133,9 @@ export default function NoteList({ fontSize, notes, activeId, scope, selectionSc
   <label title={`${modifier}A 全选 · ${modifier}点击多选 · Shift 点击连选`}><input type="checkbox" aria-label="全选当前列表" aria-keyshortcuts="Meta+A Control+A" checked={allSelected} ref={element => { if (element) element.indeterminate = selectedIds.size > 0 && !allSelected; }} disabled={disabled} onChange={() => allSelected ? choose(new Set()) : selectAll()} /><span>全选</span></label>
   <span role="status">已选 {selectedIds.size} 项</span>
   {selectedIds.size > 0 && <button disabled={disabled} onClick={() => { choose(new Set()); anchor.current = null; }}>取消选择</button>}
- </div><div ref={container} className={`note-tree note-list note-list-${view}`} style={{ '--note-row-height': `${rowHeight}px` } as import('react').CSSProperties} aria-label="文件列表" tabIndex={0} onKeyDown={keyDown} onContextMenu={event => showContextMenu(event, { kind: 'blank' })} onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
+ </div><div ref={container} className={`note-tree note-list note-list-${view}`} style={{ '--note-row-height': `${rowHeight}px` } as import('react').CSSProperties} aria-label="文件列表" tabIndex={0} onKeyDown={keyDown} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
   <div className="note-list-rows" style={{ height: notes.length * rowHeight }}>
-   {notes.slice(start, end).map((note, offset) => <div className="note-list-row" key={note.id} style={{ top: (start + offset) * rowHeight, height: rowHeight }}><NoteCard note={note} active={note.id === activeId} selected={selectedIds.has(note.id)} draft={note.id === draftId ? draft : undefined} view={view} api={api} cache={cache.current} onSelect={selectNote} onStartDrag={startDrag} onContextMenu={showContextMenu} dragItem={dragItem} onDragItemChange={onDragItemChange} disabled={disabled} /></div>)}
+   {notes.slice(start, end).map((note, offset) => <div className="note-list-row" key={note.id} style={{ top: (start + offset) * rowHeight, height: rowHeight }}><NoteCard note={note} active={note.id === activeId} selected={selectedIds.has(note.id)} draft={note.id === draftId ? draft : undefined} view={view} api={api} cache={cache.current} onSelect={selectNote} onStartDrag={startDrag} onContextMenu={onContextMenu} dragItem={dragItem} onDragItemChange={onDragItemChange} disabled={disabled} /></div>)}
   </div>
  </div></>;
 }

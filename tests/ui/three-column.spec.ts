@@ -132,3 +132,27 @@ test('opening a note scrolls its folder into view even when the folder is alread
  await expect(target).toHaveAttribute('aria-pressed', 'true');
  await expect(target).toBeInViewport();
 });
+
+test('library start opens recent notes and narrow navigation returns to the same draft', async ({ page }) => {
+ await page.goto('/');
+ await page.locator('.library-actions').getByRole('button', { name: /搜索笔记/ }).click();
+ await expect(page.getByPlaceholder('搜索你的笔记…')).toBeFocused();
+ await page.getByPlaceholder('搜索你的笔记…').fill('语法指南');
+ await page.getByTitle('清空搜索').click();
+ await expect(page.getByPlaceholder('搜索你的笔记…')).toHaveValue('');
+ await page.getByRole('region', { name: '最近更新' }).getByRole('button', { name: /欢迎使用 Fever/ }).click();
+ await expect(page.locator('.tab.current')).toContainText('欢迎使用 Fever');
+ await page.setViewportSize({ width: 390, height: 730 });
+ const editor = page.getByRole('textbox', { name: '笔记正文' });
+ await editor.fill('窄窗口中的草稿');
+ await page.keyboard.press('ControlOrMeta+k');
+ await expect(page.getByPlaceholder('搜索你的笔记…')).toBeFocused();
+ await expect(page.locator('.workspace')).toBeHidden();
+ await page.getByTitle('返回编辑区').click();
+ await expect(editor).toHaveText('窄窗口中的草稿');
+ await page.getByTitle('切换侧栏').click();
+ await page.locator('.note-card[title="Markdown 语法指南"]').click();
+ await expect(page.locator('.file-list-panel')).toBeHidden();
+ await expect(editor.locator('h1')).toHaveText('Markdown 语法指南');
+ expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

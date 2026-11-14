@@ -99,6 +99,10 @@
     ],
     "mac": {
       "icon": "assets/icons/fever.icns",
+      "identity": "-",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "Fever 需要访问本地网络，以便与局域网中的 Git 仓库同步笔记。"
+      },
       "artifactName": "Fever-${version}-macOS-${arch}.${ext}",
       "category": "public.app-category.productivity",
       "target": [
