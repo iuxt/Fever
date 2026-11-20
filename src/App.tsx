@@ -2,7 +2,7 @@ import { notePath } from './notePaths.ts';
 import { fileChangeSummary, loadLastPull, saveLastPull } from './gitActivity';
 import { remapCategory } from '../electron/manifest.mjs';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { ArrowDownToLine, ArrowRight, BookOpen, Check, CheckCheck, ChevronRight, Circle, Clock3, Code2, Copy, FilePlus2, FileText, Notebook, Library, PanelLeftOpen, Folder, FolderOpen, FolderPlus, GitBranch, GitCommitHorizontal, History, ImagePlus, Eye, LayoutList, LoaderCircle, Maximize2, Minimize2, MoreHorizontal, PanelLeftClose, PanelRightClose, PenLine, Shapes, Plus, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, BookOpen, Check, CheckCheck, ChevronRight, Circle, Clock3, Code2, Copy, FilePlus2, FileText, Flame, Library, PanelLeftOpen, Folder, FolderOpen, FolderPlus, GitBranch, GitCommitHorizontal, History, ImagePlus, Eye, LayoutList, LoaderCircle, Maximize2, Minimize2, MoreHorizontal, PanelLeftClose, PanelRightClose, PenLine, Shapes, Plus, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
 import GitPanel from './GitPanel';
 import GitChanges, { GitDiff } from './GitChanges';
 import RevisionDiff from './RevisionDiff';
@@ -902,12 +902,12 @@ export default function App() {
   else setLeftOpen(value => !value);
  };
  if (loading) return <div className="welcome"><LoaderCircle className="spin" /><p>正在打开笔记库…</p></div>;
- if (!vault) return <div className="welcome"><div className="welcome-brand"><Notebook size={31} /><h1>Fever</h1></div><button className="primary large" onClick={() => void openVault()} disabled={busy}><FolderOpen size={18} />选择笔记库文件夹<ArrowRight size={17} /></button>{notice && <div className="toast error">{notice.message}</div>}</div>;
+ if (!vault) return <div className="welcome"><div className="welcome-brand"><Flame size={56} strokeWidth={1.3} aria-hidden="true" /><h1>Fever</h1></div><button className="primary large" onClick={() => void openVault()} disabled={busy}><FolderOpen size={18} />选择笔记库文件夹<ArrowRight size={17} /></button>{notice && <div className="toast error">{notice.message}</div>}</div>;
 
  return <div className={`app-shell${editorFullscreen ? ' editor-fullscreen' : ''}`} data-browsing={browsing} inert={workspaceLocked} aria-busy={workspaceLocked}>
   {leftOpen && <>
    <aside className="sidebar" aria-label="文件夹栏">
-    <div className="sidebar-brand"><Notebook size={23} strokeWidth={1.7} /><span>Fever</span></div>
+    <div className="sidebar-brand"><span>fever<span className="brand-period">.</span></span></div>
     <div className="sidebar-search">
      <Search size={15} /><input ref={searchRef} aria-label={trashView ? '搜索回收站' : '搜索笔记'} value={query} placeholder={trashView ? '搜索回收站…' : '搜索你的笔记…'} onChange={e => setQuery(e.target.value)} />
      {query ? <button title="清空搜索" onClick={() => { setQuery(''); searchRef.current?.focus(); }}><X size={14} /></button> : <kbd>{modifier}K</kbd>}
