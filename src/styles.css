@@ -220,9 +220,12 @@ button, select, .code-block-actions, .table-controls, .drawing-preview-header { 
 .virtual-note-tree { min-height: 0; overflow-anchor: none; }
 .wysiwyg-editor { min-height: 100%; display: flex; flex-direction: column; }
 .wysiwyg-document { position: relative; flex: 1; width: 100%; }
-.block-insert { position: absolute; z-index: 1; height: 32px; display: flex; align-items: center; gap: 6px; transform: translateY(-50%); color: var(--accent); pointer-events: none; }
-.block-insert > button { display: grid; place-items: center; flex: 0 0 32px; height: 32px; padding: 0; border: 1px solid currentColor; border-radius: 6px; background: var(--paper); pointer-events: auto; cursor: pointer; }
-.block-insert > button:hover { background: var(--selected); }
+.block-insert { position: absolute; z-index: 1; height: 32px; display: flex; align-items: center; gap: 1px; transform: translateY(-50%); color: var(--accent); pointer-events: none; }
+.block-insert > button { display: grid; place-items: center; flex: 0 0 32px; height: 32px; padding: 0; pointer-events: auto; }
+/* Keep the 32px hit area around the smaller visible button. */
+.block-insert > button::before, .block-insert > button > svg { grid-area: 1 / 1; }
+.block-insert > button::before { content: ''; box-sizing: border-box; width: 22px; height: 22px; border: 1px solid currentColor; border-radius: 4px; background: var(--paper); }
+.block-insert > button:hover::before { background: var(--selected); }
 .block-insert > span { flex: 1; border-top: 1px solid currentColor; }
 .wysiwyg-toolbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 4px 16px; background: var(--paper); border-bottom: 1px solid var(--border); }
 .wysiwyg-toolbar > button { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 5px; color: var(--muted); }

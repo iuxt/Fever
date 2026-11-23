@@ -13,6 +13,7 @@ import { Extension, markInputRule, type Editor } from '@tiptap/core';
 import { formattingShortcuts, shortcutLabel, type FormattingAction } from './editorShortcuts';
 import { AllSelection, NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { EditorView } from '@tiptap/pm/view';
 import ContextMenu, { keyboardContextMenu, modifier, useContextMenu, type MenuItem } from './ContextMenu';
 import { readClipboard, writeClipboard } from './clipboard';
@@ -214,6 +215,43 @@ function CodeView({ node, editor, getPos, updateAttributes }: NodeViewProps) {
 }
 const EditorCodeBlock = CodeBlockLowlight.extend({
  addNodeView() { return ReactNodeViewRenderer(CodeView); },
+ addCommands() {
+  const inherited = this.parent?.();
+  return {
+   ...inherited,
+   toggleCodeBlock: attributes => props => {
+    const toggle = () => inherited?.toggleCodeBlock?.(attributes)(props) ?? false;
+    const { tr, dispatch } = props;
+    const { doc, selection } = tr;
+    if (selection.empty || !(selection instanceof TextSelection || selection instanceof AllSelection)) return toggle();
+    const { $from, $to } = selection;
+    const range = $from.blockRange($to);
+    if (!range) return toggle();
+    const { parent, start, startIndex } = range;
+    // A selection that stops at the start of the next line excludes its text.
+    const excludesLast = selection instanceof TextSelection && $to.depth === range.depth + 1 && $to.parentOffset === 0 && $to.parent.content.size > 0;
+    const endIndex = range.endIndex - Number(excludesLast);
+    if (endIndex <= startIndex || (endIndex === startIndex + 1 && !excludesLast)) return toggle();
+    const codeBlock = this.type;
+    if (!parent.canReplaceWith(startIndex, endIndex, codeBlock)) return toggle();
+    for (let index = startIndex; index < endIndex; index++) {
+     const block = parent.child(index);
+     if (!block.isTextblock || block.type === codeBlock) return toggle();
+    }
+    if (dispatch) {
+     const end = excludesLast ? $to.before() : range.end;
+     const { schema } = props.state;
+     const leafText = (node: ProseMirrorNode) => node.type === schema.linebreakReplacement ? '\n' : '';
+     const text = doc.textBetween(start, end, '\n', leafText);
+     const positionInCode = (position: number) => start + 1 + doc.textBetween(start, Math.min(position, end), '\n', leafText).length;
+     const anchor = positionInCode(selection.anchor), head = positionInCode(selection.head);
+     closeHistory(tr).replaceWith(start, end, codeBlock.create(attributes, text ? schema.text(text) : null));
+     tr.setSelection(TextSelection.create(tr.doc, anchor, head)).scrollIntoView();
+    }
+    return true;
+   },
+  };
+ },
  renderMarkdown(node) {
   const text = (node.content || []).map(child => child.text || '').join('');
   const longest = Math.max(0, ...Array.from(text.matchAll(/`+/g), match => match[0].length));

@@ -107,7 +107,7 @@ export default function BlockInsert({ editor, surfaceRef }: { editor: Editor; su
  }
 
  return gap && <div className="block-insert" style={{ top: gap.top, left: gap.left, width: gap.width }}>
-  <button type="button" aria-label="插入空行" title="插入空行" onPointerDown={event => event.preventDefault()} onClick={insert}><Plus size={16} aria-hidden="true" /></button>
+  <button type="button" aria-label="插入空行" title="插入空行" onPointerDown={event => event.preventDefault()} onClick={insert}><Plus size={14} aria-hidden="true" /></button>
   <span aria-hidden="true" />
  </div>;
 }

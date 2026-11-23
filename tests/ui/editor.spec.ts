@@ -699,6 +699,7 @@ test('allows approaching and clicking the blank-line button near its edge', asyn
  await seed(page, '```js\nconst first = 1;\n```\n\n```js\nconst second = 2;\n```\n');
  const blocks = page.locator('.editor-code-block');
  const insert = await hoverBlockBoundary(page, blocks.first(), blocks.last());
+ await expect(insert.locator('svg')).toHaveCSS('width', '14px');
  const box = (await insert.boundingBox())!;
  expect(box.width).toBeGreaterThanOrEqual(32);
  expect(box.height).toBeGreaterThanOrEqual(32);

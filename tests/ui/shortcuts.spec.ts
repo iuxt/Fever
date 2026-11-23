@@ -39,6 +39,41 @@ for (const format of formats) {
  });
 }
 
+for (const method of ['shortcut', 'toolbar', 'context menu'] as const) {
+ test(`rich text ${method} converts selected lines into one code block`, async ({ page }) => {
+  const original = '上文\n\n第一行 **加粗**  \n第二行\n\n\n\n最后一行\n\n下文\n';
+  await openNote(page, original);
+  const editor = page.getByRole('textbox', { name: '笔记正文' });
+  const paragraphs = editor.locator(':scope > p');
+  await expect(paragraphs).toHaveCount(5);
+  await paragraphs.nth(1).click();
+  await paragraphs.evaluateAll((elements, method) => {
+   const selection = window.getSelection()!;
+   if (method === 'shortcut') selection.setBaseAndExtent(elements[4], 0, elements[1], 0);
+   else selection.setBaseAndExtent(elements[1], 0, elements[3], elements[3].childNodes.length);
+  }, method);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+  if (method === 'shortcut') await page.keyboard.press('ControlOrMeta+Shift+l');
+  else if (method === 'toolbar') await page.getByRole('button', { name: '代码块', exact: true }).click();
+  else {
+   await page.keyboard.press('Shift+F10');
+   await page.getByRole('menuitemcheckbox', { name: '代码块', exact: true }).click();
+  }
+
+  const code = editor.locator('pre code');
+  const lines = '第一行 加粗\n第二行\n\n最后一行';
+  await expect(code).toHaveCount(1);
+  expect(await code.textContent()).toBe(lines);
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(lines);
+  await expect(paragraphs).toHaveText(['上文', '下文']);
+  await expect.poll(() => saved(page)).toBe(`上文\n\n\`\`\`txt\n${lines}\n\`\`\`\n\n下文\n`);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(code).toHaveCount(0);
+  await expect.poll(() => saved(page)).toBe(original);
+ });
+}
+
 test('source formatting preserves the selection, handles multiline blocks and supports undo/redo', async ({ page }) => {
  await openNote(page, 'first\nsecond');
  await page.keyboard.press('ControlOrMeta+e');
