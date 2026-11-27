@@ -1,11 +1,13 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react';
-import { Folder, FolderOpen } from 'lucide-react';
+import { FileText, Folder, FolderOpen, Shapes } from 'lucide-react';
 import type { FolderPlacement, Note } from './types';
 import { keyboardContextMenu } from './ContextMenu';
+import { displayNoteTitle, isDrawingNote } from './drawings';
 import { matchesNoteDrag, startNoteDrag, type NoteDragProps } from './noteDrag';
+import { useNoteSelection } from './useNoteSelection';
 
 type FolderNode = { path: string; name: string; children: Map<string, FolderNode>; notes: Note[] };
-type Row = { depth: number; folder: FolderNode };
+type Row = { depth: number } & ({ kind: 'folder'; folder: FolderNode } | { kind: 'note'; note: Note });
 const ROW_HEIGHT = 36, OVERSCAN = 6;
 type DropTarget = { parent: string; path: string; position: 'inside' | 'before' | 'after' };
 
@@ -14,6 +16,8 @@ export type NoteTreeTarget = { kind: 'note'; note: Note } | { kind: 'folder'; pa
 type NoteTreeProps = NoteDragProps & {
  notes: Note[]; categories: string[]; selectedFolder: string | null; revealRequest: number; collapsed: Set<string>;
  onSelect: (path: string) => void;
+ activeId?: string;
+ onOpenNote?: (id: string) => void;
  onToggle: (path: string) => void;
  onContextMenu: (event: MouseEvent<HTMLElement>, target: NoteTreeTarget) => void;
  onMove: (from: string, parent: string, placement?: FolderPlacement) => void;
@@ -38,9 +42,10 @@ export default memo(function NoteTree(props: NoteTreeProps) {
  return <TreeRows {...props} notes={notes} />;
 });
 
-const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, revealRequest, collapsed, onSelect, onToggle, onContextMenu, onMove, onMoveNotes, dragItem, onDragItemChange, disabled }: NoteTreeProps) {
+const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, revealRequest, collapsed, onSelect, activeId = '', onOpenNote, onToggle, onContextMenu, onMove, onMoveNotes, dragItem, onDragItemChange, disabled }: NoteTreeProps) {
  const container = useRef<HTMLDivElement>(null);
  const previous = useRef<{ selectedFolder: string | null; revealRequest: number }>({ selectedFolder: null, revealRequest: -1 });
+ const showNotes = Boolean(onOpenNote);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
  const [hoverFolder, setHoverFolder] = useState<string | null>(null);
@@ -107,12 +112,15 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, rev
   const rows: Row[] = [];
   const walk = (folder: FolderNode, depth: number) => {
    for (const child of folder.children.values()) {
-    rows.push({ folder: child, depth });
+    rows.push({ kind: 'folder', folder: child, depth });
     if (!collapsed.has(child.path)) walk(child, depth + 1);
    }
+   if (showNotes) for (const note of folder.notes) rows.push({ kind: 'note', note, depth });
   };
   walk(root, 0); return rows;
- }, [root, collapsed]);
+ }, [root, collapsed, showNotes]);
+ const ids = useMemo(() => rows.flatMap(row => row.kind === 'note' ? [row.note.id] : []), [rows]);
+ const { selectedIds, selectNote, startDrag, keyDown } = useNoteSelection({ ids, activeId, revealRequest, onSelect: onOpenNote, onDragItemChange, disabled });
  useLayoutEffect(() => {
   const element = container.current!;
   const update = () => setViewport({ top: element.scrollTop, height: element.clientHeight });
@@ -121,25 +129,45 @@ const TreeRows = memo(function TreeRows({ notes, categories, selectedFolder, rev
  }, []);
  useLayoutEffect(() => {
   const element = container.current!;
+  if (!element.clientHeight) return;
   const shouldReveal = previous.current.selectedFolder !== selectedFolder || previous.current.revealRequest !== revealRequest;
-  const index = shouldReveal ? rows.findIndex(row => row.folder.path === selectedFolder) : -1;
+  let index = -1;
+  if (shouldReveal) {
+   if (activeId) index = rows.findIndex(row => row.kind === 'note' && row.note.id === activeId && row.note.category === selectedFolder);
+   if (index < 0) index = rows.findIndex(row => row.kind === 'folder' && row.folder.path === selectedFolder);
+  }
   previous.current = { selectedFolder, revealRequest };
   if (index >= 0) {
    const top = index * ROW_HEIGHT;
    if (top < element.scrollTop || top + ROW_HEIGHT > element.scrollTop + element.clientHeight) element.scrollTop = top;
   } else element.scrollTop = Math.min(element.scrollTop, Math.max(0, rows.length * ROW_HEIGHT - element.clientHeight));
   setViewport({ top: element.scrollTop, height: element.clientHeight });
- }, [selectedFolder, revealRequest, rows]);
+ }, [activeId, selectedFolder, revealRequest, rows, viewport.height]);
  const start = Math.max(0, Math.floor(viewport.top / ROW_HEIGHT) - OVERSCAN);
  const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / ROW_HEIGHT) + OVERSCAN);
- return <div ref={container} className="note-tree virtual-note-tree" onKeyDown={keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
+ return <div ref={container} className="note-tree virtual-note-tree" role={showNotes ? 'group' : undefined} aria-label={showNotes ? '文件树' : undefined} tabIndex={showNotes ? 0 : undefined} onKeyDown={showNotes ? keyDown : keyboardContextMenu} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={e => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
   <div className="note-tree-rows" style={{ height: rows.length * ROW_HEIGHT }}>
-   {rows.slice(start, end).map((row, offset) => <div className={`note-tree-row folder-tree-row${selectedFolder === row.folder.path ? ' selected' : ''}${dragItem?.kind === 'folder' && dragItem.path === row.folder.path ? ' dragging' : ''}${dropTarget?.path === row.folder.path ? dropTarget.position === 'inside' ? ' folder-drop-target' : ` folder-drop-${dropTarget.position}` : ''}`} key={row.folder.path} style={{ top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 }} onDragOver={event => dragOver(event, row.folder.path)} onDragLeave={dragLeave} onDrop={event => drop(event, row.folder.path)} onContextMenu={event => onContextMenu(event, { kind: 'folder', path: row.folder.path })}>
-    {row.folder.children.size > 0 ? <button type="button" className="folder-toggle" aria-label={`${collapsed.has(row.folder.path) ? '展开' : '收起'}文件夹：${row.folder.path}`} title={collapsed.has(row.folder.path) ? '展开子文件夹' : '收起子文件夹'} aria-expanded={!collapsed.has(row.folder.path)} onClick={() => onToggle(row.folder.path)}>{collapsed.has(row.folder.path) ? <Folder size={16} /> : <FolderOpen size={16} />}</button> : <span className="folder-toggle-spacer"><Folder size={16} /></span>}
-    <button className={`folder-row ${selectedFolder === row.folder.path ? 'selected' : ''}`} aria-pressed={selectedFolder === row.folder.path} title={row.folder.path} draggable={!disabled} onDragStart={event => startNoteDrag(event, { kind: 'folder', path: row.folder.path }, onDragItemChange)} onDragEnd={() => onDragItemChange(null)} onClick={() => onSelect(row.folder.path)}>
-     <span>{row.folder.name}</span><small>{row.folder.notes.length}</small>
-    </button>
-   </div>)}
+   {rows.slice(start, end).map((row, offset) => {
+    const style = { top: (start + offset) * ROW_HEIGHT, paddingLeft: row.depth * 12 };
+    if (row.kind === 'note') {
+     const { note } = row, title = displayNoteTitle(note), selected = selectedIds.has(note.id);
+     const dragging = dragItem?.kind === 'note' && dragItem.ids.includes(note.id);
+     return <div className={`note-tree-row tree-note-row${dragging ? ' dragging' : ''}`} key={`note:${note.id}`} style={style}>
+      <button type="button" className={`note-row${selected ? ' selected' : ''}`} title={title} aria-pressed={selected} aria-current={activeId === note.id ? 'page' : undefined} draggable={!disabled} onDragStart={event => startDrag(event, note.id)} onDragEnd={() => onDragItemChange(null)} onClick={event => selectNote(note.id, event)} onContextMenu={event => onContextMenu(event, { kind: 'note', note })}>
+       {isDrawingNote(note) ? <Shapes size={15} /> : <FileText size={15} />}<span>{title}</span>
+      </button>
+     </div>;
+    }
+    const { folder } = row, { path } = folder;
+    const expandable = folder.children.size > 0 || (showNotes && folder.notes.length > 0);
+    const closed = collapsed.has(path), selected = selectedFolder === path;
+    return <div className={`note-tree-row folder-tree-row${selected ? ' selected' : ''}${dragItem?.kind === 'folder' && dragItem.path === path ? ' dragging' : ''}${dropTarget?.path === path ? dropTarget.position === 'inside' ? ' folder-drop-target' : ` folder-drop-${dropTarget.position}` : ''}`} key={`folder:${path}`} style={style} onDragOver={event => dragOver(event, path)} onDragLeave={dragLeave} onDrop={event => drop(event, path)} onContextMenu={event => onContextMenu(event, { kind: 'folder', path })}>
+     {expandable ? <button type="button" className="folder-toggle" aria-label={`${closed ? '展开' : '收起'}文件夹：${path}`} title={showNotes ? closed ? '展开文件夹' : '收起文件夹' : closed ? '展开子文件夹' : '收起子文件夹'} aria-expanded={!closed} onClick={() => onToggle(path)}>{closed ? <Folder size={16} /> : <FolderOpen size={16} />}</button> : <span className="folder-toggle-spacer"><Folder size={16} /></span>}
+     <button className={`folder-row ${selected ? 'selected' : ''}`} aria-pressed={selected} title={path} draggable={!disabled} onDragStart={event => startNoteDrag(event, { kind: 'folder', path }, onDragItemChange)} onDragEnd={() => onDragItemChange(null)} onClick={() => { onSelect(path); if (showNotes && expandable) onToggle(path); }}>
+      <span>{folder.name}</span><small>{folder.notes.length}</small>
+     </button>
+    </div>;
+   })}
   </div>
   {dragItem !== null && <div className={`folder-root-drop${dropTarget?.path === '' ? ' folder-drop-target' : ''}`} onDragOver={event => dragOver(event, '')} onDragLeave={dragLeave} onDrop={event => drop(event, '')}><Folder size={15} />{dragItem.kind === 'note' ? '拖到此处移至未分类' : '拖到此处移至最外层'}</div>}
  </div>;

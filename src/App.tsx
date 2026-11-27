@@ -71,6 +71,12 @@ const collapsedFolders = (vault: Vault) => {
  vault.manifest.notes.forEach(note => addPath(note.category));
  return folders;
 };
+const expandFolderPath = (collapsed: Set<string>, path: string, includeFolder: boolean) => {
+ const next = new Set(collapsed), parts = path.split('/');
+ const last = includeFolder ? parts.length : parts.length - 1;
+ for (let i = 1; i <= last; i++) next.delete(parts.slice(0, i).join('/'));
+ return next;
+};
 
 
 export default function App() {
@@ -130,7 +136,10 @@ export default function App() {
  const stagedCount = status?.changes.filter(change => change.staged).length || 0;
  const [commitMessage, setCommitMessage] = useState(defaultCommitMessage), [busy, setBusy] = useState(false), [saved, setSaved] = useState(true);
  const [notice, setNotice] = useState<{ message: string; error: boolean; detail?: string } | null>(null), [menu, setMenu] = useState(false);
- const { dark, themeMode, fontSize, editorWidth, editorFullWidth, setThemeMode, setFontSize, setEditorWidth, setEditorFullWidth } = useAppearance();
+ const appearance = useAppearance();
+ const { dark, fontSize, editorWidth, editorFullWidth, singleColumn, setEditorWidth, setEditorFullWidth } = appearance;
+ const singleColumnRef = useRef(singleColumn);
+ singleColumnRef.current = singleColumn;
  const pending = useRef(new Map<string, string>()), saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null), readToken = useRef(0);
  const selecting = useRef<number | null>(null);
  const editVersion = useRef(0);
@@ -242,7 +251,8 @@ export default function App() {
     if (note) {
      setSelectedFolder(note.category);
      setFolderRevealRequest(request => request + 1);
-     setCollapsed(previous => { const next = new Set(previous), parts = note.category.split('/'); for (let i = 1; i < parts.length; i++) next.delete(parts.slice(0, i).join('/')); return next; });
+     const includeFolder = singleColumnRef.current;
+     setCollapsed(previous => expandFolderPath(previous, note.category, includeFolder));
     }
    }
    const sameDocument = currentDocument.current.id === id && currentDocument.current.content === latest;
@@ -890,9 +900,18 @@ export default function App() {
  }, [settledContent, displayedDrawing]);
  const filtered = useMemo(() => { const matches = new Set(textMatches), needle = query.toLowerCase(); const notes = trashView ? [...(vault?.manifest.trash || [])].reverse() : vault?.manifest.notes; return notes?.filter(n => n.title.toLowerCase().includes(needle) || n.category.toLowerCase().includes(needle) || matches.has(n.id)) || []; }, [vault, query, textMatches, trashView]);
 
- const folderNotes = useMemo(() => sortNotes(query.trim() ? filtered : (vault?.manifest.notes || []).filter(note => selectedFolder === null || note.category === selectedFolder), noteSort), [filtered, query, selectedFolder, vault?.manifest.notes, noteSort]);
- const selectFolder = (path: string | null) => {
+ const searching = Boolean(query.trim());
+ const showList = !singleColumn || trashView || searching;
+ const folderNotes = useMemo(() => showList && !trashView ? sortNotes(searching ? filtered : (vault?.manifest.notes || []).filter(note => selectedFolder === null || note.category === selectedFolder), noteSort) : [], [showList, trashView, searching, filtered, selectedFolder, vault?.manifest.notes, noteSort]);
+ const treeNotes = useMemo(() => singleColumn && !showList ? sortNotes(vault?.manifest.notes || [], noteSort) : vault?.manifest.notes || [], [singleColumn, showList, vault?.manifest.notes, noteSort]);
+ const selectFolder = useCallback((path: string | null) => {
   setSelectedFolder(path); setQuery(''); setTrashView(false);
+ }, []);
+ const changeBrowserLayout = (single: boolean) => {
+  appearance.setSingleColumn(single);
+  const path = selectedFolder ?? active?.category;
+  if (single && path && !trashView) setCollapsed(previous => expandFolderPath(previous, path, true));
+  setFolderRevealRequest(request => request + 1);
  };
 
  const listTitle = query.trim() ? '搜索结果' : trashView ? '回收站' : selectedFolder === null ? '全部笔记' : selectedFolder.split('/').pop() || '未分类';
@@ -908,32 +927,41 @@ export default function App() {
  if (loading) return <div className="welcome"><LoaderCircle className="spin" /><p>正在打开笔记库…</p></div>;
  if (!vault) return <div className="welcome"><div className="welcome-brand"><Flame size={56} strokeWidth={1.3} aria-hidden="true" /><h1>Fever</h1></div><button className="primary large" onClick={() => void openVault()} disabled={busy}><FolderOpen size={18} />选择笔记库文件夹<ArrowRight size={17} /></button>{notice && <div className="toast error">{notice.message}</div>}</div>;
 
+ const closeBrowser = <button className="icon-button browse-close" title="返回编辑区" onClick={() => setCompactBrowser(false)}><PanelLeftClose size={17} /></button>;
+ const fileList = showList && <section className={singleColumn ? 'sidebar-list' : 'file-list-panel'} aria-label="笔记列表栏">
+  <header className="list-heading">
+   <h2 title={listTitle}>{listTitle}</h2><span>{trashView ? filtered.length : folderNotes.length} 篇</span>
+   {!singleColumn && closeBrowser}
+  </header>
+  {!trashView && <div className="file-list-controls"><NoteView view={noteView} onChange={setNoteView} /><div className="file-list-actions"><button className="icon-button" title="在当前文件夹新建笔记" aria-label="在当前文件夹新建笔记" onClick={() => showNew('note')}><FilePlus2 size={18} /></button><NoteSort sort={noteSort} onChange={setNoteSort} /></div></div>}
+  {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} fontSize={fontSize} view={noteView} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} selectionScope={JSON.stringify([selectedFolder, query])} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}:${noteView}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{searching ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!searching && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
+  {searching && <footer className="file-list-footer">搜索整个笔记库</footer>}
+ </section>;
+
  return <div className={`app-shell${editorFullscreen ? ' editor-fullscreen' : ''}`} data-browsing={browsing} inert={workspaceLocked} aria-busy={workspaceLocked}>
   {leftOpen && <>
-   <aside className="sidebar" aria-label="文件夹栏">
-    <div className="sidebar-brand"><span>fever<span className="brand-period">.</span></span></div>
+   <aside className={`sidebar${singleColumn ? ' sidebar-single' : ''}`} aria-label={singleColumn ? '文件浏览栏' : '文件夹栏'}>
+    <div className="sidebar-brand"><span>fever<span className="brand-period">.</span></span>{singleColumn && closeBrowser}</div>
     <div className="sidebar-search">
      <Search size={15} /><input ref={searchRef} aria-label={trashView ? '搜索回收站' : '搜索笔记'} value={query} placeholder={trashView ? '搜索回收站…' : '搜索你的笔记…'} onChange={e => setQuery(e.target.value)} />
      {query ? <button title="清空搜索" onClick={() => { setQuery(''); searchRef.current?.focus(); }}><X size={14} /></button> : <kbd>{modifier}K</kbd>}
     </div>
     <button className={`all-notes library-link ${selectedFolder === null && !query.trim() && !trashView ? 'selected' : ''}`} onClick={() => selectFolder(null)}><Library size={16} /><span>全部笔记</span><small>{vault.manifest.notes.length}</small></button>
-    <div className="tree-label"><span>文件夹</span><div><button title="新建绘图" onClick={() => showNew('drawing')}><Shapes size={15} /></button><button title="新建分类" onClick={() => showNew('folder')}><FolderPlus size={15} /></button><button title="导入 Markdown / Excalidraw" onClick={() => void run(async () => { const notes = await api.importNotes(); if (notes.length) { await refresh(); await select(notes[0].id); } else if (!api.desktop) notify('Markdown / Excalidraw 导入请使用桌面应用'); })}><Upload size={15} /></button></div></div>
-    <NoteTree notes={vault.manifest.notes} categories={vault.manifest.categories} selectedFolder={trashView ? null : selectedFolder} revealRequest={folderRevealRequest} collapsed={collapsed} onSelect={selectFolder} onToggle={toggleFolder} onContextMenu={showTreeMenu} onMove={moveFolder} onMoveNotes={moveNotes} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} />
-    {vault.manifest.notes.some(note => !note.category) && <button className={`all-notes ${selectedFolder === '' && !trashView ? 'selected' : ''}`} onClick={() => selectFolder('')}><Folder size={16} /><span>未分类</span><small>{vault.manifest.notes.filter(note => !note.category).length}</small></button>}
+    {singleColumn && showList ? fileList : <>
+     <div className="tree-label"><span>{singleColumn ? '文件' : '文件夹'}</span><div>
+      {singleColumn && <button title="在当前文件夹新建笔记" onClick={() => showNew('note')}><FilePlus2 size={15} /></button>}
+      <button title="新建绘图" onClick={() => showNew('drawing')}><Shapes size={15} /></button><button title="新建分类" onClick={() => showNew('folder')}><FolderPlus size={15} /></button><button title="导入 Markdown / Excalidraw" onClick={() => void run(async () => { const notes = await api.importNotes(); if (notes.length) { await refresh(); await select(notes[0].id); } else if (!api.desktop) notify('Markdown / Excalidraw 导入请使用桌面应用'); })}><Upload size={15} /></button>
+      {singleColumn && <NoteSort sort={noteSort} onChange={setNoteSort} />}
+     </div></div>
+     <NoteTree key={vault.path} notes={treeNotes} categories={vault.manifest.categories} selectedFolder={trashView ? null : selectedFolder} revealRequest={folderRevealRequest} collapsed={collapsed} onSelect={selectFolder} activeId={singleColumn && !activeEditor ? activeId : ''} onOpenNote={singleColumn ? select : undefined} onToggle={toggleFolder} onContextMenu={showTreeMenu} onMove={moveFolder} onMoveNotes={moveNotes} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} />
+     {!singleColumn && vault.manifest.notes.some(note => !note.category) && <button className={`all-notes ${selectedFolder === '' && !trashView ? 'selected' : ''}`} onClick={() => selectFolder('')}><Folder size={16} /><span>未分类</span><small>{vault.manifest.notes.filter(note => !note.category).length}</small></button>}
+    </>}
     <div className="sidebar-bottom">
      <button className={`trash-entry ${trashView ? 'selected' : ''}`} disabled={busy} onClick={() => void openTrash()}><Trash2 size={16} /><span>回收站</span><span className="trash-count">{vault.manifest.trash?.length || 0}</span></button>
      <button title="设置" className="settings-entry" onClick={openSettings} aria-keyshortcuts="Meta+, Control+,"><Settings2 size={16} /><span>设置</span></button>
     </div>
    </aside>
-   <section className="file-list-panel" aria-label="笔记列表栏">
-    <header className="list-heading">
-     <h2 title={listTitle}>{listTitle}</h2><span>{trashView ? filtered.length : folderNotes.length} 篇</span>
-     <button className="icon-button browse-close" title="返回编辑区" onClick={() => setCompactBrowser(false)}><PanelLeftClose size={17} /></button>
-    </header>
-    {!trashView && <div className="file-list-controls"><NoteView view={noteView} onChange={setNoteView} /><div className="file-list-actions"><button className="icon-button" title="在当前文件夹新建笔记" aria-label="在当前文件夹新建笔记" onClick={() => showNew('note')}><FilePlus2 size={18} /></button><NoteSort sort={noteSort} onChange={setNoteSort} /></div></div>}
-    {trashView ? <TrashBrowser key={vault.path} notes={filtered} query={query} activeId={activeEditor ? '' : activeId} busy={busy} onSelect={id => void select(id)} onRestore={note => void restoreTrashedNote(note)} onContextMenu={showTrashMenu} /> : folderNotes.length ? <NoteList key={vault.path} fontSize={fontSize} view={noteView} revealRequest={folderRevealRequest} notes={folderNotes} activeId={activeEditor ? '' : activeId} selectionScope={JSON.stringify([selectedFolder, query])} scope={`${selectedFolder}:${query}:${noteSort.field}:${noteSort.direction}:${noteView}`} api={api} draftId={activeId} draft={content} onSelect={select} onContextMenu={showTreeMenu} dragItem={dragItem} onDragItemChange={setDragItem} disabled={busy} /> : <div className="file-list-empty"><FileText size={28} strokeWidth={1.2} /><p>{query.trim() ? '没有找到相关笔记' : '这个文件夹还是空的'}</p>{!query.trim() && <button className="text-button" onClick={() => showNew('note')}><Plus size={14} />写下第一篇笔记</button>}</div>}
-    {query.trim() && <footer className="file-list-footer">搜索整个笔记库</footer>}
-   </section>
+   {!singleColumn && fileList}
   </>}
 
   <main className="workspace"><header className="tab-bar"><button className="icon-button toggle-left" title="切换侧栏" onClick={toggleNavigation}>{leftOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}</button><div className="tabs" ref={tabStripRef} onMouseDown={event => { if (event.button === 2) event.preventDefault(); }}>{!active && !activeEditor && !trashView && <h2 className="empty-tab">未打开笔记</h2>}{tabs.map(id => { const n = allNotes.find(n => n.id === id); return n && <div key={id} className={`tab ${!activeEditor && id === activeId ? 'current' : ''}`} onContextMenu={event => showTabMenu(event, id)} onKeyDown={keyboardContextMenu}><button aria-current={!activeEditor && id === activeId ? 'page' : undefined} onClick={() => void select(id)}>{isDrawingNote(n) ? <Shapes size={14} /> : <FileText size={14} />}<span>{displayNoteTitle(n)}</span></button><button title="关闭标签" disabled={workspaceLocked} onClick={() => void closeNote(id)}><X size={13} /></button></div>; })}{editorTabs.map(tab => { const note = vault.manifest.notes.find(note => notePath(note) === tab.path); return <div key={tab.key} className={`tab ${activeEditorKey === tab.key ? 'current' : ''}`} onContextMenu={event => showTabMenu(event, tab)} onKeyDown={keyboardContextMenu}><button title={tab.path} aria-current={activeEditorKey === tab.key ? 'page' : undefined} disabled={busy} onClick={() => void activateEditor(tab)}>{tab.kind === 'diff' ? <GitBranch size={14} /> : <FileText size={14} />}<span>{note ? displayNoteTitle(note) : tab.path.split('/').pop()}{tab.kind === 'diff' ? ` · ${diffTabLabel(tab)}` : ''}</span></button><button title={`关闭${tab.kind === 'diff' ? '对比' : '文件'}：${tab.path}`} disabled={workspaceLocked} onClick={() => void closeEditor(tab)}><X size={13} /></button></div>; })}<button className="icon-button tab-add" title="新建笔记" onClick={() => showNew('note')}><Plus size={17} /></button></div>{!rightOpen && <div className="inspector-shortcuts"><button className="icon-button" aria-label="大纲" title="大纲" onClick={() => { setPanel('outline'); setEditorFullscreen(false); setRightOpen(true); }}><LayoutList size={16} /></button><button className="icon-button" aria-label="历史" title="历史" onClick={() => { setPanel('history'); setEditorFullscreen(false); setRightOpen(true); }}><History size={16} /></button><button className="icon-button" aria-label="Git" title="Git" onClick={() => { setPanel('git'); setEditorFullscreen(false); setRightOpen(true); }}><GitBranch size={16} /></button></div>}<button className="icon-button toggle-right" title="切换右侧面板" aria-expanded={rightOpen} onClick={() => setRightOpen(!rightOpen)}><PanelRightClose size={17} /></button></header>
@@ -989,7 +1017,7 @@ export default function App() {
     {modal === 'embed' && <><label>选择绘图<select value={embedId} onChange={e => setEmbedId(e.target.value)}><option value="">新建绘图并插入</option>{drawings.map(note => <option key={note.id} value={note.id}>{note.category ? `${note.category} / ` : ''}{displayNoteTitle(note)}</option>)}</select></label>{!embedId && <><label>绘图标题<input autoFocus value={field} onChange={e => setField(e.target.value)} maxLength={200} placeholder="给绘图起个名字" /></label><label>所属分类<input value={category} onChange={e => setCategory(e.target.value)} maxLength={200} /></label></>}</>}
     {modal === 'deleteFolder' && <p className="delete-description">将删除「{category}」及其所有子文件夹，其中的 {vault.manifest.notes.filter(note => note.category === category || note.category.startsWith(`${category}/`)).length} 篇笔记将移入回收站。正文和图片会保留，恢复笔记时会重建原分类。</p>}
     {modal === 'delete' && <p className="delete-description">「{modalNote ? displayNoteTitle(modalNote) : ''}」将移入回收站，正文、图片和原分类会保留，可随时恢复。</p>}
-    {modal === 'settings' && <SettingsPanel vault={vault} settings={settings} onSettingsChange={setSettings} appearance={{ themeMode, fontSize, editorWidth, editorFullWidth, setThemeMode, setFontSize, setEditorWidth, setEditorFullWidth }} desktop={api.desktop} lfs={Boolean(status?.lfs)} busy={busy} onSwitchVault={() => { setModal(null); void openVault(); }} />}
+    {modal === 'settings' && <SettingsPanel vault={vault} settings={settings} onSettingsChange={setSettings} appearance={{ ...appearance, setSingleColumn: changeBrowserLayout }} desktop={api.desktop} lfs={Boolean(status?.lfs)} busy={busy} onSwitchVault={() => { setModal(null); void openVault(); }} />}
    </div><div className="modal-footer">{modal === 'discard' || modal === 'discardAll' ? <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className="danger" disabled={busy} onClick={() => void discardFile(modal === 'discardAll')}>{modal === 'discardAll' ? '全部还原' : '撤销变更'}</button></> : <><button className="secondary" disabled={busy} onClick={() => setModal(null)}>取消</button><button className={modal === 'delete' || modal === 'deleteFolder' ? 'danger' : 'primary'} disabled={busy || (['note', 'folder', 'renameFolder', 'rename', 'drawing'].includes(modal) && !field.trim()) || (modal === 'embed' && !embedId && !field.trim())} onClick={() => void submitModal()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}{modal === 'settings' ? '保存设置' : modal === 'delete' ? '删除笔记' : modal === 'deleteFolder' ? '删除文件夹' : modal === 'folder' ? '创建分类' : modal === 'rename' || modal === 'renameFolder' ? '保存更改' : modal === 'drawing' ? '创建绘图' : modal === 'embed' ? '插入绘图' : '创建笔记'}</button></>}</div>
   </section></div>}
  </div>;

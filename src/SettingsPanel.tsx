@@ -35,7 +35,7 @@ export default function SettingsPanel({ vault, settings, onSettingsChange, appea
   return () => media.removeEventListener('change', resize);
  }, []);
  const id = useId(), tabButtons = useRef<(HTMLButtonElement | null)[]>([]);
- const { themeMode, fontSize, editorWidth, editorFullWidth, setThemeMode, setFontSize, setEditorWidth, setEditorFullWidth } = appearance;
+ const { themeMode, fontSize, editorWidth, editorFullWidth, singleColumn, setThemeMode, setFontSize, setEditorWidth, setEditorFullWidth, setSingleColumn } = appearance;
  function navigateTabs(event: KeyboardEvent<HTMLButtonElement>, index: number) {
   let next: number;
   if (event.key === 'ArrowRight' || (vertical && event.key === 'ArrowDown')) next = (index + 1) % tabs.length;
@@ -58,6 +58,10 @@ export default function SettingsPanel({ vault, settings, onSettingsChange, appea
      <Select label="字体大小" value={fontSize} onChange={setFontSize} options={fontSizes.map(size => ({ value: size, label: `${size} px${size === 16 ? '（默认）' : ''}` }))} />
     </div>
     <p className="form-hint">调整立即生效，字号同时应用于正文、源码和界面。</p>
+    <div className="setting-toggle">
+     <div><strong>单栏文件浏览</strong><small id={`${id}-browser-layout`}>开启后，笔记显示在左侧所属文件夹下。关闭后，文件夹与笔记列表并排显示。</small></div>
+     <button type="button" className={`switch ${singleColumn ? 'on' : ''}`} role="switch" aria-checked={singleColumn} aria-label="单栏文件浏览" aria-describedby={`${id}-browser-layout`} onClick={() => setSingleColumn(!singleColumn)}><span /></button>
+    </div>
     <EditorWidthOptions width={editorWidth} fullWidth={editorFullWidth} onWidthChange={setEditorWidth} onFullWidthChange={setEditorFullWidth} />
     <div className="font-preview" aria-label="字体预览">让每一个想法，都有迹可循。<span>Fever · Markdown 0123456789</span></div>
    </>}

@@ -7,7 +7,7 @@ export const editorWidths = { min: 600, max: 1600, step: 20, default: 960 };
 const systemThemeQuery = '(prefers-color-scheme: dark)';
 
 export function readAppearance() {
- let themeMode: ThemeMode = 'system', fontSize = defaultFontSize, editorWidth = editorWidths.default, editorFullWidth = false;
+ let themeMode: ThemeMode = 'system', fontSize = defaultFontSize, editorWidth = editorWidths.default, editorFullWidth = false, singleColumn = false;
  try {
   const storedTheme = localStorage.getItem('fever-theme');
   if (storedTheme === 'light' || storedTheme === 'dark') themeMode = storedTheme;
@@ -16,8 +16,9 @@ export function readAppearance() {
   const storedWidth = Number(localStorage.getItem('fever-editor-width'));
   if (Number.isFinite(storedWidth) && storedWidth >= editorWidths.min && storedWidth <= editorWidths.max && storedWidth % editorWidths.step === 0) editorWidth = storedWidth;
   editorFullWidth = localStorage.getItem('fever-editor-full-width') === 'true';
+  singleColumn = localStorage.getItem('fever-single-column') === 'true';
  } catch { /* Keep defaults when browser storage is unavailable. */ }
- return { themeMode, fontSize, editorWidth, editorFullWidth };
+ return { themeMode, fontSize, editorWidth, editorFullWidth, singleColumn };
 }
 
 export function applyAppearance(themeMode: ThemeMode, fontSize: number, systemDark = window.matchMedia(systemThemeQuery).matches, editorWidth = editorWidths.default, editorFullWidth = false) {
@@ -27,7 +28,7 @@ export function applyAppearance(themeMode: ThemeMode, fontSize: number, systemDa
 }
 
 export function useAppearance() {
- const [{ themeMode, fontSize, editorWidth, editorFullWidth }, setAppearance] = useState(readAppearance);
+ const [{ themeMode, fontSize, editorWidth, editorFullWidth, singleColumn }, setAppearance] = useState(readAppearance);
  const [systemDark, setSystemDark] = useState(() => window.matchMedia(systemThemeQuery).matches);
  const dark = themeMode === 'system' ? systemDark : themeMode === 'dark';
  useEffect(() => {
@@ -44,13 +45,15 @@ export function useAppearance() {
    localStorage.setItem('fever-font-size', String(fontSize));
    localStorage.setItem('fever-editor-width', String(editorWidth));
    localStorage.setItem('fever-editor-full-width', String(editorFullWidth));
+   localStorage.setItem('fever-single-column', String(singleColumn));
   } catch { /* Appearance still applies for this session. */ }
- }, [themeMode, fontSize, editorWidth, editorFullWidth]);
+ }, [themeMode, fontSize, editorWidth, editorFullWidth, singleColumn]);
  return {
-  dark, themeMode, fontSize, editorWidth, editorFullWidth,
+  dark, themeMode, fontSize, editorWidth, editorFullWidth, singleColumn,
   setThemeMode: (value: ThemeMode) => setAppearance(previous => ({ ...previous, themeMode: value })),
   setFontSize: (value: number) => setAppearance(previous => ({ ...previous, fontSize: value })),
   setEditorWidth: (value: number) => setAppearance(previous => ({ ...previous, editorWidth: value })),
   setEditorFullWidth: (value: boolean) => setAppearance(previous => ({ ...previous, editorFullWidth: value })),
+  setSingleColumn: (value: boolean) => setAppearance(previous => ({ ...previous, singleColumn: value })),
  };
 }

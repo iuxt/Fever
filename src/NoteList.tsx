@@ -1,11 +1,12 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react';
 import { FileText, Shapes } from 'lucide-react';
 import { displayNoteTitle, isDrawingNote } from './drawings';
-import { keyboardContextMenu, modifier } from './ContextMenu';
+import { modifier } from './ContextMenu';
 import type { NoteTreeTarget } from './NoteTree';
 import type { Api, Note } from './types';
 import type { NoteViewMode } from './NoteView';
-import { startNoteDrag, type NoteDragProps } from './noteDrag';
+import type { NoteDragProps } from './noteDrag';
+import { useNoteSelection } from './useNoteSelection';
 
 const OVERSCAN = 3;
 const date = (value: string) => new Date(value).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
@@ -65,47 +66,8 @@ export default function NoteList({ fontSize, notes, activeId, scope, selectionSc
  const container = useRef<HTMLDivElement>(null), cache = useRef<PreviewCache>(new Map());
  const selection = useRef<{ activeId: string; revealRequest: number; scope: string; rowHeight: number } | null>(null);
  const [viewport, setViewport] = useState({ top: 0, height: 600 });
- const [chosen, setChosen] = useState<{ scope: string; ids: Set<string> }>({ scope: selectionScope, ids: new Set(activeId ? [activeId] : []) });
- const anchor = useRef<string | null>(activeId || null);
- const selectedIds = new Set(notes.filter(note => chosen.scope === selectionScope ? chosen.ids.has(note.id) : note.id === activeId).map(note => note.id));
- const allSelected = notes.length > 0 && selectedIds.size === notes.length;
- useEffect(() => {
-  setChosen({ scope: selectionScope, ids: new Set(activeId ? [activeId] : []) });
-  anchor.current = activeId || null;
- }, [activeId, revealRequest, selectionScope]);
- const choose = (ids: Set<string>) => setChosen({ scope: selectionScope, ids });
- const selectAll = () => {
-  choose(new Set(notes.map(note => note.id)));
-  if (!notes.some(note => note.id === anchor.current)) anchor.current = notes[0]?.id ?? null;
- };
- const selectNote = (id: string, event: MouseEvent<HTMLElement>) => {
-  if (disabled) return;
-  if (event.shiftKey) {
-   const from = notes.findIndex(note => note.id === anchor.current), to = notes.findIndex(note => note.id === id);
-   const range = notes.slice(Math.min(from < 0 ? to : from, to), Math.max(from, to) + 1).map(note => note.id);
-   choose(new Set(event.metaKey || event.ctrlKey ? [...selectedIds, ...range] : range));
-   if (from < 0) anchor.current = id;
-  } else if (event.metaKey || event.ctrlKey) {
-   const next = new Set(selectedIds);
-   if (next.has(id)) next.delete(id); else next.add(id);
-   choose(next); anchor.current = id;
-  } else {
-   choose(new Set([id])); anchor.current = id; onSelect(id);
-  }
- };
- const startDrag = (event: DragEvent<HTMLElement>, id: string) => {
-  if (disabled) { event.preventDefault(); return; }
-  const ids = selectedIds.has(id) ? [...selectedIds] : [id];
-  choose(new Set(ids));
-  startNoteDrag(event, { kind: 'note', ids }, onDragItemChange);
- };
- const keyDown = (event: KeyboardEvent<HTMLElement>) => {
-  if (!disabled && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'a') {
-   event.preventDefault(); event.stopPropagation(); selectAll();
-  } else if (event.key === 'Escape') {
-   event.preventDefault(); event.stopPropagation(); choose(new Set()); anchor.current = null;
-  } else keyboardContextMenu(event);
- };
+ const ids = useMemo(() => notes.map(note => note.id), [notes]);
+ const { selectedIds, allSelected, toggleAll, clearSelection, selectNote, startDrag, keyDown } = useNoteSelection({ ids, activeId, scope: selectionScope, revealRequest, onSelect, onDragItemChange, disabled });
  useLayoutEffect(() => {
   const element = container.current!;
   const update = () => setViewport({ top: element.scrollTop, height: element.clientHeight });
@@ -130,9 +92,9 @@ export default function NoteList({ fontSize, notes, activeId, scope, selectionSc
  const start = Math.max(0, Math.floor(viewport.top / rowHeight) - OVERSCAN);
  const end = Math.min(notes.length, Math.ceil((viewport.top + viewport.height) / rowHeight) + OVERSCAN);
  return <><div className="note-selection-bar" role="group" aria-label="文件选择" onKeyDown={keyDown}>
-  <label title={`${modifier}A 全选 · ${modifier}点击多选 · Shift 点击连选`}><input type="checkbox" aria-label="全选当前列表" aria-keyshortcuts="Meta+A Control+A" checked={allSelected} ref={element => { if (element) element.indeterminate = selectedIds.size > 0 && !allSelected; }} disabled={disabled} onChange={() => allSelected ? choose(new Set()) : selectAll()} /><span>全选</span></label>
+  <label title={`${modifier}A 全选 · ${modifier}点击多选 · Shift 点击连选`}><input type="checkbox" aria-label="全选当前列表" aria-keyshortcuts="Meta+A Control+A" checked={allSelected} ref={element => { if (element) element.indeterminate = selectedIds.size > 0 && !allSelected; }} disabled={disabled} onChange={toggleAll} /><span>全选</span></label>
   <span role="status">已选 {selectedIds.size} 项</span>
-  {selectedIds.size > 0 && <button disabled={disabled} onClick={() => { choose(new Set()); anchor.current = null; }}>取消选择</button>}
+  {selectedIds.size > 0 && <button disabled={disabled} onClick={clearSelection}>取消选择</button>}
  </div><div ref={container} className={`note-tree note-list note-list-${view}`} style={{ '--note-row-height': `${rowHeight}px` } as import('react').CSSProperties} aria-label="文件列表" tabIndex={0} onKeyDown={keyDown} onContextMenu={event => onContextMenu(event, { kind: 'blank' })} onScroll={event => setViewport({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
   <div className="note-list-rows" style={{ height: notes.length * rowHeight }}>
    {notes.slice(start, end).map((note, offset) => <div className="note-list-row" key={note.id} style={{ top: (start + offset) * rowHeight, height: rowHeight }}><NoteCard note={note} active={note.id === activeId} selected={selectedIds.has(note.id)} draft={note.id === draftId ? draft : undefined} view={view} api={api} cache={cache.current} onSelect={selectNote} onStartDrag={startDrag} onContextMenu={onContextMenu} dragItem={dragItem} onDragItemChange={onDragItemChange} disabled={disabled} /></div>)}
